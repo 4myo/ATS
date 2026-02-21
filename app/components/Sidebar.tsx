@@ -1,8 +1,18 @@
-import { NavLink } from 'react-router';
-import { LayoutDashboard, Users, Briefcase, MessageSquare, Settings, LogOut, Hexagon } from 'lucide-react';
-import { clsx } from 'clsx';
+import { NavLink, useNavigate } from "react-router";
+import {
+  LayoutDashboard,
+  Users,
+  Briefcase,
+  MessageSquare,
+  Settings,
+  LogOut,
+  Hexagon,
+} from "lucide-react";
+import { clsx } from "clsx";
+import { supabase } from "../lib/supabase";
 
 export function Sidebar() {
+  const navigate = useNavigate();
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { to: '/applicants', icon: Users, label: 'Applicants' },
@@ -10,6 +20,11 @@ export function Sidebar() {
     { to: '/messages', icon: MessageSquare, label: 'Messages' },
     { to: '/settings', icon: Settings, label: 'Settings' },
   ];
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    navigate("/auth", { replace: true });
+  };
 
   return (
     <div className="flex h-screen w-64 flex-col bg-slate-900 text-white">
@@ -42,7 +57,10 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-slate-800 p-4">
-        <button className="group flex w-full items-center px-3 py-2 text-sm font-medium text-slate-400 rounded-md hover:bg-slate-800 hover:text-white transition-colors">
+        <button
+          className="group flex w-full items-center px-3 py-2 text-sm font-medium text-slate-400 rounded-md hover:bg-slate-800 hover:text-white transition-colors"
+          onClick={handleSignOut}
+        >
           <LogOut className="mr-3 h-5 w-5" />
           Sign Out
         </button>

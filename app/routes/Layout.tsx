@@ -1,9 +1,53 @@
-import { Outlet } from 'react-router';
-import { Sidebar } from '../components/Sidebar';
-import { Search, Bell, HelpCircle } from 'lucide-react';
-import { Link } from 'react-router';
+import { useEffect, useState } from "react";
+import { Outlet, useNavigate } from "react-router";
+import { Sidebar } from "../components/Sidebar";
+import { Search, Bell, HelpCircle } from "lucide-react";
+import { Link } from "react-router";
+import { supabase } from "../lib/supabase";
 
 export function Layout() {
+  const navigate = useNavigate();
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const verifySession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!isMounted) return;
+
+      if (!data.session) {
+        navigate("/auth", { replace: true });
+        return;
+      }
+
+      setCheckingSession(false);
+    };
+
+    verifySession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!session) {
+          navigate("/auth", { replace: true });
+        }
+      },
+    );
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [navigate]);
+
+  if (checkingSession) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">
+        Checking session...
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen w-full bg-slate-50 overflow-hidden">
       <div className="flex-none">
