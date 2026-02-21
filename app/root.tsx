@@ -1,5 +1,5 @@
 import { Outlet } from "react-router";
-import "./index.css";
+import "../styles/index.css";
 
 export default function Root() {
   return <Outlet />;
