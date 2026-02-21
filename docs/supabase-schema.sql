@@ -1,0 +1,73 @@
+-- Supabase schema + RLS for per-user candidates/resumes
+
+create table if not exists public.jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  department text,
+  location text,
+  type text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.candidates (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  full_name text not null,
+  job_title text not null,
+  email text,
+  location text,
+  years_experience numeric,
+  skills text[] not null default '{}',
+  resume_path text,
+  resume_preview_url text,
+  ats_score numeric,
+  analysis_summary text,
+  analysis_strengths text[] not null default '{}',
+  analysis_concerns text[] not null default '{}',
+  skill_profile jsonb,
+  analysis_status text not null default 'pending_ai',
+  created_at timestamptz not null default now()
+);
+
+alter table public.jobs enable row level security;
+alter table public.candidates enable row level security;
+
+create policy "jobs_select_own" on public.jobs
+  for select using (user_id = auth.uid());
+create policy "jobs_insert_own" on public.jobs
+  for insert with check (user_id = auth.uid());
+create policy "jobs_update_own" on public.jobs
+  for update using (user_id = auth.uid());
+create policy "jobs_delete_own" on public.jobs
+  for delete using (user_id = auth.uid());
+
+create policy "candidates_select_own" on public.candidates
+  for select using (user_id = auth.uid());
+create policy "candidates_insert_own" on public.candidates
+  for insert with check (user_id = auth.uid());
+create policy "candidates_update_own" on public.candidates
+  for update using (user_id = auth.uid());
+create policy "candidates_delete_own" on public.candidates
+  for delete using (user_id = auth.uid());
+
+-- Storage bucket: create a private bucket named "resumes".
+-- Storage RLS policies (run in Storage -> Policies):
+-- Allow users to insert/select/delete only their own files.
+-- Example policy for objects (adjust if needed):
+-- create policy "resumes_read_own" on storage.objects
+--   for select using (bucket_id = 'resumes' and auth.uid() = owner);
+-- create policy "resumes_write_own" on storage.objects
+--   for insert with check (bucket_id = 'resumes' and auth.uid() = owner);
+-- create policy "resumes_delete_own" on storage.objects
+--   for delete using (bucket_id = 'resumes' and auth.uid() = owner);
+
+-- If you already created the candidates table earlier, run this ALTER block:
+-- alter table public.candidates
+--   add column if not exists location text,
+--   add column if not exists years_experience numeric,
+--   add column if not exists skills text[] not null default '{}',
+--   add column if not exists analysis_summary text,
+--   add column if not exists analysis_strengths text[] not null default '{}',
+--   add column if not exists analysis_concerns text[] not null default '{}',
+--   add column if not exists skill_profile jsonb;

@@ -5,9 +5,15 @@ import { Search, Bell, HelpCircle } from "lucide-react";
 import { Link } from "react-router";
 import { supabase } from "../lib/supabase";
 
+type UserProfile = {
+  name: string;
+  avatarUrl?: string | null;
+};
+
 export function Layout() {
   const navigate = useNavigate();
   const [checkingSession, setCheckingSession] = useState(true);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -21,6 +27,17 @@ export function Layout() {
         return;
       }
 
+      const user = data.session.user;
+      const metadata = user.user_metadata ?? {};
+      const name =
+        metadata.full_name ||
+        metadata.name ||
+        user.email ||
+        "Account";
+      const avatarUrl = metadata.avatar_url || metadata.picture || null;
+
+      setProfile({ name, avatarUrl });
+
       setCheckingSession(false);
     };
 
@@ -29,8 +46,19 @@ export function Layout() {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (!session) {
+          setProfile(null);
           navigate("/auth", { replace: true });
+          return;
         }
+
+        const metadata = session.user.user_metadata ?? {};
+        const name =
+          metadata.full_name ||
+          metadata.name ||
+          session.user.email ||
+          "Account";
+        const avatarUrl = metadata.avatar_url || metadata.picture || null;
+        setProfile({ name, avatarUrl });
       },
     );
 
@@ -76,12 +104,20 @@ export function Layout() {
             </button>
             <div className="h-6 w-px bg-slate-200" />
             <Link to="/settings" className="flex items-center space-x-2">
-              <img
-                className="h-8 w-8 rounded-full border border-slate-200 object-cover"
-                src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-1.2.1&auto=format&fit=facearea&facepad=2&w=256&h=256&q=80"
-                alt="User"
-              />
-              <span className="text-sm font-medium text-slate-700">Alex M.</span>
+              {profile?.avatarUrl ? (
+                <img
+                  className="h-8 w-8 rounded-full border border-slate-200 object-cover"
+                  src={profile.avatarUrl}
+                  alt={profile?.name ?? "User"}
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-600">
+                  {(profile?.name ?? "A").slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <span className="text-sm font-medium text-slate-700">
+                {profile?.name ?? "Account"}
+              </span>
             </Link>
           </div>
         </header>

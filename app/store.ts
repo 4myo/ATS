@@ -15,6 +15,16 @@ export interface Applicant {
   email: string;
   phone: string;
   summary: string;
+  analysisStrengths?: string[];
+  analysisConcerns?: string[];
+  skillProfile?: {
+    technical: number;
+    communication: number;
+    experience: number;
+    leadership: number;
+    problemSolving: number;
+    culture: number;
+  };
   matchAnalysis: {
     pros: string[];
     cons: string[];

@@ -17,15 +17,28 @@ export function ApplicantCard({ applicant }: ApplicantCardProps) {
     Rejected: 'bg-red-100 text-red-800',
   };
 
+  const initials = applicant.name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
   return (
     <div className="group relative flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:shadow-md hover:border-indigo-200">
       <div className="flex justify-between items-start">
         <div className="flex items-center space-x-4">
-          <img
-            src={applicant.avatar}
-            alt={applicant.name}
-            className="h-12 w-12 rounded-full object-cover ring-2 ring-white"
-          />
+          {applicant.avatar ? (
+            <img
+              src={applicant.avatar}
+              alt={applicant.name}
+              className="h-12 w-12 rounded-full object-cover ring-2 ring-white"
+            />
+          ) : (
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-sm font-semibold text-slate-600 ring-2 ring-white">
+              {initials}
+            </div>
+          )}
           <div>
             <h3 className="text-base font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
               <Link to={`/applicants/${applicant.id}`}>
@@ -45,16 +58,16 @@ export function ApplicantCard({ applicant }: ApplicantCardProps) {
         <div className="flex flex-col space-y-1">
           <div className="flex items-center text-xs text-slate-500">
             <MapPin className="mr-1 h-3 w-3" />
-            {applicant.location}
+            {applicant.location || "Location pending"}
           </div>
           <div className="flex items-center text-xs text-slate-500">
             <Briefcase className="mr-1 h-3 w-3" />
-            {applicant.experience}y Experience
+            {applicant.experience ?? 0}y Experience
           </div>
         </div>
         <div className="flex flex-col items-end">
            <span className="text-xs font-medium text-slate-500 mb-1">AI Match</span>
-           <ScoreRing score={applicant.aiScore} size="sm" />
+           <ScoreRing score={applicant.aiScore ?? 0} size="sm" />
         </div>
       </div>
 

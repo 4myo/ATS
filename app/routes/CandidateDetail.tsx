@@ -1,6 +1,7 @@
-import { useParams, Link } from 'react-router';
-import { useAppStore } from '../store';
-import type { Stage } from '../store';
+import { useEffect, useMemo, useState } from "react";
+import { useParams, Link } from "react-router";
+import type { Stage } from "../store";
+import { supabase } from "../lib/supabase";
 import { ScoreRing } from '../components/ScoreRing';
 import { 
   ArrowLeft, Mail, Phone, MapPin, Download, ThumbsUp, ThumbsDown, 
@@ -12,24 +13,109 @@ import {
 import { clsx } from 'clsx';
 import { motion } from "framer-motion";
 
+type CandidateDetailRecord = {
+  id: string;
+  full_name: string;
+  job_title: string;
+  email: string | null;
+  location: string | null;
+  years_experience: number | null;
+  ats_score: number | null;
+  skills: string[] | null;
+  analysis_summary: string | null;
+  analysis_strengths: string[] | null;
+  analysis_concerns: string[] | null;
+  skill_profile: Record<string, number> | null;
+  resume_preview_url: string | null;
+};
+
 export default function CandidateDetail() {
   const { id } = useParams();
-  const { applicants, updateApplicantStage } = useAppStore();
-  const applicant = applicants.find((a) => a.id === id);
+  const [candidate, setCandidate] = useState<CandidateDetailRecord | null>(null);
+  const [stage, setStage] = useState<Stage>("Applied");
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (!applicant) {
-    return <div className="p-8 text-center">Candidate not found</div>;
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCandidate = async () => {
+      if (!id) return;
+
+      const { data, error } = await supabase
+        .from("candidates")
+        .select(
+          "id, full_name, job_title, email, location, years_experience, ats_score, skills, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, resume_preview_url",
+        )
+        .eq("id", id)
+        .single();
+
+      if (!isMounted) return;
+
+      if (error) {
+        setCandidate(null);
+        setIsLoading(false);
+        return;
+      }
+
+      setCandidate(data as CandidateDetailRecord);
+      setIsLoading(false);
+    };
+
+    loadCandidate();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
+
+  const radarData = useMemo(() => {
+    if (!candidate) {
+      return [
+        { subject: "Technical", A: 0, fullMark: 100 },
+        { subject: "Culture", A: 0, fullMark: 100 },
+        { subject: "Communication", A: 0, fullMark: 100 },
+        { subject: "Experience", A: 0, fullMark: 100 },
+        { subject: "Leadership", A: 0, fullMark: 100 },
+        { subject: "Problem Solving", A: 0, fullMark: 100 },
+      ];
+    }
+
+    const profile = candidate.skill_profile;
+    if (profile) {
+      return [
+        { subject: "Technical", A: profile.technical ?? 0, fullMark: 100 },
+        { subject: "Culture", A: profile.culture ?? 0, fullMark: 100 },
+        { subject: "Communication", A: profile.communication ?? 0, fullMark: 100 },
+        { subject: "Experience", A: profile.experience ?? 0, fullMark: 100 },
+        { subject: "Leadership", A: profile.leadership ?? 0, fullMark: 100 },
+        { subject: "Problem Solving", A: profile.problem_solving ?? 0, fullMark: 100 },
+      ];
+    }
+
+    const score = candidate.ats_score ?? 0;
+    const years = Number(candidate.years_experience ?? 0);
+
+    return [
+      { subject: "Technical", A: score, fullMark: 100 },
+      { subject: "Culture", A: Math.max(score - 10, 0), fullMark: 100 },
+      {
+        subject: "Communication",
+        A: Math.min(score + 5, 100),
+        fullMark: 100,
+      },
+      { subject: "Experience", A: Math.min(years * 10, 100), fullMark: 100 },
+      { subject: "Leadership", A: Math.max(score - 20, 0), fullMark: 100 },
+      { subject: "Problem Solving", A: Math.max(score - 5, 0), fullMark: 100 },
+    ];
+  }, [candidate]);
+
+  if (isLoading) {
+    return <div className="p-8 text-center">Loading candidate...</div>;
   }
 
-  // Mock radar data
-  const radarData = [
-    { subject: 'Technical', A: applicant.aiScore, fullMark: 100 },
-    { subject: 'Culture', A: applicant.aiScore - 10, fullMark: 100 },
-    { subject: 'Communication', A: applicant.aiScore + 5 > 100 ? 100 : applicant.aiScore + 5, fullMark: 100 },
-    { subject: 'Experience', A: applicant.experience * 10 > 100 ? 100 : applicant.experience * 10, fullMark: 100 },
-    { subject: 'Leadership', A: applicant.aiScore - 20, fullMark: 100 },
-    { subject: 'Problem Solving', A: applicant.aiScore - 5, fullMark: 100 },
-  ];
+  if (!candidate) {
+    return <div className="p-8 text-center">Candidate not found</div>;
+  }
 
   const stages: Stage[] = ['Applied', 'Screening', 'Interview', 'Offer', 'Rejected'];
 
@@ -43,24 +129,24 @@ export default function CandidateDetail() {
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <div>
-              <h1 className="text-xl font-bold text-slate-900">{applicant.name}</h1>
-              <p className="text-sm text-slate-500">Applied for <span className="font-medium text-slate-700">{applicant.role}</span></p>
+              <h1 className="text-xl font-bold text-slate-900">{candidate.full_name}</h1>
+              <p className="text-sm text-slate-500">Applied for <span className="font-medium text-slate-700">{candidate.job_title}</span></p>
             </div>
           </div>
           <div className="flex items-center space-x-3">
              <div className="flex bg-slate-100 rounded-lg p-1">
-                {stages.map((stage) => (
+                {stages.map((stageItem) => (
                   <button
-                    key={stage}
-                    onClick={() => updateApplicantStage(applicant.id, stage)}
+                    key={stageItem}
+                    onClick={() => setStage(stageItem)}
                     className={clsx(
                       'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
-                      applicant.stage === stage 
+                      stage === stageItem 
                         ? 'bg-white text-indigo-600 shadow-sm' 
                         : 'text-slate-500 hover:text-slate-700'
                     )}
                   >
-                    {stage}
+                    {stageItem}
                   </button>
                 ))}
              </div>
@@ -86,8 +172,8 @@ export default function CandidateDetail() {
                    AI Analysis Summary
                  </h2>
                  <p className="text-slate-600 leading-relaxed mb-6">
-                   {applicant.summary}
-                 </p>
+                  {candidate.analysis_summary ?? "AI analysis pending."}
+                </p>
                  
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-100">
@@ -96,12 +182,12 @@ export default function CandidateDetail() {
                          Strengths
                        </h3>
                        <ul className="space-y-2">
-                         {applicant.matchAnalysis.pros.map((pro, i) => (
-                           <li key={i} className="flex items-start text-sm text-emerald-700">
-                             <CheckCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 opacity-70" />
-                             {pro}
-                           </li>
-                         ))}
+                        {(candidate.analysis_strengths ?? []).map((pro, i) => (
+                          <li key={i} className="flex items-start text-sm text-emerald-700">
+                            <CheckCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 opacity-70" />
+                            {pro}
+                          </li>
+                        ))}
                        </ul>
                     </div>
                     <div className="bg-red-50 rounded-lg p-4 border border-red-100">
@@ -110,12 +196,12 @@ export default function CandidateDetail() {
                          Potential Concerns
                        </h3>
                        <ul className="space-y-2">
-                         {applicant.matchAnalysis.cons.map((con, i) => (
-                           <li key={i} className="flex items-start text-sm text-red-700">
-                             <XCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 opacity-70" />
-                             {con}
-                           </li>
-                         ))}
+                        {(candidate.analysis_concerns ?? []).map((con, i) => (
+                          <li key={i} className="flex items-start text-sm text-red-700">
+                            <XCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 opacity-70" />
+                            {con}
+                          </li>
+                        ))}
                        </ul>
                     </div>
                  </div>
@@ -124,7 +210,7 @@ export default function CandidateDetail() {
               {/* Score Card */}
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col items-center justify-center text-center">
                  <h2 className="text-lg font-semibold text-slate-900 mb-6">Overall Match Score</h2>
-                 <ScoreRing score={applicant.aiScore} size="lg" />
+                <ScoreRing score={candidate.ats_score ?? 0} size="lg" />
                  <p className="mt-6 text-sm text-slate-500">
                    Based on skills, experience, and role requirements match.
                  </p>
@@ -170,11 +256,11 @@ export default function CandidateDetail() {
                     </ResponsiveContainer>
                  </div>
                  <div className="mt-4 flex flex-wrap gap-2">
-                    {applicant.skills.map(skill => (
-                      <span key={skill} className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium border border-slate-200">
-                        {skill}
-                      </span>
-                    ))}
+                    {(candidate.skills ?? []).map(skill => (
+                       <span key={skill} className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium border border-slate-200">
+                         {skill}
+                       </span>
+                     ))}
                  </div>
               </div>
 
@@ -219,9 +305,20 @@ export default function CandidateDetail() {
         {/* Right Sidebar (Contact Info) */}
         <div className="w-80 bg-white border-l border-slate-200 overflow-y-auto p-6 hidden xl:block">
            <div className="flex flex-col items-center mb-8">
-              <img src={applicant.avatar} className="h-24 w-24 rounded-full object-cover ring-4 ring-slate-50 mb-4" />
-              <h2 className="text-lg font-bold text-slate-900">{applicant.name}</h2>
-              <p className="text-sm text-slate-500">{applicant.location}</p>
+            {candidate.resume_preview_url ? (
+              <img src={candidate.resume_preview_url} className="h-24 w-24 rounded-full object-cover ring-4 ring-slate-50 mb-4" />
+            ) : (
+              <div className="mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-slate-100 text-lg font-semibold text-slate-600 ring-4 ring-slate-50">
+                {candidate.full_name
+                  .split(" ")
+                  .map((part) => part[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase()}
+              </div>
+            )}
+            <h2 className="text-lg font-bold text-slate-900">{candidate.full_name}</h2>
+            <p className="text-sm text-slate-500">{candidate.location ?? "Location pending"}</p>
            </div>
            
            <div className="space-y-6">
@@ -230,16 +327,16 @@ export default function CandidateDetail() {
                 <div className="space-y-3">
                    <div className="flex items-center text-sm text-slate-600">
                       <Mail className="h-4 w-4 mr-3 text-slate-400" />
-                      {applicant.email}
-                   </div>
-                   <div className="flex items-center text-sm text-slate-600">
+                      {candidate.email ?? "Email pending"}
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
                       <Phone className="h-4 w-4 mr-3 text-slate-400" />
-                      {applicant.phone}
-                   </div>
-                   <div className="flex items-center text-sm text-slate-600">
+                      Not provided
+                    </div>
+                    <div className="flex items-center text-sm text-slate-600">
                       <MapPin className="h-4 w-4 mr-3 text-slate-400" />
-                      {applicant.location}
-                   </div>
+                      {candidate.location ?? "Location pending"}
+                    </div>
                 </div>
               </div>
 
