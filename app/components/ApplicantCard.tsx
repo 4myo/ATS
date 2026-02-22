@@ -1,14 +1,29 @@
 import { Link } from 'react-router';
-import { MoreHorizontal, MapPin, Briefcase } from 'lucide-react';
+import { MoreHorizontal, MapPin, Briefcase, Trash2 } from 'lucide-react';
 import type { Applicant } from '../store';
 import { ScoreRing } from './ScoreRing';
 import { clsx } from 'clsx';
 
 interface ApplicantCardProps {
   applicant: Applicant;
+  onDelete?: (id: string) => void;
 }
 
-export function ApplicantCard({ applicant }: ApplicantCardProps) {
+export function ApplicantCard({ applicant, onDelete }: ApplicantCardProps) {
+  const isSafeImageUrl = (value?: string) => {
+    if (!value) return false;
+    if (value.startsWith("blob:")) return false;
+    return (
+      value.startsWith("data:") ||
+      value.startsWith("http://") ||
+      value.startsWith("https://") ||
+      value.startsWith("/")
+    );
+  };
+
+  const safeAvatar = isSafeImageUrl(applicant.avatar)
+    ? applicant.avatar
+    : "";
   const stageColors = {
     Applied: 'bg-blue-100 text-blue-800',
     Screening: 'bg-purple-100 text-purple-800',
@@ -28,9 +43,9 @@ export function ApplicantCard({ applicant }: ApplicantCardProps) {
     <div className="group relative flex flex-col rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:shadow-md hover:border-indigo-200">
       <div className="flex justify-between items-start">
         <div className="flex items-center space-x-4">
-          {applicant.avatar ? (
+          {safeAvatar ? (
             <img
-              src={applicant.avatar}
+              src={safeAvatar}
               alt={applicant.name}
               className="h-12 w-12 rounded-full object-cover ring-2 ring-white"
             />
@@ -49,9 +64,17 @@ export function ApplicantCard({ applicant }: ApplicantCardProps) {
             <p className="text-sm text-slate-500">{applicant.role}</p>
           </div>
         </div>
-        <button className="relative z-10 p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
-          <MoreHorizontal className="h-5 w-5" />
-        </button>
+        <div className="relative z-10 flex items-center gap-1">
+          
+          <button
+            type="button"
+            className="p-1 text-slate-400 hover:text-red-600 rounded-full hover:bg-red-50"
+            aria-label="Delete applicant"
+            onClick={() => onDelete?.(applicant.id)}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 flex items-center justify-between">
@@ -89,11 +112,6 @@ export function ApplicantCard({ applicant }: ApplicantCardProps) {
               {skill}
             </span>
           ))}
-          {applicant.skills.length > 3 && (
-            <span className="inline-flex items-center justify-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600 ring-1 ring-white">
-              +{applicant.skills.length - 3}
-            </span>
-          )}
         </div>
       </div>
     </div>

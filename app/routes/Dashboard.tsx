@@ -1,6 +1,5 @@
-import { useState } from 'react';
-import { useAppStore } from '../store';
-import type { Applicant } from '../store';
+import { useEffect, useMemo, useState } from 'react';
+import type { Applicant, Stage } from '../store';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
 import { Users, Briefcase, TrendingUp, AlertCircle, Phone, Mail, FileText, MapPin, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
@@ -8,35 +7,107 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Separator } from "../components/ui/separator";
+import { supabase } from "../lib/supabase";
 
 export default function Dashboard() {
-  const { applicants, jobs } = useAppStore();
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [jobsCount, setJobsCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadDashboard = async () => {
+      setIsLoading(true);
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        if (isMounted) {
+          setApplicants([]);
+          setJobsCount(0);
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      const [{ data: candidateRows, error: candidateError }, { count: jobCount, error: jobError }] =
+        await Promise.all([
+          supabase
+            .from("candidates")
+            .select(
+              "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_strengths, analysis_concerns",
+            )
+            .order("created_at", { ascending: false }),
+          supabase.from("jobs").select("id", { count: "exact", head: true }),
+        ]);
+
+      if (!isMounted) return;
+
+      if (candidateError || jobError) {
+        setApplicants([]);
+        setJobsCount(jobCount ?? 0);
+        setIsLoading(false);
+        return;
+      }
+
+      const mapped = (candidateRows ?? []).map((row) => ({
+        id: row.id,
+        name: row.full_name,
+        role: row.job_title,
+        stage: (row.stage as Stage) ?? "Applied",
+        aiScore: Number(row.ats_score ?? 0),
+        skills: row.skills ?? [],
+        experience: Number(row.years_experience ?? 0),
+        location: row.location ?? "Location pending",
+        avatar: row.resume_preview_url ?? "",
+        email: row.email ?? "",
+        phone: "",
+        summary: "",
+        matchAnalysis: {
+          pros: row.analysis_strengths ?? [],
+          cons: row.analysis_concerns ?? [],
+        },
+      })) as Applicant[];
+
+      setApplicants(mapped);
+      setJobsCount(jobCount ?? 0);
+      setIsLoading(false);
+    };
+
+    loadDashboard();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const totalApplicants = applicants.length;
-  const activeJobs = jobs.length;
-  const avgScore = Math.round(
-    applicants.reduce((acc, curr) => acc + curr.aiScore, 0) / totalApplicants
+  const activeJobs = jobsCount;
+  const avgScore = totalApplicants
+    ? Math.round(applicants.reduce((acc, curr) => acc + curr.aiScore, 0) / totalApplicants)
+    : 0;
+
+  const stageData = useMemo(
+    () => [
+      { name: "Applied", value: applicants.filter((a) => a.stage === "Applied").length },
+      { name: "Screening", value: applicants.filter((a) => a.stage === "Screening").length },
+      { name: "Interview", value: applicants.filter((a) => a.stage === "Interview").length },
+      { name: "Offer", value: applicants.filter((a) => a.stage === "Offer").length },
+      { name: "Rejected", value: applicants.filter((a) => a.stage === "Rejected").length },
+    ],
+    [applicants],
   );
 
-  const stageData = [
-    { name: 'Applied', value: applicants.filter((a) => a.stage === 'Applied').length },
-    { name: 'Screening', value: applicants.filter((a) => a.stage === 'Screening').length },
-    { name: 'Interview', value: applicants.filter((a) => a.stage === 'Interview').length },
-    { name: 'Offer', value: applicants.filter((a) => a.stage === 'Offer').length },
-    { name: 'Rejected', value: applicants.filter((a) => a.stage === 'Rejected').length },
-  ];
-
   const recentApplicants = [...applicants]
-    .sort((a, b) => b.aiScore - a.aiScore) // Sort by score for "top candidates"
+    .sort((a, b) => b.aiScore - a.aiScore)
     .slice(0, 3);
 
   const stats = [
-    { label: 'Total Applicants', value: totalApplicants, icon: Users, change: '+12%', color: 'text-blue-600', bg: 'bg-blue-100' },
-    { label: 'Active Jobs', value: activeJobs, icon: Briefcase, change: '+2', color: 'text-purple-600', bg: 'bg-purple-100' },
-    { label: 'Avg AI Score', value: avgScore, icon: TrendingUp, change: '+5%', color: 'text-emerald-600', bg: 'bg-emerald-100' },
-    { label: 'Pending Review', value: 8, icon: AlertCircle, change: '-3', color: 'text-amber-600', bg: 'bg-amber-100' },
+    { label: 'Total Applicants', value: totalApplicants, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100' },
+    { label: 'Active Jobs', value: activeJobs, icon: Briefcase, color: 'text-purple-600', bg: 'bg-purple-100' },
+    { label: 'Avg AI Score', value: avgScore, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-100' },
+    { label: 'Pending Review', value: stageData.find((stage) => stage.name === 'Screening')?.value ?? 0, icon: AlertCircle, color: 'text-amber-600', bg: 'bg-amber-100' },
   ];
 
   const COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444'];
@@ -76,13 +147,9 @@ export default function Dashboard() {
                 </dl>
               </div>
             </div>
-            <div className="mt-4">
-               <span className={`text-sm font-medium ${stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
-                 {stat.change}
-               </span>
-               <span className="ml-2 text-sm text-slate-400">from last month</span>
+            
             </div>
-          </div>
+          
         ))}
       </div>
 
@@ -91,8 +158,8 @@ export default function Dashboard() {
         {/* Bar Chart */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-slate-100">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Applicant Pipeline</h2>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 w-full min-w-0 min-h-[256px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
               <BarChart data={stageData}>
                 <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
                 <YAxis fontSize={12} tickLine={false} axisLine={false} />
@@ -113,8 +180,8 @@ export default function Dashboard() {
         {/* Pie Chart */}
         <div className="rounded-xl bg-white p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center">
           <h2 className="text-lg font-semibold text-slate-900 mb-4 w-full text-left">Distribution by Stage</h2>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-64 w-full min-w-0 min-h-[256px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
               <PieChart>
                 <Pie
                   data={stageData}

@@ -1,6 +1,7 @@
 export interface PdfConversionResult {
   imageUrl: string;
   file: File | null;
+  ocrText?: string;
   error?: string;
 }
 
@@ -41,6 +42,7 @@ export async function convertPdfToImage(
   file: File,
 ): Promise<PdfConversionResult> {
   try {
+    const { createWorker } = await import("tesseract.js");
     const lib = await loadPdfJs();
 
     const arrayBuffer = await file.arrayBuffer();
@@ -78,9 +80,20 @@ export async function convertPdfToImage(
       type: "image/png",
     });
 
+    let ocrText = "";
+    try {
+      const worker = await createWorker("eng");
+      const result = await worker.recognize(dataUrl);
+      ocrText = result.data.text ?? "";
+      await worker.terminate();
+    } catch (ocrError) {
+      console.warn("OCR failed:", ocrError);
+    }
+
     return {
       imageUrl: dataUrl,
       file: imageFile,
+      ocrText,
     };
   } catch (err) {
     console.error("Error during PDF conversion:", err);

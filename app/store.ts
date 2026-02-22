@@ -34,6 +34,7 @@ export interface Applicant {
 export interface Job {
   id: string;
   title: string;
+  description?: string;
   department: string;
   location: string;
   type: string;
@@ -62,6 +63,8 @@ export const useAppStore = create<AppState>((set) => ({
     {
       id: '1',
       title: 'Senior Frontend Engineer',
+      description:
+        'Own frontend architecture, build React/TypeScript features, and collaborate with design and product on a modern web app.',
       department: 'Engineering',
       location: 'Remote',
       type: 'Full-time',
@@ -71,6 +74,8 @@ export const useAppStore = create<AppState>((set) => ({
     {
       id: '2',
       title: 'Product Designer',
+      description:
+        'Lead UX/UI for core workflows, create prototypes, and deliver design systems with strong user research foundations.',
       department: 'Design',
       location: 'New York, NY',
       type: 'Full-time',
@@ -80,6 +85,8 @@ export const useAppStore = create<AppState>((set) => ({
     {
       id: '3',
       title: 'Backend Developer',
+      description:
+        'Build scalable APIs and services, design data models, and improve system reliability for high-volume traffic.',
       department: 'Engineering',
       location: 'San Francisco, CA',
       type: 'Contract',

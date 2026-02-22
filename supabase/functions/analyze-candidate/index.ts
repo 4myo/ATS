@@ -6,6 +6,7 @@ type AnalyzePayload = {
   candidateId: string;
   resumeText?: string;
   jobTitle?: string;
+  jobDescription?: string;
 };
 
 const supabaseUrl =
@@ -70,12 +71,23 @@ Deno.serve(async (req) => {
 
   let resumeText = payload.resumeText || "";
   const jobTitle = payload.jobTitle || candidate.job_title || "";
+  const jobDescription = payload.jobDescription || "";
 
-  const prompt = `You are an ATS analyzer. Extract structured data from the resume text and return strict JSON with these fields:
+  const prompt = `You are an ATS analyzer. Follow these rules:
+- Use the Job Title and Job Description as the target role requirements.
+- Extract only the top 10 most relevant skills for the role.
+- Compute ats_score (0-100) using weighted scoring:
+  skills 50%, experience 30%, education 10%, culture/soft skills 10%.
+  Use a weighted average and round to the nearest whole number.
+- Provide strengths and concerns as concise bullet phrases.
+- Keep skill_profile sub-scores from 0-100.
+
+Return strict JSON with these fields:
 {
   "location": string | null,
   "years_experience": number | null,
   "skills": string[],
+  "education": string[],
   "ats_score": number,
   "summary": string,
   "strengths": string[],
@@ -94,6 +106,7 @@ Resume Text:
 ${resumeText}
 
 Job Title: ${jobTitle}
+Job Description: ${jobDescription}
 Candidate Name: ${candidate.full_name}
 Return JSON only.`;
 
@@ -112,6 +125,7 @@ Return JSON only.`;
     location?: string | null;
     years_experience?: number | null;
     skills?: string[];
+    education?: string[];
     ats_score?: number;
     summary?: string;
     strengths?: string[];
@@ -139,6 +153,7 @@ Return JSON only.`;
       location: parsed.location ?? null,
       years_experience: parsed.years_experience ?? null,
       skills: parsed.skills ?? [],
+      education: parsed.education ?? [],
       ats_score: parsed.ats_score ?? null,
       analysis_summary: parsed.summary ?? null,
       analysis_strengths: parsed.strengths ?? [],

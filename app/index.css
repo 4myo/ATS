@@ -16,4 +16,23 @@
 
 body {
   @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  font-family: "Poppins", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+}
+
+.logo-font {
+  font-family: "Poppins", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+}
+
+.sidebar-btn {
+  @apply rounded-md px-3 py-2 text-sm font-medium transition-colors;
+}
+
+.sidebar-btn-active {
+  @apply bg-indigo-600 text-white shadow-lg shadow-indigo-500/20;
+}
+
+.sidebar-btn-inactive {
+  @apply text-slate-400 hover:bg-slate-800 hover:text-white;
 }
