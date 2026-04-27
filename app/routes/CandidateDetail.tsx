@@ -1,23 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router";
-import type { Stage } from "../store";
 import { supabase } from "../lib/supabase";
+import { getAiWritingSignal } from "../lib/aiWritingSignal";
 import { ScoreRing } from '../components/ScoreRing';
 import { 
-  ArrowLeft, Mail, Phone, MapPin, Download, ThumbsUp, ThumbsDown, 
-  CheckCircle, XCircle, Clock, Calendar, MessageSquare, ExternalLink
+  ArrowLeft, ThumbsUp, ThumbsDown,
+  CheckCircle, XCircle, Clock, Bot
 } from 'lucide-react';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer 
 } from 'recharts';
-import { clsx } from 'clsx';
-import { motion } from "framer-motion";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
 } from "../components/ui/accordion";
+import { useI18n } from "../lib/i18n";
 
 type CandidateDetailRecord = {
   id: string;
@@ -31,26 +30,23 @@ type CandidateDetailRecord = {
   analysis_summary: string | null;
   analysis_strengths: string[] | null;
   analysis_concerns: string[] | null;
+  ai_writing_score: number | null;
+  ai_writing_label: string | null;
+  ai_writing_notes: string[] | null;
   skill_profile: Record<string, number> | null;
-  resume_preview_url: string | null;
 };
+
+const baseCandidateSelect =
+  "id, full_name, job_title, email, location, years_experience, ats_score, skills, analysis_summary, analysis_strengths, analysis_concerns, skill_profile";
+
+const candidateSelectWithAiWriting =
+  `${baseCandidateSelect}, ai_writing_score, ai_writing_label, ai_writing_notes`;
 
 export default function CandidateDetail() {
   const { id } = useParams();
+  const { t } = useI18n();
   const [candidate, setCandidate] = useState<CandidateDetailRecord | null>(null);
-  const [stage, setStage] = useState<Stage>("Applied");
   const [isLoading, setIsLoading] = useState(true);
-
-  const isSafeImageUrl = (value?: string | null) => {
-    if (!value) return false;
-    if (value.startsWith("blob:")) return false;
-    return (
-      value.startsWith("data:") ||
-      value.startsWith("http://") ||
-      value.startsWith("https://") ||
-      value.startsWith("/")
-    );
-  };
 
   useEffect(() => {
     let isMounted = true;
@@ -58,23 +54,39 @@ export default function CandidateDetail() {
     const loadCandidate = async () => {
       if (!id) return;
 
-      const { data, error } = await supabase
+      const result = await supabase
         .from("candidates")
-        .select(
-          "id, full_name, job_title, email, location, years_experience, ats_score, skills, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, resume_preview_url",
-        )
+        .select(candidateSelectWithAiWriting)
         .eq("id", id)
         .single();
 
+      const shouldRetryWithoutAiWriting =
+        result.error &&
+        (result.error.message?.includes("ai_writing") ||
+          result.error.details?.includes("ai_writing"));
+
+      const fallbackResult = shouldRetryWithoutAiWriting
+        ? await supabase
+            .from("candidates")
+            .select(baseCandidateSelect)
+            .eq("id", id)
+            .single()
+        : result;
+
       if (!isMounted) return;
 
-      if (error) {
+      if (fallbackResult.error) {
         setCandidate(null);
         setIsLoading(false);
         return;
       }
 
-      setCandidate(data as CandidateDetailRecord);
+      setCandidate({
+        ai_writing_score: null,
+        ai_writing_label: null,
+        ai_writing_notes: [],
+        ...fallbackResult.data,
+      } as CandidateDetailRecord);
       setIsLoading(false);
     };
 
@@ -126,37 +138,59 @@ export default function CandidateDetail() {
     ];
   }, [candidate]);
 
+  const aiWritingSignal = useMemo(() => {
+    const fallbackSignal = getAiWritingSignal({
+        name: candidate?.full_name,
+        role: candidate?.job_title,
+        analysisSummary: candidate?.analysis_summary,
+        strengths: candidate?.analysis_strengths,
+        concerns: candidate?.analysis_concerns,
+        skills: candidate?.skills,
+        yearsExperience: candidate?.years_experience,
+        atsScore: candidate?.ats_score,
+    });
+
+    return {
+      score: Math.round(Number(candidate?.ai_writing_score ?? fallbackSignal.score)),
+      label: candidate?.ai_writing_label ?? fallbackSignal.label,
+      tone:
+        (candidate?.ai_writing_score ?? fallbackSignal.score) >= 68
+          ? "high"
+          : (candidate?.ai_writing_score ?? fallbackSignal.score) >= 38
+            ? "medium"
+            : "low",
+      notes:
+        candidate?.ai_writing_notes?.length
+          ? candidate.ai_writing_notes
+          : fallbackSignal.notes,
+    };
+  }, [candidate]);
+
   if (isLoading) {
-    return <div className="p-8 text-center">Loading candidate...</div>;
+    return <div className="p-8 text-center text-muted-foreground">{t("loadingCandidate")}</div>;
   }
 
   if (!candidate) {
-    return <div className="p-8 text-center">Candidate not found</div>;
+    return <div className="p-8 text-center text-muted-foreground">{t("candidateNotFound")}</div>;
   }
 
-  const stages: Stage[] = ['Applied', 'Screening', 'Interview', 'Offer', 'Rejected'];
-
-   const safePreviewUrl = isSafeImageUrl(candidate.resume_preview_url)
-     ? candidate.resume_preview_url
-     : null;
-
    return (
-    <div className="flex h-full flex-col overflow-hidden bg-slate-50">
+    <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="flex-none bg-white border-b border-slate-200 px-8 py-4">
+      <div className="flex-none border-b border-border bg-card px-8 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Link to="/applicants" className="p-2 rounded-full hover:bg-slate-100 text-slate-500">
+            <Link to="/applicants" className="rounded-full p-2 text-muted-foreground hover:bg-muted">
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <div>
-              <h1 className="text-xl font-bold text-slate-900">{candidate.full_name}</h1>
-              <p className="text-sm text-slate-500">Applied for <span className="font-medium text-slate-700">{candidate.job_title}</span></p>
+              <h1 className="text-xl font-bold text-foreground">{candidate.full_name}</h1>
+              <p className="text-sm text-muted-foreground">{t("appliedFor")} <span className="font-medium text-foreground">{candidate.job_title}</span></p>
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <p className="text-xs uppercase tracking-wide text-slate-400">
-              Overall Match Score
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              {t("overallMatchScore")}
             </p>
             <ScoreRing score={candidate.ats_score ?? 0} size="md" />
           </div>
@@ -165,19 +199,19 @@ export default function CandidateDetail() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Main Content (Scrollable) */}
-        <div className="flex-1 overflow-y-auto p-8 space-y-8">
+        <div className="flex-1 space-y-8 overflow-y-auto p-8">
            
            {/* Top Stats */}
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                 <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center">
-                   <div className="p-1.5 bg-indigo-100 rounded-md mr-3">
-                     <Clock className="h-5 w-5 text-indigo-600" />
+              <div className="surface-card p-6 lg:col-span-2">
+                 <h2 className="mb-4 flex items-center text-lg font-semibold text-foreground">
+                   <div className="mr-3 rounded-md bg-muted p-1.5 text-foreground">
+                     <Clock className="h-5 w-5" />
                    </div>
-                   AI Analysis Summary
+                   {t("aiAnalysisSummary")}
                  </h2>
-                 <p className="text-slate-600 leading-relaxed mb-6">
-                  {candidate.analysis_summary ?? "AI analysis pending."}
+                 <p className="mb-6 leading-relaxed text-muted-foreground">
+                  {candidate.analysis_summary ?? t("aiAnalysisPending")}
                 </p>
                  
                   <Accordion type="multiple" className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -186,7 +220,7 @@ export default function CandidateDetail() {
                         <AccordionTrigger className="py-0 hover:no-underline">
                           <span className="text-sm font-bold text-emerald-800 flex items-center">
                             <ThumbsUp className="h-4 w-4 mr-2" />
-                            Strengths
+                            {t("strengths")}
                           </span>
                         </AccordionTrigger>
                         <AccordionContent className="pt-3">
@@ -206,7 +240,7 @@ export default function CandidateDetail() {
                         <AccordionTrigger className="py-0 hover:no-underline">
                           <span className="text-sm font-bold text-red-800 flex items-center">
                             <ThumbsDown className="h-4 w-4 mr-2" />
-                            Potential Concerns
+                            {t("potentialConcerns")}
                           </span>
                         </AccordionTrigger>
                         <AccordionContent className="pt-3">
@@ -224,13 +258,13 @@ export default function CandidateDetail() {
                   </Accordion>
               </div>
 
-              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <h2 className="text-lg font-semibold text-slate-900 mb-4">Skills Profile</h2>
+              <div className="surface-card p-6">
+                <h2 className="mb-4 text-lg font-semibold text-foreground">{t("skillsProfile")}</h2>
                 <div className="h-64 min-h-[256px] w-full">
                   <ResponsiveContainer width="100%" height="100%" minHeight={256}>
                     <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
-                      <PolarGrid stroke="#e2e8f0" />
-                      <PolarAngleAxis dataKey="subject" tick={{ fill: "#64748b", fontSize: 10 }} />
+                      <PolarGrid stroke="var(--border)" />
+                      <PolarAngleAxis dataKey="subject" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} />
                       <PolarRadiusAxis
                         angle={30}
                         domain={[0, (dataMax: number) => Math.max(dataMax, 1)]}
@@ -240,10 +274,10 @@ export default function CandidateDetail() {
                       <Radar
                         name="Candidate"
                         dataKey="A"
-                        stroke="#4f46e5"
+                        stroke="#06b6d4"
                         strokeWidth={2}
-                        fill="#6366f1"
-                        fillOpacity={0.4}
+                        fill="#8b5cf6"
+                        fillOpacity={0.36}
                       />
                     </RadarChart>
                   </ResponsiveContainer>
@@ -252,7 +286,7 @@ export default function CandidateDetail() {
                   {(candidate.skills ?? []).slice(0, 5).map((skill) => (
                     <span
                       key={skill}
-                      className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-medium border border-slate-200"
+                      className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground"
                     >
                       {skill}
                     </span>
@@ -265,71 +299,67 @@ export default function CandidateDetail() {
 
         </div>
 
-        {/* Right Sidebar (Contact Info) */}
-        <div className="w-80 bg-white border-l border-slate-200 overflow-y-auto p-6 hidden xl:block">
-           <div className="flex flex-col items-center mb-8">
-            {safePreviewUrl ? (
-              <img src={safePreviewUrl} className="h-24 w-24 rounded-full object-cover ring-4 ring-slate-50 mb-4" />
-            ) : (
-              <div className="mb-4 flex h-24 w-24 items-center justify-center rounded-full bg-slate-100 text-lg font-semibold text-slate-600 ring-4 ring-slate-50">
-                {candidate.full_name
-                  .split(" ")
-                  .map((part) => part[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase()}
-              </div>
-            )}
-            <h2 className="text-lg font-bold text-slate-900">{candidate.full_name}</h2>
-            <p className="text-sm text-slate-500">{candidate.location ?? "Location pending"}</p>
-           </div>
-           
-           <div className="space-y-6">
+        <aside className="hidden w-[22rem] overflow-y-auto border-l border-border bg-card p-6 xl:block">
+          <div className="surface-card bg-background/45 p-6">
+            <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Contact Information</h3>
-                <div className="space-y-3">
-                   <div className="flex items-center text-sm text-slate-600">
-                      <Mail className="h-4 w-4 mr-3 text-slate-400" />
-                      {candidate.email ?? "Email pending"}
-                    </div>
-                    <div className="flex items-center text-sm text-slate-600">
-                      <Phone className="h-4 w-4 mr-3 text-slate-400" />
-                      Not provided
-                    </div>
-                    <div className="flex items-center text-sm text-slate-600">
-                      <MapPin className="h-4 w-4 mr-3 text-slate-400" />
-                      {candidate.location ?? "Location pending"}
-                    </div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+                  <Bot className="h-5 w-5 text-cyan-500" />
+                  {t("cvAiWritingSignal")}
+                </h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {t("aiWritingSignalDescription")}
+                </p>
+              </div>
+              <div className="text-right">
+                <div className="text-4xl font-semibold leading-none text-foreground">
+                  {aiWritingSignal.score}
                 </div>
+                <div className="text-xs text-muted-foreground">/100</div>
               </div>
+            </div>
 
-              <div className="pt-6 border-t border-slate-100">
-                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Attachments</h3>
-                 <div className="space-y-3">
-                    <div className="flex items-center p-3 border border-slate-200 rounded-lg hover:border-indigo-300 transition-colors cursor-pointer bg-slate-50">
-                       <div className="h-8 w-8 bg-red-100 rounded flex items-center justify-center text-red-600 font-bold text-xs mr-3">
-                         PDF
-                       </div>
-                       <div className="flex-1 overflow-hidden">
-                          <p className="text-sm font-medium text-slate-700 truncate">Resume_Final.pdf</p>
-                          <p className="text-xs text-slate-500">2.4 MB</p>
-                       </div>
-                       <Download className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div className="flex items-center p-3 border border-slate-200 rounded-lg hover:border-indigo-300 transition-colors cursor-pointer bg-slate-50">
-                       <div className="h-8 w-8 bg-blue-100 rounded flex items-center justify-center text-blue-600 font-bold text-xs mr-3">
-                         DOC
-                       </div>
-                       <div className="flex-1 overflow-hidden">
-                          <p className="text-sm font-medium text-slate-700 truncate">Cover_Letter.docx</p>
-                          <p className="text-xs text-slate-500">1.1 MB</p>
-                       </div>
-                       <Download className="h-4 w-4 text-slate-400" />
-                    </div>
-                 </div>
-              </div>
-           </div>
-        </div>
+            <div className="h-3 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500"
+                style={{ width: `${aiWritingSignal.score}%` }}
+              />
+            </div>
+
+            <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+              <span
+                className={
+                  aiWritingSignal.tone === "high"
+                    ? "font-medium text-pink-500"
+                    : aiWritingSignal.tone === "medium"
+                      ? "font-medium text-purple-500"
+                      : "font-medium text-green-500"
+                }
+              >
+                {aiWritingSignal.label}
+              </span>
+              <span className="text-muted-foreground">{t("reviewCue")}</span>
+            </div>
+
+            <div className="mt-5 border-t border-border pt-5">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {t("signalNotes")}
+              </h3>
+              <ul className="space-y-3 text-sm text-muted-foreground">
+                {aiWritingSignal.notes.map((note) => (
+                  <li key={note} className="flex gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-cyan-400" />
+                    <span>{note}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-5 rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+              {t("aiWritingProofNote")}
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );

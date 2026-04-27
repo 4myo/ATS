@@ -1,0 +1,99 @@
+
+> dev
+> react-router dev --host 127.0.0.1
+
+Port 5173 is in use, trying another one...
+Port 5174 is in use, trying another one...
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5175[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m9:07:56 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
+[2m9:08:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:08:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:08:51 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:08:51 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:13:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:13:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:17:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:17:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:22:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:22:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:23:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:23:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:23:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:23:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:24:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:24:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:24:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:24:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:29:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:29:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:29:28 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:29:28 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:29:41 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:29:41 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:30:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:30:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:32:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:32:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:32:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:32:34 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:32:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:32:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:33:16 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:33:16 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:34:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:34:05 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:36:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Layout.tsx[22m
+[2m9:36:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Layout.tsx, /styles/index.css[22m
+[2m9:38:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Settings.tsx[22m
+[2m9:38:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Settings.tsx[22m
+[2m9:38:24 PM[22m [36m[1m[vite][22m[39m [34m[2m(ssr)[22m[39m [32mhmr update [39m[2m/styles/index.css[22m
+[2m9:38:24 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
+[2m9:39:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Settings.tsx[22m
+[2m9:39:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Settings.tsx[22m
+[2m9:39:46 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
+[2m9:51:47 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
+[2m9:51:57 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/root.tsx[22m
+[2m9:51:57 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/root.tsx[22m
+[2m9:51:57 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/root.tsx[22m
+[2m9:51:57 PM[22m [36m[1m[vite][22m[39m [34m[2m(ssr)[22m[39m [32mpage reload [39m[2mapp/root.tsx[22m
+[2m9:52:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Layout.tsx[22m
+[2m9:52:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Layout.tsx, /styles/index.css[22m
+[2m9:52:25 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/Sidebar.tsx[22m
+[2m9:52:25 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/Sidebar.tsx, /styles/index.css[22m
+[2m9:52:53 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:52:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:53:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:53:21 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:53:48 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m9:53:48 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m9:54:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Jobs.tsx[22m
+[2m9:54:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Jobs.tsx[22m
+[2m9:54:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Applicants.tsx[22m
+[2m9:54:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Applicants.tsx[22m
+[2m9:54:23 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/ApplicantCard.tsx[22m
+[2m9:54:23 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/components/ApplicantCard.tsx[22m
+[2m9:54:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Settings.tsx[22m
+[2m9:54:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Settings.tsx[22m
+[2m9:56:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/lib/i18n.tsx[22m
+[2m9:56:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/lib/i18n.tsx, /styles/index.css[22m
+[2m9:56:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [33mhmr invalidate [39m[2m/app/lib/i18n.tsx[22m Could not Fast Refresh. Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m9:56:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/root.tsx, /app/routes/Layout.tsx, /app/components/Sidebar.tsx, /app/routes/Dashboard.tsx, /app/routes/Jobs.tsx, /app/routes/Applicants.tsx, /app/components/ApplicantCard.tsx, /app/routes/Settings.tsx[22m
+[2m9:56:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m9:56:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m9:56:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Settings.tsx[22m
+[2m9:56:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Settings.tsx[22m
+[2m9:57:01 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Applicants.tsx[22m
+[2m9:57:01 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Applicants.tsx[22m
+[2m9:57:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Jobs.tsx[22m
+[2m9:57:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Jobs.tsx[22m
+[2m9:57:32 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Auth.tsx[22m
+[2m9:57:32 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Auth.tsx[22m
+[2m9:57:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/lib/i18n.tsx[22m
+[2m9:57:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/lib/i18n.tsx, /styles/index.css[22m
+[2m9:57:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [33mhmr invalidate [39m[2m/app/lib/i18n.tsx[22m Could not Fast Refresh. Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m9:57:42 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/root.tsx, /app/routes/Layout.tsx, /app/components/Sidebar.tsx, /app/routes/Dashboard.tsx, /app/routes/Jobs.tsx, /app/routes/Applicants.tsx, /app/components/ApplicantCard.tsx, /app/routes/Settings.tsx, /app/routes/CandidateDetail.tsx[22m
+[2m10:03:18 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m10:03:18 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx, /styles/index.css[22m
+[2m10:03:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Applicants.tsx[22m
+[2m10:03:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Applicants.tsx[22m

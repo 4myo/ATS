@@ -18,6 +18,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
+import { useI18n } from "../lib/i18n";
 import {
   Select,
   SelectContent,
@@ -47,6 +48,7 @@ const iconOptions = [
 ];
 
 export default function Jobs() {
+  const { t } = useI18n();
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -119,7 +121,7 @@ export default function Jobs() {
     try {
       const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !sessionData.session) {
-        throw new Error("You must be signed in to create a job.");
+        throw new Error(t("signedInRequiredJob"));
       }
 
       const { data, error } = await supabase
@@ -146,7 +148,7 @@ export default function Jobs() {
       resetForm();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to create job.";
+        error instanceof Error ? error.message : t("failedJobCreate");
       setSaveError(message);
     } finally {
       setIsSaving(false);
@@ -154,30 +156,33 @@ export default function Jobs() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="page-container">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Active Job Postings</h1>
+        <div>
+          <h1 className="page-title">{t("activeJobPostings")}</h1>
+          <p className="text-sm subtle-text">{t("jobsSubtitle")}</p>
+        </div>
         <button
-          className="inline-flex items-center justify-center rounded-md border border-transparent bg-gradient-to-r from-neutral-800 to-zinc-600 px-4 py-2 text-sm font-medium text-white shadow-lg hover:from-neutral-600 hover:to-neutral-500 hover:text-black"
+          className="primary-action"
           onClick={() => setIsAddOpen(true)}
         >
           <Plus className="mr-2 h-4 w-4" />
-          Create New Job
+          {t("createNewJob")}
         </button>
       </div>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="border-border bg-card text-card-foreground sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Create New Job</DialogTitle>
+            <DialogTitle>{t("createNewJobTitle")}</DialogTitle>
             <DialogDescription>
-              Add a new job posting with an icon, title, type, and description.
+              {t("createJobDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="job-title">Job title</Label>
+                <Label htmlFor="job-title">{t("jobTitle")}</Label>
                 <Input
                   id="job-title"
                   placeholder="Senior Frontend Engineer"
@@ -186,10 +191,10 @@ export default function Jobs() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="job-type">Job type</Label>
+                <Label htmlFor="job-type">{t("jobType")}</Label>
                 <Select value={jobType} onValueChange={setJobType}>
                   <SelectTrigger id="job-type">
-                    <SelectValue placeholder="Select type" />
+                    <SelectValue placeholder={t("selectType")} />
                   </SelectTrigger>
                   <SelectContent>
                     {["Full-time", "Part-time", "Contract", "Internship"].map((type) => (
@@ -201,10 +206,10 @@ export default function Jobs() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="job-description">Job description</Label>
+                <Label htmlFor="job-description">{t("jobDescription")}</Label>
                 <Textarea
                   id="job-description"
-                  placeholder="Describe role expectations, responsibilities, and requirements..."
+                  placeholder={t("jobDescriptionPlaceholder")}
                   value={jobDescription}
                   onChange={(event) => setJobDescription(event.target.value)}
                   className="min-h-[140px]"
@@ -213,8 +218,8 @@ export default function Jobs() {
               {saveError && <p className="text-sm text-red-500">{saveError}</p>}
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <h3 className="text-sm font-semibold text-slate-700">Select an icon</h3>
+            <div className="muted-panel p-4">
+              <h3 className="text-sm font-semibold text-foreground">{t("selectIcon")}</h3>
               <div className="mt-4 grid grid-cols-4 gap-3">
                 {iconOptions.map((option) => {
                   const Icon = option.icon;
@@ -226,8 +231,8 @@ export default function Jobs() {
                       onClick={() => setJobIcon(option.value)}
                       className={`flex flex-col items-center justify-center gap-2 rounded-lg border p-3 text-xs font-medium transition-colors ${
                         isSelected
-                          ? "border-indigo-500 bg-white text-indigo-600"
-                          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                          ? "border-ring bg-card text-foreground"
+                          : "border-border bg-card text-muted-foreground hover:border-ring"
                       }`}
                     >
                       <Icon className="h-5 w-5" />
@@ -247,53 +252,53 @@ export default function Jobs() {
               }}
               disabled={isSaving}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               onClick={handleSaveJob}
               disabled={isSaving || !jobTitle || !jobType || !jobDescription}
             >
-              {isSaving ? "Saving..." : "Save Job"}
+              {isSaving ? t("saving") : t("saveJob")}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {jobs.map((job) => {
           const Icon = iconMap[job.icon ?? "briefcase"] ?? Briefcase;
           return (
             <div
               key={job.id}
-              className="group relative flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md"
+              className="surface-card group relative flex min-h-[280px] flex-col justify-between p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
             >
               <div>
                 <div className="flex items-start justify-between">
-                  <div className="rounded-lg bg-indigo-50 p-3">
-                    <Icon className="h-6 w-6 text-indigo-600" />
+                  <div className="rounded-md bg-muted p-3 text-foreground">
+                    <Icon className="h-6 w-6" />
                   </div>
                   <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
-                    Active
+                    {t("active")}
                   </span>
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-slate-900 group-hover:text-indigo-600">
+                <h3 className="mt-4 text-lg font-semibold text-foreground">
                   <Link to={`/jobs/${job.id}`}>
                     <span className="absolute inset-0" />
                     {job.title}
                   </Link>
                 </h3>
-                {job.type && <p className="mt-1 text-sm text-slate-500">{job.type}</p>}
+                {job.type && <p className="mt-1 text-sm text-muted-foreground">{job.type}</p>}
                 {job.description && (
-                  <p className="mt-4 text-sm text-slate-500 line-clamp-3">
+                  <p className="mt-4 line-clamp-3 text-sm text-muted-foreground">
                     {job.description}
                   </p>
                 )}
               </div>
 
-              <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4">
-                <div className="flex items-center text-xs text-slate-400">
+              <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
+                <div className="flex items-center text-xs text-muted-foreground">
                   <Clock className="mr-1.5 h-3.5 w-3.5" />
-                  Posted {new Date(job.created_at).toLocaleDateString()}
+                  {t("posted")} {new Date(job.created_at).toLocaleDateString()}
                 </div>
               </div>
             </div>
@@ -302,8 +307,8 @@ export default function Jobs() {
       </div>
 
       {!isLoading && jobs.length === 0 && (
-        <div className="rounded-lg border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-          No jobs yet. Create your first job to get started.
+        <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">
+          {t("noJobs")}
         </div>
       )}
     </div>

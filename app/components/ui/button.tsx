@@ -9,11 +9,11 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-neutral-600 text-white hover:bg-neutral-700",
-        secondary: "bg-neutral-600 text-white hover:bg-neutral-700",
-        outline: "border border-neutral-500 text-neutral-500 hover:bg-neutral-50",
-        ghost: "hover:bg-neutral-500/10 hover:text-neutral-200",
-        link: "text-neutral-400 hover:underline",
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        outline: "border border-border bg-card text-foreground hover:bg-muted",
+        ghost: "hover:bg-muted hover:text-foreground",
+        link: "text-foreground underline-offset-4 hover:underline",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",

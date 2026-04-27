@@ -5,9 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { supabase } from "../lib/supabase";
+import { useI18n } from "../lib/i18n";
 
 export default function Auth() {
   const navigate = useNavigate();
+  const { language, setLanguage, t } = useI18n();
   const [isLoading, setIsLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,7 +51,7 @@ export default function Auth() {
 
   const handleEmailAuth = async () => {
     if (!email || !password) {
-      setErrorMessage("Email and password are required.");
+      setErrorMessage(t("emailPasswordRequired"));
       return;
     }
 
@@ -87,7 +89,7 @@ export default function Auth() {
 
     if (!data?.user) {
       setIsLoading(false);
-      setErrorMessage("Unable to create account. Try again.");
+      setErrorMessage(t("unableCreateAccount"));
       return;
     }
 
@@ -106,13 +108,21 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-slate-50">
+    <div className="min-h-screen w-full bg-background">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl items-center justify-center px-6 py-10">
-        <Card className="w-full max-w-md border-slate-200 shadow-xl">
+        <button
+          type="button"
+          onClick={() => setLanguage(language === "en" ? "sl" : "en")}
+          className="absolute right-6 top-6 rounded-md border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-muted"
+          title={language === "en" ? t("switchToSlovenian") : t("switchToEnglish")}
+        >
+          {language === "en" ? "SL" : "EN"}
+        </button>
+        <Card className="w-full max-w-md border-border bg-card shadow-xl">
           <CardHeader className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <CardTitle className="text-2xl text-slate-900">
-                {authMode === "signin" ? "Welcome back" : "Create your account"}
+              <CardTitle className="text-2xl text-foreground">
+                {authMode === "signin" ? t("welcomeBack") : t("createYourAccount")}
               </CardTitle>
               <img
                 src="/images/logo.png"
@@ -120,55 +130,55 @@ export default function Auth() {
                 className="h-25 w-25 rounded-lg object-contain"
               />
             </div>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-muted-foreground">
               {authMode === "signin"
-                ? "Log in with Google or your email and password."
-                : "Create an account with Google or your email and password."}
+                ? t("signInSubtitle")
+                : t("signUpSubtitle")}
             </p>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1 text-sm">
+            <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-1 text-sm">
               <button
                 type="button"
                 onClick={() => setAuthMode("signin")}
                 className={`rounded-lg px-3 py-2 font-medium transition ${
                   authMode === "signin"
-                    ? "bg-white text-slate-900 shadow"
-                    : "text-slate-500 hover:text-slate-700"
+                    ? "bg-card text-foreground shadow"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Log in
+                {t("logIn")}
               </button>
               <button
                 type="button"
                 onClick={() => setAuthMode("signup")}
                 className={`rounded-lg px-3 py-2 font-medium transition ${
                   authMode === "signup"
-                    ? "bg-white text-slate-900 shadow"
-                    : "text-slate-500 hover:text-slate-700"
+                    ? "bg-card text-foreground shadow"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                Create account
+                {t("createAccount")}
               </button>
             </div>
 
             <Button
-              className="w-full bg-white text-slate-900 hover:bg-slate-50 border border-slate-200"
+              className="w-full border border-border bg-card text-foreground hover:bg-muted"
               onClick={handleGoogleSignIn}
               disabled={isLoading}
             >
-              {isLoading ? "Redirecting..." : "Continue with Google"}
+              {isLoading ? t("redirecting") : t("continueWithGoogle")}
             </Button>
 
-            <div className="flex items-center gap-3 text-xs text-slate-400">
-              <span className="h-px flex-1 bg-slate-200" />
-              or
-              <span className="h-px flex-1 bg-slate-200" />
+            <div className="flex items-center gap-3 text-xs text-muted-foreground">
+              <span className="h-px flex-1 bg-border" />
+              {t("or")}
+              <span className="h-px flex-1 bg-border" />
             </div>
 
             <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">{t("email")}</Label>
                 <Input
                   id="email"
                   type="email"
@@ -178,7 +188,7 @@ export default function Auth() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <Label htmlFor="password">{t("password")}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -192,7 +202,7 @@ export default function Auth() {
                 disabled={isLoading}
                 onClick={handleEmailAuth}
               >
-                {authMode === "signin" ? "Log in with email" : "Create account"}
+                {authMode === "signin" ? t("loginWithEmail") : t("createAccount")}
               </Button>
             </div>
 
@@ -202,14 +212,14 @@ export default function Auth() {
               </div>
             ) : null}
 
-            <div className="text-center text-xs text-slate-500">
-              By continuing, you agree to our
-              <Link className="mx-1 text-slate-700 underline" to="/terms">
-                Terms
+            <div className="text-center text-xs text-muted-foreground">
+              {t("termsPrefix")}
+              <Link className="mx-1 text-foreground underline" to="/terms">
+                {t("terms")}
               </Link>
-              and
-              <Link className="mx-1 text-slate-700 underline" to="/privacy">
-                Privacy Policy
+              {t("and")}
+              <Link className="mx-1 text-foreground underline" to="/privacy">
+                {t("privacyPolicy")}
               </Link>
               .
             </div>

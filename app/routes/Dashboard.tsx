@@ -1,20 +1,29 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router';
 import type { Applicant, Stage } from '../store';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
-import { Users, Briefcase, TrendingUp, AlertCircle, Phone, Mail, FileText, MapPin, X } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
+import { Users, Briefcase, TrendingUp, AlertCircle, CalendarDays, Bot } from 'lucide-react';
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import { ScrollArea } from "../components/ui/scroll-area";
-import { Separator } from "../components/ui/separator";
 import { supabase } from "../lib/supabase";
+import { useI18n } from "../lib/i18n";
+
+type DashboardApplicant = Applicant & {
+  createdAt: string | null;
+  aiWritingScore: number | null;
+};
+
+const dashboardCandidateSelect =
+  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, created_at";
+
+const dashboardCandidateSelectWithAiWriting =
+  `${dashboardCandidateSelect}, ai_writing_score`;
 
 export default function Dashboard() {
-  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const { t, stageLabel } = useI18n();
+  const [applicants, setApplicants] = useState<DashboardApplicant[]>([]);
   const [jobsCount, setJobsCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -31,18 +40,34 @@ export default function Dashboard() {
         return;
       }
 
-      const [{ data: candidateRows, error: candidateError }, { count: jobCount, error: jobError }] =
+      const [{ data: candidateRowsWithAi, error: candidateErrorWithAi }, { count: jobCount, error: jobError }] =
         await Promise.all([
           supabase
             .from("candidates")
-            .select(
-              "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_strengths, analysis_concerns",
-            )
+            .select(dashboardCandidateSelectWithAiWriting)
             .order("created_at", { ascending: false }),
           supabase.from("jobs").select("id", { count: "exact", head: true }),
         ]);
 
       if (!isMounted) return;
+
+      let candidateRows = candidateRowsWithAi as Array<Record<string, unknown>> | null;
+      let candidateError = candidateErrorWithAi;
+
+      if (
+        candidateErrorWithAi &&
+        (candidateErrorWithAi.message?.includes("ai_writing") ||
+          candidateErrorWithAi.details?.includes("ai_writing"))
+      ) {
+        const retry = await supabase
+          .from("candidates")
+          .select(dashboardCandidateSelect)
+          .order("created_at", { ascending: false });
+
+        if (!isMounted) return;
+        candidateRows = retry.data as Array<Record<string, unknown>> | null;
+        candidateError = retry.error;
+      }
 
       if (candidateError || jobError) {
         setApplicants([]);
@@ -63,12 +88,14 @@ export default function Dashboard() {
         avatar: row.resume_preview_url ?? "",
         email: row.email ?? "",
         phone: "",
-        summary: "",
+        summary: row.analysis_summary ?? "",
+        createdAt: row.created_at ?? null,
+        aiWritingScore: row.ai_writing_score == null ? null : Number(row.ai_writing_score),
         matchAnalysis: {
           pros: row.analysis_strengths ?? [],
           cons: row.analysis_concerns ?? [],
         },
-      })) as Applicant[];
+      })) as DashboardApplicant[];
 
       setApplicants(mapped);
       setJobsCount(jobCount ?? 0);
@@ -87,62 +114,134 @@ export default function Dashboard() {
   const avgScore = totalApplicants
     ? Math.round(applicants.reduce((acc, curr) => acc + curr.aiScore, 0) / totalApplicants)
     : 0;
+  const candidatesNeedingReview = applicants.filter((applicant) =>
+    ["Applied", "Screening"].includes(applicant.stage),
+  ).length;
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const newApplicantsThisWeek = applicants.filter((applicant) => {
+    if (!applicant.createdAt) return false;
+    return new Date(applicant.createdAt).getTime() >= sevenDaysAgo;
+  }).length;
+  const highAiWritingSignalCount = applicants.filter(
+    (applicant) => (applicant.aiWritingScore ?? 0) >= 68,
+  ).length;
 
   const stageData = useMemo(
     () => [
-      { name: "Applied", value: applicants.filter((a) => a.stage === "Applied").length },
-      { name: "Screening", value: applicants.filter((a) => a.stage === "Screening").length },
-      { name: "Interview", value: applicants.filter((a) => a.stage === "Interview").length },
-      { name: "Offer", value: applicants.filter((a) => a.stage === "Offer").length },
-      { name: "Rejected", value: applicants.filter((a) => a.stage === "Rejected").length },
+      { stage: "Applied" as Stage, label: stageLabel("Applied"), value: applicants.filter((a) => a.stage === "Applied").length },
+      { stage: "Screening" as Stage, label: stageLabel("Screening"), value: applicants.filter((a) => a.stage === "Screening").length },
+      { stage: "Interview" as Stage, label: stageLabel("Interview"), value: applicants.filter((a) => a.stage === "Interview").length },
+      { stage: "Offer" as Stage, label: stageLabel("Offer"), value: applicants.filter((a) => a.stage === "Offer").length },
+      { stage: "Rejected" as Stage, label: stageLabel("Rejected"), value: applicants.filter((a) => a.stage === "Rejected").length },
     ],
-    [applicants],
+    [applicants, stageLabel],
   );
+
+  const stageCounts = useMemo(
+    () =>
+      stageData.reduce<Record<Stage, number>>(
+        (acc, stage) => {
+          acc[stage.stage] = stage.value;
+          return acc;
+        },
+        { Applied: 0, Screening: 0, Interview: 0, Offer: 0, Rejected: 0 },
+      ),
+    [stageData],
+  );
+
+  const formatPercent = (value: number, total: number) =>
+    total > 0 ? `${Math.round((value / total) * 100)}%` : "0%";
+
+  const pipelineHealth = [
+    {
+      label: t("appliedToScreening"),
+      value: formatPercent(
+        stageCounts.Screening + stageCounts.Interview + stageCounts.Offer,
+        totalApplicants,
+      ),
+      detail: `${stageCounts.Screening + stageCounts.Interview + stageCounts.Offer} ${t("movedPastApplied")}`,
+      color: "#06b6d4",
+    },
+    {
+      label: t("screeningToInterview"),
+      value: formatPercent(
+        stageCounts.Interview + stageCounts.Offer,
+        stageCounts.Screening + stageCounts.Interview + stageCounts.Offer,
+      ),
+      detail: `${stageCounts.Interview + stageCounts.Offer} ${t("reachedInterview")}`,
+      color: "#8b5cf6",
+    },
+    {
+      label: t("interviewToOffer"),
+      value: formatPercent(stageCounts.Offer, stageCounts.Interview + stageCounts.Offer),
+      detail: `${stageCounts.Offer} ${stageCounts.Offer === 1 ? t("offerStageCandidate") : t("offerStageCandidates")}`,
+      color: "#ec4899",
+    },
+    {
+      label: t("offerRate"),
+      value: formatPercent(stageCounts.Offer, totalApplicants),
+      detail: t("offersAcrossApplicants"),
+      color: "#22c55e",
+    },
+    {
+      label: t("rejectionRate"),
+      value: formatPercent(stageCounts.Rejected, totalApplicants),
+      detail: `${stageCounts.Rejected} ${stageCounts.Rejected === 1 ? t("rejectedCandidate") : t("rejectedCandidates")}`,
+      color: "#ef4444",
+    },
+  ];
 
   const recentApplicants = [...applicants]
     .sort((a, b) => b.aiScore - a.aiScore)
     .slice(0, 3);
 
   const stats = [
-    { label: 'Total Applicants', value: totalApplicants, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100' },
-    { label: 'Active Jobs', value: activeJobs, icon: Briefcase, color: 'text-purple-600', bg: 'bg-purple-100' },
-    { label: 'Avg AI Score', value: avgScore, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-100' },
-    { label: 'Pending Review', value: stageData.find((stage) => stage.name === 'Screening')?.value ?? 0, icon: AlertCircle, color: 'text-amber-600', bg: 'bg-amber-100' },
+    { label: t('totalApplicants'), value: totalApplicants, detail: t('allCandidates'), icon: Users, tone: 'text-sky-600 bg-sky-500/10 dark:text-sky-300' },
+    { label: t('activeJobs'), value: activeJobs, detail: t('openRoles'), icon: Briefcase, tone: 'text-violet-600 bg-violet-500/10 dark:text-violet-300' },
+    { label: t('averageMatchScore'), value: `${avgScore}%`, detail: t('acrossCandidates'), icon: TrendingUp, tone: 'text-emerald-600 bg-emerald-500/10 dark:text-emerald-300' },
+    { label: t('needReview'), value: candidatesNeedingReview, detail: t('appliedScreening'), icon: AlertCircle, tone: 'text-amber-600 bg-amber-500/10 dark:text-amber-300' },
+    { label: t('newThisWeek'), value: newApplicantsThisWeek, detail: t('lastSevenDays'), icon: CalendarDays, tone: 'text-cyan-600 bg-cyan-500/10 dark:text-cyan-300' },
+    { label: t('highAiWritingSignal'), value: highAiWritingSignalCount, detail: t('score68'), icon: Bot, tone: 'text-pink-600 bg-pink-500/10 dark:text-pink-300' },
   ];
 
-  const COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444'];
-
-  const handleApplicantClick = (applicant: Applicant) => {
-    setSelectedApplicant(applicant);
-    setIsDialogOpen(true);
-  };
+  const STAGE_COLORS = {
+    Applied: "#06b6d4",
+    Screening: "#8b5cf6",
+    Interview: "#ec4899",
+    Offer: "#22c55e",
+    Rejected: "#ef4444",
+  } satisfies Record<Stage, string>;
 
   return (
-    <div className="space-y-6">
+    <div className="page-container">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Dashboard Overview</h1>
+        <div>
+          <h1 className="page-title">{t("dashboardOverview")}</h1>
+          <p className="text-sm subtle-text">{t("dashboardSubtitle")}</p>
+        </div>
         <div className="flex space-x-2">
-          <select className="rounded-md border-slate-300 py-1.5 text-sm font-medium shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-            <option>Last 7 Days</option>
-            <option>Last 30 Days</option>
-            <option>This Year</option>
+          <select className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:border-ring focus:ring-ring">
+            <option>{t("last7Days")}</option>
+            <option>{t("last30Days")}</option>
+            <option>{t("thisYear")}</option>
           </select>
         </div>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         {stats.map((stat) => (
-          <div key={stat.label} className="overflow-hidden rounded-xl bg-white p-5 shadow-sm border border-slate-100 transition-all hover:shadow-md">
-            <div className="flex items-center">
-              <div className={`flex-shrink-0 rounded-md p-3 ${stat.bg}`}>
-                <stat.icon className={`h-6 w-6 ${stat.color}`} />
+          <div key={stat.label} className="surface-card overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
+            <div className="flex items-start gap-3">
+              <div className={`flex-shrink-0 rounded-md p-2.5 ${stat.tone}`}>
+                <stat.icon className="h-5 w-5" />
               </div>
-              <div className="ml-5 w-0 flex-1">
+              <div className="min-w-0 flex-1">
                 <dl>
-                  <dt className="truncate text-sm font-medium text-slate-500">{stat.label}</dt>
+                  <dt className="truncate text-xs font-medium uppercase tracking-wide subtle-text">{stat.label}</dt>
                   <dd>
-                    <div className="text-2xl font-semibold text-slate-900">{stat.value}</div>
+                    <div className="mt-1 text-2xl font-semibold text-foreground">{stat.value}</div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">{stat.detail}</div>
                   </dd>
                 </dl>
               </div>
@@ -154,22 +253,23 @@ export default function Dashboard() {
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         {/* Bar Chart */}
-        <div className="rounded-xl bg-white p-6 shadow-sm border border-slate-100">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">Applicant Pipeline</h2>
+        <div className="surface-card p-5">
+          <h2 className="mb-4 text-base font-semibold text-foreground">{t("applicantPipeline")}</h2>
           <div className="h-64 w-full min-w-0 min-h-[256px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
               <BarChart data={stageData}>
-                <XAxis dataKey="name" fontSize={12} tickLine={false} axisLine={false} />
-                <YAxis fontSize={12} tickLine={false} axisLine={false} />
+                <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} stroke="var(--muted-foreground)" />
+                <YAxis fontSize={12} tickLine={false} axisLine={false} stroke="var(--muted-foreground)" />
                 <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  cursor={{ fill: '#f8fafc' }}
+                  contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--foreground)', boxShadow: '0 12px 24px -18px rgb(0 0 0 / 0.45)' }}
+                  cursor={{ fill: 'var(--muted)' }}
+                  formatter={(value) => [value, t("applicants")]}
                 />
                 <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={40}>
                   {stageData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    <Cell key={`cell-${index}`} fill={STAGE_COLORS[entry.stage]} />
                   ))}
                 </Bar>
               </BarChart>
@@ -178,8 +278,8 @@ export default function Dashboard() {
         </div>
 
         {/* Pie Chart */}
-        <div className="rounded-xl bg-white p-6 shadow-sm border border-slate-100 flex flex-col items-center justify-center">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4 w-full text-left">Distribution by Stage</h2>
+        <div className="surface-card flex flex-col items-center justify-center p-5">
+          <h2 className="mb-4 w-full text-left text-base font-semibold text-foreground">{t("distributionByStage")}</h2>
           <div className="h-64 w-full min-w-0 min-h-[256px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
               <PieChart>
@@ -191,205 +291,111 @@ export default function Dashboard() {
                   outerRadius={80}
                   paddingAngle={5}
                   dataKey="value"
+                  nameKey="label"
                 >
                   {stageData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    <Cell key={`cell-${index}`} fill={STAGE_COLORS[entry.stage]} />
                   ))}
                 </Pie>
-                <Tooltip />
-                <Legend verticalAlign="bottom" height={36}/>
+                <Tooltip
+                  contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--foreground)' }}
+                  formatter={(value) => [value, t("applicants")]}
+                />
+                <Legend verticalAlign="bottom" height={36} wrapperStyle={{ color: "var(--foreground)" }} />
               </PieChart>
             </ResponsiveContainer>
           </div>
         </div>
       </div>
 
-      {/* Top Candidates */}
-      <div className="rounded-xl bg-white p-6 shadow-sm border border-slate-100">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-slate-900">Top AI Matches</h2>
-          <a href="/applicants" className="text-sm font-medium text-indigo-600 hover:text-indigo-500">View all</a>
+      <div className="surface-card p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{t("pipelineHealth")}</h2>
+            <p className="text-sm text-muted-foreground">{t("pipelineHealthSubtitle")}</p>
+          </div>
         </div>
-        <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {pipelineHealth.map((metric) => (
+            <div key={metric.label} className="rounded-md border border-border bg-muted/35 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {metric.label}
+                </span>
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: metric.color }}
+                />
+              </div>
+              <div className="mt-3 text-2xl font-semibold text-foreground">{metric.value}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{metric.detail}</div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-background">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: metric.value,
+                    backgroundColor: metric.color,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Top Candidates */}
+      <div className="surface-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{t("topCandidateMatches")}</h2>
+            <p className="text-sm text-muted-foreground">{t("topCandidateMatchesSubtitle")}</p>
+          </div>
+          <a href="/applicants" className="text-sm font-medium text-foreground underline-offset-4 hover:underline">{t("viewAll")}</a>
+        </div>
+        <div className="space-y-3">
           {recentApplicants.map((applicant) => (
-             <div 
+             <div
                 key={applicant.id} 
-                onClick={() => handleApplicantClick(applicant)}
-                className="flex items-center justify-between p-3 rounded-lg bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer group border border-transparent hover:border-slate-200"
+                className="grid gap-4 rounded-md border border-border bg-muted/35 p-4 transition-colors hover:bg-muted/60 lg:grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.9fr_1.4fr_auto] lg:items-center"
              >
-                <div className="flex items-center space-x-3">
-                  <img src={applicant.avatar} alt="" className="h-10 w-10 rounded-full" />
-                  <div>
-                    <p className="text-sm font-medium text-slate-900 group-hover:text-indigo-600 transition-colors">{applicant.name}</p>
-                    <p className="text-xs text-slate-500">{applicant.role}</p>
-                  </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("candidate")}</div>
+                  <p className="text-sm font-semibold text-foreground">{applicant.name}</p>
                 </div>
-                <div className="flex items-center gap-6">
-                  <div className="hidden sm:flex flex-col items-end mr-4">
-                     <span className="text-xs text-slate-400">Stage</span>
-                     <Badge variant="secondary" className="mt-1">{applicant.stage}</Badge>
-                  </div>
-                  <div className="text-right min-w-[60px]">
-                    <span className="block text-lg font-bold text-emerald-600">{applicant.aiScore}%</span>
-                    <span className="text-xs text-slate-400">Match</span>
-                  </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("job")}</div>
+                  <p className="text-sm text-muted-foreground">{applicant.role}</p>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("match")}</div>
+                  <span className="text-lg font-semibold text-emerald-500">{applicant.aiScore}%</span>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("stage")}</div>
+                  <Badge variant="secondary">{stageLabel(applicant.stage)}</Badge>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("aiWriting")}</div>
+                  <span className="text-sm font-medium text-foreground">
+                    {applicant.aiWritingScore == null ? t("notScored") : `${Math.round(applicant.aiWritingScore)}%`}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("aiSummary")}</div>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {applicant.summary || applicant.matchAnalysis.pros[0] || t("aiAnalysisPending")}
+                  </p>
+                </div>
+                <div className="flex justify-start lg:justify-end">
+                  <Button asChild variant="outline" size="sm">
+                    <Link to={`/applicants/${applicant.id}`}>{t("review")}</Link>
+                  </Button>
                 </div>
              </div>
           ))}
         </div>
       </div>
 
-      {/* Candidate Detail Modal */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
-          <DialogHeader className="p-6 pb-2 border-b">
-            <div className="flex items-start gap-4">
-              {selectedApplicant && (
-                <>
-                  <img src={selectedApplicant.avatar} alt={selectedApplicant.name} className="h-16 w-16 rounded-full border-2 border-slate-100" />
-                  <div className="flex-1 text-left">
-                    <DialogTitle className="text-2xl font-bold flex items-center gap-2">
-                      {selectedApplicant.name}
-                      <Badge className="ml-2 bg-emerald-600 hover:bg-emerald-700">{selectedApplicant.aiScore}% Match</Badge>
-                    </DialogTitle>
-                    <DialogDescription className="text-base mt-1 flex items-center gap-2">
-                      {selectedApplicant.role} • {selectedApplicant.experience}y Exp
-                    </DialogDescription>
-                    <div className="flex flex-wrap gap-4 mt-2 text-sm text-slate-500">
-                      <div className="flex items-center gap-1">
-                         <Mail className="h-3.5 w-3.5" /> {selectedApplicant.email}
-                      </div>
-                      <div className="flex items-center gap-1">
-                         <Phone className="h-3.5 w-3.5" /> {selectedApplicant.phone}
-                      </div>
-                      <div className="flex items-center gap-1">
-                         <MapPin className="h-3.5 w-3.5" /> {selectedApplicant.location}
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </DialogHeader>
-          
-          <ScrollArea className="flex-1 bg-slate-50/50">
-             <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Left Sidebar Info */}
-                <div className="space-y-6">
-                   <div className="bg-white p-4 rounded-lg border shadow-sm">
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                         <TrendingUp className="h-4 w-4 text-emerald-600" /> Match Analysis
-                      </h3>
-                      <div className="space-y-3 text-sm">
-                         <div>
-                            <span className="text-xs font-semibold text-green-600 uppercase tracking-wider">Pros</span>
-                            <ul className="list-disc list-inside text-slate-600 mt-1 space-y-1">
-                               {selectedApplicant?.matchAnalysis.pros.map(pro => (
-                                  <li key={pro}>{pro}</li>
-                               ))}
-                            </ul>
-                         </div>
-                         <Separator />
-                         <div>
-                            <span className="text-xs font-semibold text-red-600 uppercase tracking-wider">Cons</span>
-                            <ul className="list-disc list-inside text-slate-600 mt-1 space-y-1">
-                               {selectedApplicant?.matchAnalysis.cons.map(con => (
-                                  <li key={con}>{con}</li>
-                               ))}
-                            </ul>
-                         </div>
-                      </div>
-                   </div>
-
-                   <div className="bg-white p-4 rounded-lg border shadow-sm">
-                      <h3 className="font-semibold mb-3">Skills</h3>
-                      <div className="flex flex-wrap gap-2">
-                         {selectedApplicant?.skills.map(skill => (
-                            <Badge key={skill} variant="outline">{skill}</Badge>
-                         ))}
-                      </div>
-                   </div>
-                </div>
-
-                {/* Main Content / CV Preview */}
-                <div className="md:col-span-2 space-y-6">
-                   <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-lg flex items-center gap-2">
-                         <FileText className="h-5 w-5 text-slate-500" /> Resume / CV
-                      </h3>
-                      <Button variant="outline" size="sm">Download PDF</Button>
-                   </div>
-                   
-                   {/* Mock PDF Viewer */}
-                   <div className="bg-white border shadow-sm min-h-[500px] p-8 md:p-12 relative mx-auto max-w-[210mm] text-slate-800">
-                      {selectedApplicant && (
-                         <div className="space-y-6 font-serif">
-                            <div className="border-b-2 border-slate-800 pb-4 mb-6">
-                               <h1 className="text-3xl font-bold uppercase tracking-widest text-slate-900">{selectedApplicant.name}</h1>
-                               <p className="text-lg italic text-slate-600 mt-1">{selectedApplicant.role}</p>
-                               <div className="flex gap-4 mt-2 text-sm text-slate-500 font-sans">
-                                  <span>{selectedApplicant.email}</span> • <span>{selectedApplicant.phone}</span> • <span>{selectedApplicant.location}</span>
-                               </div>
-                            </div>
-                            
-                            <section>
-                               <h4 className="text-sm font-bold uppercase tracking-wider border-b border-slate-300 pb-1 mb-2 text-slate-400 font-sans">Professional Summary</h4>
-                               <p className="leading-relaxed text-justify">
-                                  {selectedApplicant.summary} 
-                                  {" "}
-                                  Driven professional with {selectedApplicant.experience} years of experience. 
-                                  Proven track record in delivering high-quality results. 
-                                  Adept at working in agile environments and collaborating with cross-functional teams to achieve business goals.
-                               </p>
-                            </section>
-
-                            <section>
-                               <h4 className="text-sm font-bold uppercase tracking-wider border-b border-slate-300 pb-1 mb-2 text-slate-400 font-sans">Experience</h4>
-                               <div className="space-y-4">
-                                  <div>
-                                     <div className="flex justify-between font-bold">
-                                        <span>Senior {selectedApplicant.role.replace('Senior ', '')}</span>
-                                        <span>2021 - Present</span>
-                                     </div>
-                                     <div className="italic text-slate-600 mb-1">TechCorp Inc.</div>
-                                     <ul className="list-disc list-outside ml-4 space-y-1 text-sm">
-                                        <li>Led a team of developers to rebuild the core platform, improving performance by 40%.</li>
-                                        <li>Implemented automated testing pipelines, reducing deployment errors by 25%.</li>
-                                        <li>Mentored junior developers and conducted code reviews.</li>
-                                     </ul>
-                                  </div>
-                                  <div>
-                                     <div className="flex justify-between font-bold">
-                                        <span>{selectedApplicant.role.replace('Senior ', '')}</span>
-                                        <span>2018 - 2021</span>
-                                     </div>
-                                     <div className="italic text-slate-600 mb-1">Innovate Solutions</div>
-                                     <ul className="list-disc list-outside ml-4 space-y-1 text-sm">
-                                        <li>Developed and maintained client-facing features using modern web technologies.</li>
-                                        <li>Collaborated with designers to implement responsive UI components.</li>
-                                     </ul>
-                                  </div>
-                               </div>
-                            </section>
-
-                            <section>
-                               <h4 className="text-sm font-bold uppercase tracking-wider border-b border-slate-300 pb-1 mb-2 text-slate-400 font-sans">Education</h4>
-                               <div>
-                                  <div className="flex justify-between font-bold">
-                                     <span>Bachelor of Science in Computer Science</span>
-                                     <span>2014 - 2018</span>
-                                  </div>
-                                  <div className="italic text-slate-600">University of Technology</div>
-                               </div>
-                            </section>
-                         </div>
-                      )}
-                   </div>
-                </div>
-             </div>
-          </ScrollArea>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

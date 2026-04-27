@@ -29,6 +29,9 @@ create table if not exists public.candidates (
   analysis_summary text,
   analysis_strengths text[] not null default '{}',
   analysis_concerns text[] not null default '{}',
+  ai_writing_score numeric,
+  ai_writing_label text,
+  ai_writing_notes text[] not null default '{}',
   skill_profile jsonb,
   analysis_status text not null default 'pending_ai',
   created_at timestamptz not null default now()
@@ -87,6 +90,9 @@ create policy "signup_rate_limits_no_access" on public.signup_rate_limits
 --   add column if not exists analysis_summary text,
 --   add column if not exists analysis_strengths text[] not null default '{}',
 --   add column if not exists analysis_concerns text[] not null default '{}',
+--   add column if not exists ai_writing_score numeric,
+--   add column if not exists ai_writing_label text,
+--   add column if not exists ai_writing_notes text[] not null default '{}',
 --   add column if not exists skill_profile jsonb;
 
 -- If you already created the jobs table earlier, run this ALTER block:

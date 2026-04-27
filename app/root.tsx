@@ -6,6 +6,7 @@ import {
   ScrollRestoration,
 } from "react-router";
 import "../styles/index.css";
+import { I18nProvider } from "./lib/i18n";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -26,5 +27,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function Root() {
-  return <Outlet />;
+  return (
+    <I18nProvider>
+      <Outlet />
+    </I18nProvider>
+  );
 }

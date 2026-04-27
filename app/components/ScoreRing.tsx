@@ -18,9 +18,9 @@ export function ScoreRing({ score, size = 'md', className }: ScoreRingProps) {
   if (score >= 80) colorClass = 'text-emerald-500';
   else if (score >= 60) colorClass = 'text-amber-500';
 
-  let bgClass = 'text-red-100';
-  if (score >= 80) bgClass = 'text-emerald-100';
-  else if (score >= 60) bgClass = 'text-amber-100';
+  let bgClass = 'text-red-500/15';
+  if (score >= 80) bgClass = 'text-emerald-500/15';
+  else if (score >= 60) bgClass = 'text-amber-500/15';
 
   const sizeClass = size === 'lg' ? 'h-24 w-24' : size === 'md' ? 'h-14 w-14' : 'h-10 w-10';
   const textClass = size === 'lg' ? 'text-2xl' : size === 'md' ? 'text-sm' : 'text-xs';
@@ -56,7 +56,7 @@ export function ScoreRing({ score, size = 'md', className }: ScoreRingProps) {
           strokeLinecap="round"
         />
       </svg>
-      <div className={clsx('absolute font-bold text-slate-700', textClass)}>
+      <div className={clsx('absolute font-bold text-foreground', textClass)}>
         {score}
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAppStore, type Applicant, type Stage } from "../store";
 import { ApplicantCard } from "../components/ApplicantCard";
-import { Filter, SortAsc, Search } from "lucide-react";
+import { SortAsc, Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,8 +21,10 @@ import {
 } from "../components/ui/select";
 import { convertPdfToImage, extractPdfText } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
+import { useI18n } from "../lib/i18n";
 
 export default function Applicants() {
+  const { t, stageLabel } = useI18n();
   const { applicants } = useAppStore();
   const [jobs, setJobs] = useState<
     Array<{ id: string; title: string; description?: string | null }>
@@ -146,7 +148,7 @@ export default function Applicants() {
       setResumeText(normalized);
     } else {
       setResumePreview(null);
-      setResumeError(result.error ?? "Failed to generate preview.");
+      setResumeError(result.error ?? t("previewFailed"));
       setResumeText("");
     }
 
@@ -168,7 +170,7 @@ export default function Applicants() {
 
   const handleDeleteApplicant = async (id: string) => {
     const confirmed = window.confirm(
-      "Delete this applicant? This action cannot be undone.",
+      t("deleteApplicantConfirm"),
     );
     if (!confirmed) return;
 
@@ -187,7 +189,7 @@ export default function Applicants() {
         await supabase.auth.getSession();
 
       if (sessionError || !sessionData.session) {
-        throw new Error("You must be signed in to save a candidate.");
+        throw new Error(t("signedInRequiredCandidate"));
       }
 
       let resumePath: string | null = null;
@@ -201,7 +203,7 @@ export default function Applicants() {
 
       if (resumeFile && !normalizedResumeText.trim()) {
         throw new Error(
-          "Resume text could not be extracted. Please upload a text-based PDF.",
+          t("resumeExtractFailed"),
         );
       }
 
@@ -263,7 +265,7 @@ export default function Applicants() {
       setIsAddOpen(false);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to save candidate.";
+        error instanceof Error ? error.message : t("failedCandidateSave");
       setSaveError(message);
     } finally {
       setIsSaving(false);
@@ -279,36 +281,38 @@ export default function Applicants() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="page-container">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Applicants</h1>
-        <div className="mt-4 sm:mt-0 flex space-x-3">
-          
-          <button className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
-            <SortAsc className="mr-2 h-4 w-4 text-slate-500" />
-            Sort
+        <div>
+          <h1 className="page-title">{t("applicants")}</h1>
+          <p className="text-sm subtle-text">{t("applicantsSubtitle")}</p>
+        </div>
+        <div className="mt-4 flex space-x-3 sm:mt-0">
+          <button className="quiet-action">
+            <SortAsc className="mr-2 h-4 w-4 text-muted-foreground" />
+            {t("sort")}
           </button>
           <Button
-            className="bg-gradient-to-r from-neutral-800 to-zinc-600 hover:from-neutral-600 hover:to-neutral-500 hover:text-black cursor:hover"
+            className="bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={() => setIsAddOpen(true)}
           >
-            Add Candidate
+            {t("addCandidate")}
           </Button>
         </div>
       </div>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="sm:max-w-3xl">
+        <DialogContent className="border-border bg-card text-card-foreground sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Add Candidate</DialogTitle>
+            <DialogTitle>{t("addCandidate")}</DialogTitle>
             <DialogDescription>
-              Add a new candidate profile. This is a placeholder form for now.
+              {t("addCandidateDescription")}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="candidate-name">Full name</Label>
+                <Label htmlFor="candidate-name">{t("fullName")}</Label>
                 <Input
                   id="candidate-name"
                   placeholder="Jane Doe"
@@ -317,7 +321,7 @@ export default function Applicants() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="candidate-role">Job title</Label>
+                <Label htmlFor="candidate-role">{t("jobTitle")}</Label>
                 <Select
                   value={jobTitle}
                   onValueChange={(value) => {
@@ -327,7 +331,7 @@ export default function Applicants() {
                   }}
                 >
                   <SelectTrigger id="candidate-role">
-                    <SelectValue placeholder="Select a job" />
+                    <SelectValue placeholder={t("selectJob")} />
                   </SelectTrigger>
                   <SelectContent>
                     {jobs.map((job) => (
@@ -339,16 +343,16 @@ export default function Applicants() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="candidate-stage">Stage</Label>
+                <Label htmlFor="candidate-stage">{t("stage")}</Label>
                 <Select value={stage} onValueChange={(value) => setStage(value as Stage)}>
                   <SelectTrigger id="candidate-stage">
-                    <SelectValue placeholder="Select stage" />
+                    <SelectValue placeholder={t("selectStage")} />
                   </SelectTrigger>
                   <SelectContent>
                     {(["Applied", "Screening", "Interview", "Offer", "Rejected"] as Stage[]).map(
                       (stageOption) => (
                         <SelectItem key={stageOption} value={stageOption}>
-                          {stageOption}
+                          {stageLabel(stageOption)}
                         </SelectItem>
                       ),
                     )}
@@ -356,7 +360,7 @@ export default function Applicants() {
                 </Select>
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="candidate-resume">Upload resume (PDF)</Label>
+                <Label htmlFor="candidate-resume">{t("uploadResumePdf")}</Label>
                 <Input
                   id="candidate-resume"
                   type="file"
@@ -364,9 +368,9 @@ export default function Applicants() {
                   onChange={handleResumeUpload}
                 />
                 {resumeFileName && (
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs subtle-text">
                     {isConverting
-                      ? "Converting PDF preview..."
+                      ? t("convertingPdfPreview")
                       : resumeFileName}
                   </p>
                 )}
@@ -379,27 +383,27 @@ export default function Applicants() {
               )}
             </div>
 
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="muted-panel p-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-700">
-                  Resume Preview
+                <h3 className="text-sm font-semibold text-foreground">
+                  {t("resumePreview")}
                 </h3>
                 {resumePreview && (
-                  <button className="text-xs font-medium text-indigo-600 hover:text-indigo-700">
-                    View full
+                  <button className="text-xs font-medium text-foreground underline-offset-4 hover:underline">
+                    {t("viewFull")}
                   </button>
                 )}
               </div>
-              <div className="mt-4 flex min-h-[220px] items-center justify-center rounded-md border border-dashed border-slate-300 bg-white">
+              <div className="mt-4 flex min-h-[220px] items-center justify-center rounded-md border border-dashed border-border bg-card">
                 {resumePreview ? (
                   <img
                     src={resumePreview}
-                    alt="Resume preview"
+                    alt={t("resumePreview")}
                     className="h-full max-h-[280px] w-full object-contain"
                   />
                 ) : (
-                  <span className="text-xs text-slate-400">
-                    Upload a PDF to preview the first page
+                  <span className="text-xs subtle-text">
+                    {t("uploadPdfPreview")}
                   </span>
                 )}
               </div>
@@ -414,7 +418,7 @@ export default function Applicants() {
               }}
               disabled={isSaving}
             >
-              Cancel
+              {t("cancel")}
             </Button>
             <Button
               onClick={handleSaveCandidate}
@@ -425,42 +429,42 @@ export default function Applicants() {
                 isConverting
               }
             >
-              {isSaving ? "Saving..." : "Save Candidate"}
+              {isSaving ? t("saving") : t("saveCandidate")}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Filters Bar */}
-      <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+      <div className="surface-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search candidates..."
+            placeholder={t("searchCandidates")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-md border-slate-300 pl-10 focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            className="w-full rounded-md border border-border bg-input-background px-3 py-2 pl-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
           />
         </div>
         <div className="flex items-center space-x-2">
-          <span className="text-sm font-medium text-slate-700 whitespace-nowrap">Min AI Score: {filterScore}%</span>
+          <span className="whitespace-nowrap text-sm font-medium text-foreground">{t("minAiScore")}: {filterScore}%</span>
           <input
             type="range"
             min="0"
             max="100"
             value={filterScore}
             onChange={(e) => setFilterScore(Number(e.target.value))}
-            className="w-32 h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-zinc-800"
+            className="h-3 w-32 cursor-pointer appearance-none rounded-lg bg-muted accent-primary"
           />
         </div>
       </div>
 
       {isLoadingCandidates ? (
-        <div className="flex items-center justify-center rounded-lg border border-dashed border-slate-200 bg-white py-16 text-sm text-slate-500">
+        <div className="surface-card flex items-center justify-center border-dashed py-16 text-sm text-muted-foreground">
           <div className="flex items-center gap-3">
-            <span className="inline-flex h-5 w-5 animate-spin rounded-full border-2 border-slate-300 border-t-neutral-600" />
-            Loading candidates...
+            <span className="inline-flex h-5 w-5 animate-spin rounded-full border-2 border-muted border-t-primary" />
+            {t("loadingCandidates")}
           </div>
         </div>
       ) : (
@@ -477,7 +481,7 @@ export default function Applicants() {
       
       {!isLoadingCandidates && filteredApplicants.length === 0 && (
         <div className="text-center py-12">
-          <p className="text-slate-500">No applicants found matching your criteria.</p>
+          <p className="text-muted-foreground">{t("noApplicants")}</p>
         </div>
       )}
     </div>

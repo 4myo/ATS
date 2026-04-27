@@ -81,6 +81,9 @@ Deno.serve(async (req) => {
   Use a weighted average and round to the nearest whole number.
 - Provide strengths and concerns as concise bullet phrases.
 - Keep skill_profile sub-scores from 0-100.
+- Estimate ai_writing_score (0-100) as an opinion signal for whether the CV text appears generated or heavily assisted by ChatGPT or another AI writing tool.
+- Do not present ai_writing_score as proof. Base it on generic phrasing, overly polished structure, repeated template language, lack of specific measurable detail, and unusually uniform tone.
+- Provide ai_writing_notes as short evidence cues a recruiter can review.
 
 Return strict JSON with these fields:
 {
@@ -92,6 +95,9 @@ Return strict JSON with these fields:
   "summary": string,
   "strengths": string[],
   "concerns": string[],
+  "ai_writing_score": number,
+  "ai_writing_label": "Low AI-writing signal" | "Mixed authorship signal" | "High AI-writing signal",
+  "ai_writing_notes": string[],
   "skill_profile": {
     "technical": number,
     "communication": number,
@@ -130,6 +136,9 @@ Return JSON only.`;
     summary?: string;
     strengths?: string[];
     concerns?: string[];
+    ai_writing_score?: number;
+    ai_writing_label?: string;
+    ai_writing_notes?: string[];
     skill_profile?: Record<string, number>;
   } = {};
 
@@ -147,21 +156,42 @@ Return JSON only.`;
     });
   }
 
-  const { error: updateError } = await supabase
+  const baseUpdate = {
+    location: parsed.location ?? null,
+    years_experience: parsed.years_experience ?? null,
+    skills: parsed.skills ?? [],
+    education: parsed.education ?? [],
+    ats_score: parsed.ats_score ?? null,
+    analysis_summary: parsed.summary ?? null,
+    analysis_strengths: parsed.strengths ?? [],
+    analysis_concerns: parsed.concerns ?? [],
+    skill_profile: parsed.skill_profile ?? null,
+    analysis_status: "complete",
+  };
+
+  const updateWithAiWriting = {
+    ...baseUpdate,
+    ai_writing_score: parsed.ai_writing_score ?? null,
+    ai_writing_label: parsed.ai_writing_label ?? null,
+    ai_writing_notes: parsed.ai_writing_notes ?? [],
+  };
+
+  let { error: updateError } = await supabase
     .from("candidates")
-    .update({
-      location: parsed.location ?? null,
-      years_experience: parsed.years_experience ?? null,
-      skills: parsed.skills ?? [],
-      education: parsed.education ?? [],
-      ats_score: parsed.ats_score ?? null,
-      analysis_summary: parsed.summary ?? null,
-      analysis_strengths: parsed.strengths ?? [],
-      analysis_concerns: parsed.concerns ?? [],
-      skill_profile: parsed.skill_profile ?? null,
-      analysis_status: "complete",
-    })
+    .update(updateWithAiWriting)
     .eq("id", payload.candidateId);
+
+  if (
+    updateError &&
+    (updateError.message?.includes("ai_writing") ||
+      updateError.details?.includes("ai_writing"))
+  ) {
+    const retry = await supabase
+      .from("candidates")
+      .update(baseUpdate)
+      .eq("id", payload.candidateId);
+    updateError = retry.error;
+  }
 
   if (updateError) {
     return new Response("Failed to update candidate", {
