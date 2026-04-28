@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router";
+import type { Stage } from "../store";
 import { supabase } from "../lib/supabase";
 import { getAiWritingSignal } from "../lib/aiWritingSignal";
 import { ScoreRing } from '../components/ScoreRing';
 import { 
   ArrowLeft, ThumbsUp, ThumbsDown,
-  CheckCircle, XCircle, Clock, Bot
+  CheckCircle, XCircle, Clock, Bot, FileText
 } from 'lucide-react';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer 
@@ -16,12 +17,21 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "../components/ui/accordion";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
+import { Button } from "../components/ui/button";
 import { useI18n } from "../lib/i18n";
 
 type CandidateDetailRecord = {
   id: string;
   full_name: string;
   job_title: string;
+  stage: Stage;
   email: string | null;
   location: string | null;
   years_experience: number | null;
@@ -30,6 +40,7 @@ type CandidateDetailRecord = {
   analysis_summary: string | null;
   analysis_strengths: string[] | null;
   analysis_concerns: string[] | null;
+  resume_path: string | null;
   ai_writing_score: number | null;
   ai_writing_label: string | null;
   ai_writing_notes: string[] | null;
@@ -37,16 +48,20 @@ type CandidateDetailRecord = {
 };
 
 const baseCandidateSelect =
-  "id, full_name, job_title, email, location, years_experience, ats_score, skills, analysis_summary, analysis_strengths, analysis_concerns, skill_profile";
+  "id, full_name, job_title, stage, email, location, years_experience, ats_score, skills, analysis_summary, analysis_strengths, analysis_concerns, resume_path, skill_profile";
 
 const candidateSelectWithAiWriting =
   `${baseCandidateSelect}, ai_writing_score, ai_writing_label, ai_writing_notes`;
 
 export default function CandidateDetail() {
   const { id } = useParams();
-  const { t } = useI18n();
+  const { t, stageLabel } = useI18n();
   const [candidate, setCandidate] = useState<CandidateDetailRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUpdatingStage, setIsUpdatingStage] = useState(false);
+  const [isOpeningCv, setIsOpeningCv] = useState(false);
+  const [stageError, setStageError] = useState<string | null>(null);
+  const [cvError, setCvError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -86,6 +101,7 @@ export default function CandidateDetail() {
         ai_writing_label: null,
         ai_writing_notes: [],
         ...fallbackResult.data,
+        stage: (fallbackResult.data.stage as Stage) ?? "Applied",
       } as CandidateDetailRecord);
       setIsLoading(false);
     };
@@ -100,24 +116,28 @@ export default function CandidateDetail() {
   const radarData = useMemo(() => {
     if (!candidate) {
       return [
-        { subject: "Technical", A: 0, fullMark: 100 },
-        { subject: "Culture", A: 0, fullMark: 100 },
-        { subject: "Communication", A: 0, fullMark: 100 },
-        { subject: "Experience", A: 0, fullMark: 100 },
-        { subject: "Leadership", A: 0, fullMark: 100 },
-        { subject: "Problem Solving", A: 0, fullMark: 100 },
+        { subject: t("technical"), A: 0, fullMark: 100 },
+        { subject: t("collaboration"), A: 0, fullMark: 100 },
+        { subject: t("communication"), A: 0, fullMark: 100 },
+        { subject: t("experience"), A: 0, fullMark: 100 },
+        { subject: t("leadership"), A: 0, fullMark: 100 },
+        { subject: t("problemSolving"), A: 0, fullMark: 100 },
       ];
     }
 
     const profile = candidate.skill_profile;
     if (profile) {
       return [
-        { subject: "Technical", A: profile.technical ?? 0, fullMark: 100 },
-        { subject: "Culture", A: profile.culture ?? 0, fullMark: 100 },
-        { subject: "Communication", A: profile.communication ?? 0, fullMark: 100 },
-        { subject: "Experience", A: profile.experience ?? 0, fullMark: 100 },
-        { subject: "Leadership", A: profile.leadership ?? 0, fullMark: 100 },
-        { subject: "Problem Solving", A: profile.problem_solving ?? 0, fullMark: 100 },
+        { subject: t("technical"), A: profile.technical ?? 0, fullMark: 100 },
+        {
+          subject: t("collaboration"),
+          A: profile.collaboration ?? profile.culture ?? 0,
+          fullMark: 100,
+        },
+        { subject: t("communication"), A: profile.communication ?? 0, fullMark: 100 },
+        { subject: t("experience"), A: profile.experience ?? 0, fullMark: 100 },
+        { subject: t("leadership"), A: profile.leadership ?? 0, fullMark: 100 },
+        { subject: t("problemSolving"), A: profile.problem_solving ?? 0, fullMark: 100 },
       ];
     }
 
@@ -125,18 +145,18 @@ export default function CandidateDetail() {
     const years = Number(candidate.years_experience ?? 0);
 
     return [
-      { subject: "Technical", A: score, fullMark: 100 },
-      { subject: "Culture", A: Math.max(score - 10, 0), fullMark: 100 },
+      { subject: t("technical"), A: score, fullMark: 100 },
+      { subject: t("collaboration"), A: Math.max(score - 10, 0), fullMark: 100 },
       {
-        subject: "Communication",
+        subject: t("communication"),
         A: Math.min(score + 5, 100),
         fullMark: 100,
       },
-      { subject: "Experience", A: Math.min(years * 10, 100), fullMark: 100 },
-      { subject: "Leadership", A: Math.max(score - 20, 0), fullMark: 100 },
-      { subject: "Problem Solving", A: Math.max(score - 5, 0), fullMark: 100 },
+      { subject: t("experience"), A: Math.min(years * 10, 100), fullMark: 100 },
+      { subject: t("leadership"), A: Math.max(score - 20, 0), fullMark: 100 },
+      { subject: t("problemSolving"), A: Math.max(score - 5, 0), fullMark: 100 },
     ];
-  }, [candidate]);
+  }, [candidate, t]);
 
   const aiWritingSignal = useMemo(() => {
     const fallbackSignal = getAiWritingSignal({
@@ -166,6 +186,65 @@ export default function CandidateDetail() {
     };
   }, [candidate]);
 
+  const handleStageChange = async (nextStage: Stage) => {
+    if (!candidate || nextStage === candidate.stage) return;
+
+    const previousStage = candidate.stage;
+    setCandidate({ ...candidate, stage: nextStage });
+    setIsUpdatingStage(true);
+    setStageError(null);
+
+    const { error } = await supabase
+      .from("candidates")
+      .update({ stage: nextStage })
+      .eq("id", candidate.id);
+
+    if (error) {
+      setCandidate({ ...candidate, stage: previousStage });
+      setStageError(error.message || t("failedStageUpdate"));
+    }
+
+    setIsUpdatingStage(false);
+  };
+
+  const handleOpenCv = async () => {
+    if (!candidate?.resume_path) {
+      setCvError(t("cvUnavailable"));
+      return;
+    }
+
+    setIsOpeningCv(true);
+    setCvError(null);
+
+    const pdfWindow = window.open("", "_blank");
+    if (pdfWindow) {
+      pdfWindow.opener = null;
+      pdfWindow.document.title = t("openingCv");
+      pdfWindow.document.body.innerHTML = `<p style="font-family: sans-serif; color: #444;">${t("openingCv")}</p>`;
+    }
+
+    const { data, error } = await supabase.storage
+      .from("resumes")
+      .createSignedUrl(candidate.resume_path, 60 * 10);
+
+    if (error || !data?.signedUrl) {
+      if (pdfWindow) {
+        pdfWindow.close();
+      }
+      setCvError(error?.message || t("failedCvOpen"));
+      setIsOpeningCv(false);
+      return;
+    }
+
+    if (pdfWindow) {
+      pdfWindow.location.href = data.signedUrl;
+    } else {
+      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    }
+
+    setIsOpeningCv(false);
+  };
+
   if (isLoading) {
     return <div className="p-8 text-center text-muted-foreground">{t("loadingCandidate")}</div>;
   }
@@ -186,12 +265,60 @@ export default function CandidateDetail() {
             <div>
               <h1 className="text-xl font-bold text-foreground">{candidate.full_name}</h1>
               <p className="text-sm text-muted-foreground">{t("appliedFor")} <span className="font-medium text-foreground">{candidate.job_title}</span></p>
+              {cvError ? (
+                <p className="mt-1 text-xs text-red-500">{cvError}</p>
+              ) : null}
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {t("overallMatchScore")}
-            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleOpenCv}
+              disabled={isOpeningCv || !candidate.resume_path}
+              className="gap-2"
+            >
+              <FileText className="h-4 w-4" />
+              {isOpeningCv ? t("openingCv") : t("showCv")}
+            </Button>
+            <div className="min-w-44">
+              <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                {t("currentStage")}
+              </p>
+              <Select
+                value={candidate.stage}
+                onValueChange={(value) => handleStageChange(value as Stage)}
+                disabled={isUpdatingStage}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(["Applied", "Screening", "Interview", "Offer", "Rejected"] as Stage[]).map(
+                    (stageOption) => (
+                      <SelectItem key={stageOption} value={stageOption}>
+                        {stageLabel(stageOption)}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+              {stageError ? (
+                <p className="mt-1 text-xs text-red-500">{stageError}</p>
+              ) : isUpdatingStage ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("updatingStage")}
+                </p>
+              ) : null}
+            </div>
+            <div className="max-w-56 text-right">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                {t("aiReviewScore")}
+              </p>
+              <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                {t("aiScoreReviewAidNote")}
+              </p>
+            </div>
             <ScoreRing score={candidate.ats_score ?? 0} size="md" />
           </div>
         </div>
@@ -214,7 +341,11 @@ export default function CandidateDetail() {
                   {candidate.analysis_summary ?? t("aiAnalysisPending")}
                 </p>
                  
-                  <Accordion type="multiple" className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Accordion
+                    type="multiple"
+                    defaultValue={["strengths", "concerns"]}
+                    className="grid grid-cols-1 md:grid-cols-2 gap-6"
+                  >
                     <AccordionItem value="strengths" className="border-none">
                       <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-100">
                         <AccordionTrigger className="py-0 hover:no-underline">

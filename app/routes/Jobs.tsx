@@ -10,6 +10,7 @@ import {
   Megaphone,
   Plus,
   Clock,
+  Trash2,
 } from "lucide-react";
 import { Link } from "react-router";
 import { supabase } from "../lib/supabase";
@@ -58,6 +59,8 @@ export default function Jobs() {
   const [jobIcon, setJobIcon] = useState("briefcase");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const iconMap = useMemo(
     () =>
@@ -153,6 +156,25 @@ export default function Jobs() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleDeleteJob = async (jobId: string) => {
+    const confirmed = window.confirm(t("deleteJobConfirm"));
+    if (!confirmed) return;
+
+    setDeletingJobId(jobId);
+    setDeleteError(null);
+
+    const { error } = await supabase.from("jobs").delete().eq("id", jobId);
+
+    if (error) {
+      setDeleteError(error.message || t("failedJobDelete"));
+      setDeletingJobId(null);
+      return;
+    }
+
+    setJobs((prev) => prev.filter((job) => job.id !== jobId));
+    setDeletingJobId(null);
   };
 
   return (
@@ -265,12 +287,18 @@ export default function Jobs() {
       </Dialog>
 
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        {deleteError ? (
+          <div className="surface-card border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:col-span-2 xl:col-span-3">
+            {deleteError}
+          </div>
+        ) : null}
+
         {jobs.map((job) => {
           const Icon = iconMap[job.icon ?? "briefcase"] ?? Briefcase;
           return (
             <div
               key={job.id}
-              className="surface-card group relative flex min-h-[280px] flex-col justify-between p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
+              className="surface-card flex min-h-[280px] flex-col justify-between p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
             >
               <div>
                 <div className="flex items-start justify-between">
@@ -282,8 +310,7 @@ export default function Jobs() {
                   </span>
                 </div>
                 <h3 className="mt-4 text-lg font-semibold text-foreground">
-                  <Link to={`/jobs/${job.id}`}>
-                    <span className="absolute inset-0" />
+                  <Link to={`/jobs/${job.id}`} className="hover:underline">
                     {job.title}
                   </Link>
                 </h3>
@@ -300,6 +327,17 @@ export default function Jobs() {
                   <Clock className="mr-1.5 h-3.5 w-3.5" />
                   {t("posted")} {new Date(job.created_at).toLocaleDateString()}
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDeleteJob(job.id)}
+                  disabled={deletingJobId === job.id}
+                  className="gap-2 text-red-600 hover:text-red-700"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {deletingJobId === job.id ? t("deleting") : t("deleteJob")}
+                </Button>
               </div>
             </div>
           );

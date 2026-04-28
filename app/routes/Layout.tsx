@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate } from "react-router";
 import { Sidebar } from "../components/Sidebar";
-import { LogOut, Menu, Search, Moon, Sun } from "lucide-react";
+import { Briefcase, LogOut, Menu, Search, Moon, Sun, Users } from "lucide-react";
 import { Link } from "react-router";
 import { supabase } from "../lib/supabase";
 import { Sheet, SheetContent, SheetTrigger } from "../components/ui/sheet";
@@ -12,11 +12,23 @@ type UserProfile = {
   avatarUrl?: string | null;
 };
 
+type SearchResult = {
+  id: string;
+  label: string;
+  meta: string | null;
+  type: "candidate" | "job";
+  path: string;
+};
+
 export function Layout() {
   const navigate = useNavigate();
   const [checkingSession, setCheckingSession] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const { language, setLanguage, t } = useI18n();
 
   useEffect(() => {
@@ -93,6 +105,94 @@ export function Layout() {
     navigate("/auth", { replace: true });
   };
 
+  useEffect(() => {
+    let isMounted = true;
+    const normalizedQuery = searchQuery.trim();
+
+    if (!isSearchOpen) {
+      setIsSearching(false);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    setIsSearching(true);
+    const timeoutId = window.setTimeout(async () => {
+      let candidateQuery = supabase
+          .from("candidates")
+          .select("id, full_name, job_title, stage")
+          .order("created_at", { ascending: false })
+          .limit(6);
+
+      let jobQuery = supabase
+          .from("jobs")
+          .select("id, title, type")
+          .order("created_at", { ascending: false })
+          .limit(4);
+
+      if (normalizedQuery.length >= 2) {
+        const escapedQuery = normalizedQuery.replace(/[%_]/g, "\\$&");
+        const searchPattern = `%${escapedQuery}%`;
+
+        candidateQuery = candidateQuery.or(
+          `full_name.ilike.${searchPattern},job_title.ilike.${searchPattern},email.ilike.${searchPattern}`,
+        );
+        jobQuery = jobQuery.or(`title.ilike.${searchPattern},type.ilike.${searchPattern}`);
+      }
+
+      const [{ data: candidateRows }, { data: jobRows }] = await Promise.all([
+        candidateQuery,
+        jobQuery,
+      ]);
+
+      if (!isMounted) return;
+
+      const candidates = (candidateRows ?? []).map((row) => ({
+        id: row.id,
+        label: row.full_name,
+        meta: row.job_title,
+        type: "candidate" as const,
+        path: `/applicants/${row.id}`,
+      }));
+
+      const jobs = (jobRows ?? []).map((row) => ({
+        id: row.id,
+        label: row.title,
+        meta: row.type,
+        type: "job" as const,
+        path: `/jobs/${row.id}`,
+      }));
+
+      setSearchResults([...candidates, ...jobs]);
+      setIsSearching(false);
+    }, 250);
+
+    return () => {
+      isMounted = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchQuery, isSearchOpen]);
+
+  const navigateToResult = (result: SearchResult) => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setIsSearchOpen(false);
+    navigate(result.path);
+  };
+
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (searchResults[0]) {
+      navigateToResult(searchResults[0]);
+      return;
+    }
+
+    if (searchQuery.trim()) {
+      navigate(`/applicants?search=${encodeURIComponent(searchQuery.trim())}`);
+      setIsSearchOpen(false);
+    }
+  };
+
   if (checkingSession) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
@@ -120,14 +220,72 @@ export function Layout() {
                 <Sidebar />
               </SheetContent>
             </Sheet>
-            <div className="flex w-48 items-center rounded-md border border-border bg-muted/60 px-3 py-2 transition-all focus-within:bg-card focus-within:ring-2 focus-within:ring-ring sm:w-72 lg:w-96">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder={t("searchPlaceholder")}
-                className="ml-2 w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-              />
-            </div>
+            <form className="relative" onSubmit={handleSearchSubmit}>
+              <div className="flex w-48 items-center rounded-md border border-border bg-muted/60 px-3 py-2 transition-all focus-within:bg-card focus-within:ring-2 focus-within:ring-ring sm:w-72 lg:w-96">
+                <Search className="h-4 w-4 text-muted-foreground" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(event) => {
+                    setSearchQuery(event.target.value);
+                    setIsSearchOpen(true);
+                  }}
+                  onFocus={() => setIsSearchOpen(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setIsSearchOpen(false), 120);
+                  }}
+                  placeholder={t("searchPlaceholder")}
+                  className="ml-2 w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+                />
+              </div>
+
+              {isSearchOpen ? (
+                <div className="absolute left-0 top-12 z-50 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-md border border-border bg-card shadow-xl">
+                  {isSearching ? (
+                    <div className="px-3 py-3 text-sm text-muted-foreground">
+                      {t("searching")}
+                    </div>
+                  ) : searchResults.length > 0 ? (
+                    <div className="max-h-80 overflow-y-auto py-1">
+                      {searchQuery.trim().length < 2 ? (
+                        <div className="border-b border-border px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          {t("recentSearchItems")}
+                        </div>
+                      ) : null}
+                      {searchResults.map((result) => {
+                        const Icon = result.type === "candidate" ? Users : Briefcase;
+                        return (
+                          <button
+                            key={`${result.type}-${result.id}`}
+                            type="button"
+                            className="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-muted"
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => navigateToResult(result)}
+                          >
+                            <span className="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                              <Icon className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium text-foreground">
+                                {result.label}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {result.type === "candidate" ? t("candidate") : t("job")}
+                                {result.meta ? ` · ${result.meta}` : ""}
+                              </span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3 text-sm text-muted-foreground">
+                      {t("noSearchResults")}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </form>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">

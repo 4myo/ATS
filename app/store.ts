@@ -7,6 +7,7 @@ export interface Applicant {
   name: string;
   role: string;
   stage: Stage;
+  analysisStatus?: "pending_ai" | "complete" | "failed";
   aiScore: number;
   skills: string[];
   experience: number;
@@ -23,7 +24,7 @@ export interface Applicant {
     experience: number;
     leadership: number;
     problemSolving: number;
-    culture: number;
+    collaboration: number;
   };
   matchAnalysis: {
     pros: string[];
@@ -109,7 +110,7 @@ export const useAppStore = create<AppState>((set) => ({
       phone: '+1 (555) 123-4567',
       summary: 'Experienced frontend developer with a passion for building scalable web applications. Strong background in React ecosystem and performance optimization.',
       matchAnalysis: {
-        pros: ['Strong React expertise', 'Consistent career growth', 'Excellent culture fit score'],
+        pros: ['Strong React expertise', 'Consistent career growth', 'Strong collaboration evidence'],
         cons: ['Higher salary expectation', 'Remote only'],
       },
     },
@@ -181,7 +182,7 @@ export const useAppStore = create<AppState>((set) => ({
       phone: '+1 (555) 777-8888',
       summary: 'Unicorn designer who codes. Built and maintained design systems for Fortune 500 companies.',
       matchAnalysis: {
-        pros: ['Rare skillset (Design + Code)', 'Leadership experience', 'Perfect culture fit'],
+        pros: ['Rare skillset (Design + Code)', 'Leadership experience', 'Strong collaboration evidence'],
         cons: ['None identified'],
       },
     },

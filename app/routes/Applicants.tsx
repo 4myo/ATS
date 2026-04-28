@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 import { useAppStore, type Applicant, type Stage } from "../store";
 import { ApplicantCard } from "../components/ApplicantCard";
-import { SortAsc, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -26,12 +27,14 @@ import { useI18n } from "../lib/i18n";
 export default function Applicants() {
   const { t, stageLabel } = useI18n();
   const { applicants } = useAppStore();
+  const [searchParams] = useSearchParams();
   const [jobs, setJobs] = useState<
     Array<{ id: string; title: string; description?: string | null }>
   >([]);
   const [remoteApplicants, setRemoteApplicants] = useState<Applicant[]>([]);
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
   const [filterScore, setFilterScore] = useState<number>(0);
+  const [jobFilter, setJobFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [resumePreview, setResumePreview] = useState<string | null>(null);
@@ -45,88 +48,100 @@ export default function Applicants() {
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeText, setResumeText] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const mapCandidateRow = (row: Record<string, any>) => {
+    const skillProfile = row.skill_profile as Record<string, number> | undefined;
+
+    return {
+      id: row.id,
+      name: row.full_name,
+      role: row.job_title,
+      stage: (row.stage as Stage) ?? "Applied",
+      analysisStatus: row.analysis_status ?? "pending_ai",
+      aiScore: row.ats_score ?? 0,
+      skills: row.skills ?? [],
+      experience: Number(row.years_experience ?? 0),
+      location: row.location ?? "Location pending",
+      avatar: row.resume_preview_url ?? "",
+      email: row.email ?? "",
+      phone: "",
+      summary: row.analysis_summary ?? "",
+      analysisStrengths: row.analysis_strengths ?? [],
+      analysisConcerns: row.analysis_concerns ?? [],
+      skillProfile: skillProfile
+        ? {
+            technical: skillProfile.technical ?? 0,
+            communication: skillProfile.communication ?? 0,
+            experience: skillProfile.experience ?? 0,
+            leadership: skillProfile.leadership ?? 0,
+            problemSolving: skillProfile.problem_solving ?? 0,
+            collaboration:
+              skillProfile.collaboration ?? skillProfile.culture ?? 0,
+          }
+        : undefined,
+      matchAnalysis: {
+        pros: row.analysis_strengths ?? [],
+        cons: row.analysis_concerns ?? [],
+      },
+    } as Applicant;
+  };
+
+  const loadCandidates = useCallback(async () => {
+    const [{ data: candidateRows, error: candidateError }, { data: jobRows, error: jobError }] =
+      await Promise.all([
+        supabase
+          .from("candidates")
+          .select(
+            "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at",
+          )
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("jobs")
+          .select("id, title, description")
+          .order("created_at", { ascending: false }),
+      ]);
+
+    if (candidateError || jobError) {
+      setRemoteApplicants([]);
+      setJobs([]);
+      setIsLoadingCandidates(false);
+      return;
+    }
+
+    setRemoteApplicants(((candidateRows ?? []) as Array<Record<string, any>>).map(mapCandidateRow));
+    setJobs(
+      (jobRows ?? []).map((row) => ({
+        id: row.id,
+        title: row.title,
+        description: row.description,
+      })),
+    );
+    setIsLoadingCandidates(false);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadCandidates = async () => {
-      const [{ data: candidateRows, error: candidateError }, { data: jobRows, error: jobError }] =
-        await Promise.all([
-          supabase
-            .from("candidates")
-            .select(
-              "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, created_at",
-            )
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("jobs")
-            .select("id, title, description")
-            .order("created_at", { ascending: false }),
-        ]);
-
+    const loadIfMounted = async () => {
+      await loadCandidates();
       if (!isMounted) return;
-
-      if (candidateError || jobError) {
-        setRemoteApplicants([]);
-        setJobs([]);
-        setIsLoadingCandidates(false);
-        return;
-      }
-
-      const mapped = (candidateRows ?? []).map((row) => {
-        const skillProfile = (row as { skill_profile?: Record<string, number> })
-          .skill_profile;
-
-        return {
-          id: row.id,
-          name: row.full_name,
-          role: row.job_title,
-          stage: (row as { stage?: Stage }).stage ?? "Applied",
-          aiScore: row.ats_score ?? 0,
-          skills: row.skills ?? [],
-          experience: Number(row.years_experience ?? 0),
-          location: row.location ?? "Location pending",
-          avatar: row.resume_preview_url ?? "",
-          email: row.email ?? "",
-          phone: "",
-          summary: row.analysis_summary ?? "",
-          analysisStrengths: row.analysis_strengths ?? [],
-          analysisConcerns: row.analysis_concerns ?? [],
-          skillProfile: skillProfile
-            ? {
-                technical: skillProfile.technical ?? 0,
-                communication: skillProfile.communication ?? 0,
-                experience: skillProfile.experience ?? 0,
-                leadership: skillProfile.leadership ?? 0,
-                problemSolving: skillProfile.problem_solving ?? 0,
-                culture: skillProfile.culture ?? 0,
-              }
-            : undefined,
-          matchAnalysis: {
-            pros: row.analysis_strengths ?? [],
-            cons: row.analysis_concerns ?? [],
-          },
-        } as Applicant;
-      });
-
-      setRemoteApplicants(mapped);
-      setJobs(
-        (jobRows ?? []).map((row) => ({
-          id: row.id,
-          title: row.title,
-          description: row.description,
-        })),
-      );
-      setIsLoadingCandidates(false);
     };
 
-    loadCandidates();
+    loadIfMounted();
 
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [loadCandidates]);
+
+  useEffect(() => {
+    const query = searchParams.get("search");
+    if (query) {
+      setSearchQuery(query);
+    }
+  }, [searchParams]);
 
   const handleResumeUpload = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -166,6 +181,7 @@ export default function Applicants() {
     setResumeError(null);
     setResumeText("");
     setSaveError(null);
+    setSaveStatus(null);
   };
 
   const handleDeleteApplicant = async (id: string) => {
@@ -183,6 +199,7 @@ export default function Applicants() {
   const handleSaveCandidate = async () => {
     setIsSaving(true);
     setSaveError(null);
+    setSaveStatus(t("savingCandidateProfile"));
 
     try {
       const { data: sessionData, error: sessionError } =
@@ -196,6 +213,7 @@ export default function Applicants() {
       let normalizedResumeText = resumeText;
 
       if (resumeFile && !normalizedResumeText.trim()) {
+        setSaveStatus(t("extractingResumeText"));
         const extracted = await extractPdfText(resumeFile);
         normalizedResumeText = extracted;
         setResumeText(extracted);
@@ -208,6 +226,7 @@ export default function Applicants() {
       }
 
       if (resumeFile) {
+        setSaveStatus(t("uploadingResume"));
         const fileExt = resumeFile.name.split(".").pop() || "pdf";
         const fileName = `${crypto.randomUUID()}.${fileExt}`;
         const filePath = `${sessionData.session.user.id}/${fileName}`;
@@ -223,6 +242,7 @@ export default function Applicants() {
         resumePath = filePath;
       }
 
+      setSaveStatus(t("savingCandidateProfile"));
       const { data: inserted, error: insertError } = await supabase
         .from("candidates")
         .insert({
@@ -242,38 +262,74 @@ export default function Applicants() {
       }
 
       if (inserted?.id) {
-        const accessToken = sessionData.session.access_token;
-        const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`;
+        setRemoteApplicants((prev) => [
+          {
+            id: inserted.id,
+            name: fullName,
+            role: jobTitle,
+            stage,
+            analysisStatus: "pending_ai",
+            aiScore: 0,
+            skills: [],
+            experience: 0,
+            location: "Location pending",
+            avatar: resumePreview ?? "",
+            email: "",
+            phone: "",
+            summary: "",
+            matchAnalysis: { pros: [], cons: [] },
+          },
+          ...prev,
+        ]);
 
-        await fetch(functionUrl, {
+        setSaveStatus(t("runningAiAnalysis"));
+
+        const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`;
+        const analysisResponse = await fetch(functionUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `Bearer ${sessionData.session.access_token}`,
             apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({
-            candidateId: inserted.id,
-            jobTitle,
-            jobDescription,
-            resumeText: normalizedResumeText,
+              candidateId: inserted.id,
+              jobTitle,
+              jobDescription,
+              resumeText: normalizedResumeText,
           }),
         });
+
+        if (!analysisResponse.ok) {
+          const analysisMessage = await analysisResponse.text();
+          await supabase
+            .from("candidates")
+            .update({ analysis_status: "failed" })
+            .eq("id", inserted.id);
+
+          throw new Error(
+            `${t("candidateSavedAiFailed")} ${analysisMessage || analysisResponse.statusText}`,
+          );
+        }
       }
 
+      await loadCandidates();
       resetForm();
       setIsAddOpen(false);
     } catch (error) {
+      await loadCandidates();
       const message =
         error instanceof Error ? error.message : t("failedCandidateSave");
       setSaveError(message);
     } finally {
       setIsSaving(false);
+      setSaveStatus(null);
     }
   };
 
   const filteredApplicants = remoteApplicants.filter((app) => {
     return (
+      (jobFilter === "all" || app.role === jobFilter) &&
       app.aiScore >= filterScore &&
       (app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
        app.role.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -288,10 +344,6 @@ export default function Applicants() {
           <p className="text-sm subtle-text">{t("applicantsSubtitle")}</p>
         </div>
         <div className="mt-4 flex space-x-3 sm:mt-0">
-          <button className="quiet-action">
-            <SortAsc className="mr-2 h-4 w-4 text-muted-foreground" />
-            {t("sort")}
-          </button>
           <Button
             className="bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={() => setIsAddOpen(true)}
@@ -302,16 +354,16 @@ export default function Applicants() {
       </div>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="border-border bg-card text-card-foreground sm:max-w-3xl">
+        <DialogContent className="grid max-h-[94vh] w-[min(1180px,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border bg-card p-4 text-card-foreground sm:max-w-none sm:p-5">
           <DialogHeader>
             <DialogTitle>{t("addCandidate")}</DialogTitle>
             <DialogDescription>
               {t("addCandidateDescription")}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="grid gap-4">
-              <div className="grid gap-2">
+          <div className="grid min-h-0 gap-6 overflow-y-auto pr-1 xl:grid-cols-[340px_minmax(0,1fr)] xl:gap-8 xl:overflow-hidden xl:pr-0">
+            <div className="grid min-w-0 content-start gap-2.5">
+              <div className="grid gap-1.5">
                 <Label htmlFor="candidate-name">{t("fullName")}</Label>
                 <Input
                   id="candidate-name"
@@ -320,7 +372,7 @@ export default function Applicants() {
                   onChange={(event) => setFullName(event.target.value)}
                 />
               </div>
-              <div className="grid gap-2">
+              <div className="grid gap-1.5">
                 <Label htmlFor="candidate-role">{t("jobTitle")}</Label>
                 <Select
                   value={jobTitle}
@@ -342,7 +394,7 @@ export default function Applicants() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
+              <div className="grid gap-1.5">
                 <Label htmlFor="candidate-stage">{t("stage")}</Label>
                 <Select value={stage} onValueChange={(value) => setStage(value as Stage)}>
                   <SelectTrigger id="candidate-stage">
@@ -359,7 +411,7 @@ export default function Applicants() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
+              <div className="grid gap-1.5">
                 <Label htmlFor="candidate-resume">{t("uploadResumePdf")}</Label>
                 <Input
                   id="candidate-resume"
@@ -381,9 +433,14 @@ export default function Applicants() {
               {saveError && (
                 <p className="text-sm text-red-500">{saveError}</p>
               )}
+              {saveStatus && (
+                <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                  <span className="mr-2 inline-flex h-3 w-3 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground align-[-1px]" />
+                  {saveStatus}
+                </div>
+              )}
             </div>
-
-              <div className="muted-panel p-4">
+            <div className="muted-panel min-h-0 min-w-0 p-4 xl:ml-2">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground">
                   {t("resumePreview")}
@@ -394,22 +451,24 @@ export default function Applicants() {
                   </button>
                 )}
               </div>
-              <div className="mt-4 flex min-h-[220px] items-center justify-center rounded-md border border-dashed border-border bg-card">
+              <div className="mt-3 flex min-h-[360px] items-center justify-center xl:h-[60vh] xl:max-h-[620px]">
                 {resumePreview ? (
-                  <img
-                    src={resumePreview}
-                    alt={t("resumePreview")}
-                    className="h-full max-h-[280px] w-full object-contain"
-                  />
+                  <div className="flex h-[330px] max-h-full w-auto min-w-0 justify-center rounded-sm bg-white xl:h-full">
+                    <img
+                      src={resumePreview}
+                      alt={t("resumePreview")}
+                      className="aspect-[210/297] h-full max-h-full w-auto max-w-full rounded-sm border border-border/60 object-contain shadow-sm"
+                    />
+                  </div>
                 ) : (
-                  <span className="text-xs subtle-text">
+                  <span className="flex aspect-[210/297] h-[320px] max-h-full w-auto max-w-full items-center justify-center rounded-sm border border-dashed border-border px-5 text-center text-xs subtle-text xl:h-full">
                     {t("uploadPdfPreview")}
                   </span>
                 )}
               </div>
             </div>
           </div>
-          <div className="flex justify-end gap-3">
+          <div className="flex justify-end gap-3 pt-1">
             <Button
               variant="outline"
               onClick={() => {
@@ -429,7 +488,7 @@ export default function Applicants() {
                 isConverting
               }
             >
-              {isSaving ? t("saving") : t("saveCandidate")}
+              {isSaving ? saveStatus ?? t("saving") : t("saveCandidate")}
             </Button>
           </div>
         </DialogContent>
@@ -446,6 +505,21 @@ export default function Applicants() {
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full rounded-md border border-border bg-input-background px-3 py-2 pl-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
           />
+        </div>
+        <div className="min-w-[220px]">
+          <Select value={jobFilter} onValueChange={setJobFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder={t("filterByJob")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("allJobs")}</SelectItem>
+              {jobs.map((job) => (
+                <SelectItem key={job.id} value={job.title}>
+                  {job.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex items-center space-x-2">
           <span className="whitespace-nowrap text-sm font-medium text-foreground">{t("minAiScore")}: {filterScore}%</span>
