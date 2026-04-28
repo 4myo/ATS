@@ -41,23 +41,6 @@ The AI score is designed as a review aid, not an automated hiring decision. The 
 - `pdfjs-dist` for PDF text/image handling
 - `tesseract.js` for OCR fallback
 
-## Project Structure
-
-```text
-app/
-  components/        Shared UI and app components
-  lib/               Supabase client, i18n, PDF helpers, AI helpers
-  routes/            React Router screens
-  routes.ts          Route definitions
-docs/
-  supabase-schema.sql
-public/
-  _redirects         Netlify SPA fallback
-supabase/
-  functions/
-    analyze-candidate/
-    signup-with-rate-limit/
-```
 
 ## Requirements
 
@@ -66,62 +49,6 @@ supabase/
 - Supabase project
 - Google Gemini API key
 - Supabase CLI for deploying Edge Functions
-
-## Environment Variables
-
-Create a local `.env` file for the frontend:
-
-```bash
-VITE_SUPABASE_URL=your_supabase_project_url
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-```
-
-Set these secrets for Supabase Edge Functions:
-
-```bash
-SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-GEMINI_API_KEY=your_gemini_api_key
-```
-
-The analyzer also accepts `GEMINICLIENT_KEY` as a fallback name, but `GEMINI_API_KEY` is recommended.
-
-## Supabase Setup
-
-Run the schema in:
-
-```text
-docs/supabase-schema.sql
-```
-
-The schema creates:
-
-- `jobs`
-- `candidates`
-- `signup_rate_limits`
-- row-level security policies for per-user data
-
-Create a private Storage bucket named:
-
-```text
-resumes
-```
-
-Recommended Storage policies are documented at the bottom of `docs/supabase-schema.sql`. CV PDFs are uploaded into this bucket and opened through signed URLs from the Candidate Details screen.
-
-## Edge Functions
-
-This project uses two Supabase Edge Functions:
-
-- `analyze-candidate`: analyzes candidate CV text with Gemini and writes structured results back to `candidates`
-- `signup-with-rate-limit`: creates users with basic signup rate limiting
-
-Deploy them with:
-
-```bash
-supabase functions deploy analyze-candidate
-supabase functions deploy signup-with-rate-limit
-```
 
 After changing AI ranking instructions, redeploy `analyze-candidate`.
 
@@ -157,28 +84,6 @@ Create a production build:
 
 ```bash
 npm run build
-```
-
-Run the production server:
-
-```bash
-npm run start
-```
-
-## Deployment Notes
-
-For Netlify, keep `public/_redirects`:
-
-```text
-/* /index.html 200
-```
-
-This allows direct links such as `/auth/callback`, `/jobs/:id`, and `/applicants/:id` to work in the SPA.
-
-For Supabase OAuth, make sure your production callback URL is configured in Supabase and Google Cloud OAuth settings, for example:
-
-```text
-https://your-domain.com/auth/callback
 ```
 
 ## AI and Fairness Notes
