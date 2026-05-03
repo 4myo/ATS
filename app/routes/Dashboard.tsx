@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import type { Applicant, Stage } from '../store';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
-import { Users, Briefcase, TrendingUp, AlertCircle, CalendarDays, Bot } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  Cell,
+  PieChart,
+  Pie,
+  Legend,
+  LineChart,
+  Line,
+  CartesianGrid,
+} from 'recharts';
+import { Users, Briefcase, TrendingUp, AlertCircle, CalendarDays, Send } from 'lucide-react';
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { supabase } from "../lib/supabase";
@@ -11,6 +25,11 @@ import { useI18n } from "../lib/i18n";
 type DashboardApplicant = Applicant & {
   createdAt: string | null;
   aiWritingScore: number | null;
+  offerChecklist?: {
+    offerSent?: boolean;
+  };
+  offerSentAt?: string | null;
+  offerFollowUpAt?: string | null;
 };
 
 const dashboardCandidateSelect =
@@ -18,6 +37,9 @@ const dashboardCandidateSelect =
 
 const dashboardCandidateSelectWithAiWriting =
   `${dashboardCandidateSelect}, ai_writing_score`;
+
+const dashboardCandidateSelectWithOffer =
+  `${dashboardCandidateSelectWithAiWriting}, offer_checklist, offer_sent_at, offer_follow_up_at`;
 
 export default function Dashboard() {
   const { t, stageLabel } = useI18n();
@@ -44,7 +66,7 @@ export default function Dashboard() {
         await Promise.all([
           supabase
             .from("candidates")
-            .select(dashboardCandidateSelectWithAiWriting)
+            .select(dashboardCandidateSelectWithOffer)
             .order("created_at", { ascending: false }),
           supabase.from("jobs").select("id", { count: "exact", head: true }),
         ]);
@@ -56,8 +78,23 @@ export default function Dashboard() {
 
       if (
         candidateErrorWithAi &&
-        (candidateErrorWithAi.message?.includes("ai_writing") ||
-          candidateErrorWithAi.details?.includes("ai_writing"))
+        (candidateErrorWithAi.message?.includes("offer_") ||
+          candidateErrorWithAi.details?.includes("offer_"))
+      ) {
+        const retry = await supabase
+          .from("candidates")
+          .select(dashboardCandidateSelectWithAiWriting)
+          .order("created_at", { ascending: false });
+
+        if (!isMounted) return;
+        candidateRows = retry.data as Array<Record<string, unknown>> | null;
+        candidateError = retry.error;
+      }
+
+      if (
+        candidateError &&
+        (candidateError.message?.includes("ai_writing") ||
+          candidateError.details?.includes("ai_writing"))
       ) {
         const retry = await supabase
           .from("candidates")
@@ -91,6 +128,13 @@ export default function Dashboard() {
         summary: row.analysis_summary ?? "",
         createdAt: row.created_at ?? null,
         aiWritingScore: row.ai_writing_score == null ? null : Number(row.ai_writing_score),
+        offerChecklist: row.offer_checklist
+          ? {
+              offerSent: Boolean((row.offer_checklist as Record<string, boolean>).offerSent),
+            }
+          : undefined,
+        offerSentAt: (row.offer_sent_at as string | null | undefined) ?? null,
+        offerFollowUpAt: (row.offer_follow_up_at as string | null | undefined) ?? null,
         matchAnalysis: {
           pros: row.analysis_strengths ?? [],
           cons: row.analysis_concerns ?? [],
@@ -122,9 +166,15 @@ export default function Dashboard() {
     if (!applicant.createdAt) return false;
     return new Date(applicant.createdAt).getTime() >= sevenDaysAgo;
   }).length;
-  const highAiWritingSignalCount = applicants.filter(
-    (applicant) => (applicant.aiWritingScore ?? 0) >= 68,
+  const offerApplicants = applicants.filter((applicant) => applicant.stage === "Offer");
+  const sentOffersCount = offerApplicants.filter(
+    (applicant) => applicant.offerChecklist?.offerSent,
   ).length;
+  const preparingOffersCount = Math.max(offerApplicants.length - sentOffersCount, 0);
+  const followUpsDueCount = offerApplicants.filter((applicant) => {
+    if (!applicant.offerChecklist?.offerSent || !applicant.offerFollowUpAt) return false;
+    return new Date(applicant.offerFollowUpAt).getTime() <= Date.now();
+  }).length;
 
   const stageData = useMemo(
     () => [
@@ -154,15 +204,6 @@ export default function Dashboard() {
 
   const pipelineHealth = [
     {
-      label: t("appliedToScreening"),
-      value: formatPercent(
-        stageCounts.Screening + stageCounts.Interview + stageCounts.Offer,
-        totalApplicants,
-      ),
-      detail: `${stageCounts.Screening + stageCounts.Interview + stageCounts.Offer} ${t("movedPastApplied")}`,
-      color: "#06b6d4",
-    },
-    {
       label: t("screeningToInterview"),
       value: formatPercent(
         stageCounts.Interview + stageCounts.Offer,
@@ -191,6 +232,45 @@ export default function Dashboard() {
     },
   ];
 
+  const offerTrendData = useMemo(() => {
+    const days = Array.from({ length: 14 }, (_item, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (13 - index));
+      const key = date.toISOString().slice(0, 10);
+
+      return {
+        key,
+        label: date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" }),
+        offers: 0,
+        sent: 0,
+      };
+    });
+
+    const byKey = new Map(days.map((day) => [day.key, day]));
+
+    offerApplicants.forEach((applicant) => {
+      if (applicant.createdAt) {
+        const key = new Date(applicant.createdAt).toISOString().slice(0, 10);
+        const day = byKey.get(key);
+        if (day) day.offers += 1;
+      }
+
+      if (applicant.offerSentAt) {
+        const key = new Date(applicant.offerSentAt).toISOString().slice(0, 10);
+        const day = byKey.get(key);
+        if (day) day.sent += 1;
+      }
+    });
+
+    return days;
+  }, [offerApplicants]);
+
+  const offerStatusData = [
+    { label: t("offerStatusPreparing"), value: preparingOffersCount, color: "#f59e0b" },
+    { label: t("offerStatusSent"), value: sentOffersCount, color: "#22c55e" },
+    { label: t("offerFollowUpsDue"), value: followUpsDueCount, color: "#06b6d4" },
+  ];
+
   const recentApplicants = [...applicants]
     .sort((a, b) => b.aiScore - a.aiScore)
     .slice(0, 3);
@@ -201,7 +281,7 @@ export default function Dashboard() {
     { label: t('averageMatchScore'), value: `${avgScore}%`, detail: t('acrossCandidates'), icon: TrendingUp, tone: 'text-emerald-600 bg-emerald-500/10 dark:text-emerald-300' },
     { label: t('needReview'), value: candidatesNeedingReview, detail: t('appliedScreening'), icon: AlertCircle, tone: 'text-amber-600 bg-amber-500/10 dark:text-amber-300' },
     { label: t('newThisWeek'), value: newApplicantsThisWeek, detail: t('lastSevenDays'), icon: CalendarDays, tone: 'text-cyan-600 bg-cyan-500/10 dark:text-cyan-300' },
-    { label: t('highAiWritingSignal'), value: highAiWritingSignalCount, detail: t('score68'), icon: Bot, tone: 'text-pink-600 bg-pink-500/10 dark:text-pink-300' },
+    { label: t('sentOffers'), value: sentOffersCount, detail: t('offersSentDetail'), icon: Send, tone: 'text-emerald-600 bg-emerald-500/10 dark:text-emerald-300' },
   ];
 
   const STAGE_COLORS = {
@@ -308,6 +388,77 @@ export default function Dashboard() {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.25fr_0.75fr]">
+        <div className="surface-card p-5">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-foreground">{t("offerTracking")}</h2>
+            <p className="text-sm text-muted-foreground">{t("offerTrackingSubtitle")}</p>
+          </div>
+          <div className="h-64 w-full min-h-[256px] min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
+              <LineChart data={offerTrendData}>
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} stroke="var(--muted-foreground)" />
+                <YAxis allowDecimals={false} fontSize={12} tickLine={false} axisLine={false} stroke="var(--muted-foreground)" />
+                <Tooltip
+                  contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--foreground)' }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="offers"
+                  name={t("offersCreated")}
+                  stroke="#8b5cf6"
+                  strokeWidth={2.5}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="sent"
+                  name={t("offersSent")}
+                  stroke="#22c55e"
+                  strokeWidth={2.5}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 5 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="surface-card p-5">
+          <div className="mb-4">
+            <h2 className="text-base font-semibold text-foreground">{t("offerStatusOverview")}</h2>
+            <p className="text-sm text-muted-foreground">{t("offerStatusOverviewSubtitle")}</p>
+          </div>
+          <div className="h-64 w-full min-h-[256px] min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
+              <BarChart data={offerStatusData} layout="vertical" margin={{ left: 18, right: 12 }}>
+                <XAxis type="number" allowDecimals={false} hide />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  width={96}
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                  stroke="var(--muted-foreground)"
+                />
+                <Tooltip
+                  contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--foreground)' }}
+                  formatter={(value) => [value, t("applicants")]}
+                />
+                <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={22}>
+                  {offerStatusData.map((entry) => (
+                    <Cell key={entry.label} fill={entry.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
       <div className="surface-card p-5">
         <div className="mb-4 flex items-center justify-between">
           <div>
@@ -315,7 +466,7 @@ export default function Dashboard() {
             <p className="text-sm text-muted-foreground">{t("pipelineHealthSubtitle")}</p>
           </div>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {pipelineHealth.map((metric) => (
             <div key={metric.label} className="rounded-md border border-border bg-muted/35 p-4">
               <div className="flex items-center justify-between gap-3">

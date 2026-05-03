@@ -8,6 +8,7 @@ export interface Applicant {
   role: string;
   stage: Stage;
   analysisStatus?: "pending_ai" | "complete" | "failed";
+  createdAt?: string;
   aiScore: number;
   skills: string[];
   experience: number;
@@ -18,6 +19,11 @@ export interface Applicant {
   summary: string;
   analysisStrengths?: string[];
   analysisConcerns?: string[];
+  offerChecklist?: {
+    offerSent?: boolean;
+  };
+  offerSentAt?: string | null;
+  offerFollowUpAt?: string | null;
   skillProfile?: {
     technical: number;
     communication: number;

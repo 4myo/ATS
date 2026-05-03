@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router";
-import { useAppStore, type Applicant, type Stage } from "../store";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import type { Applicant, Stage } from "../store";
 import { ApplicantCard } from "../components/ApplicantCard";
-import { Search } from "lucide-react";
+import { FileText, Upload, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +10,7 @@ import {
   DialogTitle,
 } from "../components/ui/dialog";
 import { Button } from "../components/ui/button";
+import { Checkbox } from "../components/ui/checkbox";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import {
@@ -24,35 +24,100 @@ import { convertPdfToImage, extractPdfText } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { useI18n } from "../lib/i18n";
 
+type ResumeImportItem = {
+  id: string;
+  file: File;
+  fileName: string;
+  candidateName: string;
+  text: string;
+  previewUrl: string | null;
+  isProcessing: boolean;
+  error: string | null;
+};
+
+const candidateSelect =
+  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at";
+
+const candidateSelectWithOffer =
+  `${candidateSelect}, offer_checklist, offer_sent_at, offer_follow_up_at`;
+
+const candidateNameFromFileName = (fileName: string) => {
+  const withoutExtension = fileName.replace(/\.pdf$/i, "");
+  const withoutCvWords = withoutExtension
+    .replace(/\b(cv|resume|curriculum|vitae)\b/gi, " ")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return withoutCvWords
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+};
+
+const candidateNameFromText = (text: string, fileName: string) => {
+  const fallback = candidateNameFromFileName(fileName);
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const candidateLine = lines.find((line) => {
+    const cleaned = line.replace(/[^\p{L}\s.'-]/gu, "").trim();
+    const words = cleaned.split(/\s+/).filter(Boolean);
+    const lower = cleaned.toLowerCase();
+
+    return (
+      words.length >= 2 &&
+      words.length <= 4 &&
+      !lower.includes("email") &&
+      !lower.includes("phone") &&
+      !lower.includes("linkedin") &&
+      !lower.includes("curriculum") &&
+      !lower.includes("resume")
+    );
+  });
+
+  return candidateLine?.replace(/[^\p{L}\s.'-]/gu, "").trim() || fallback;
+};
+
 export default function Applicants() {
-  const { t, stageLabel } = useI18n();
-  const { applicants } = useAppStore();
-  const [searchParams] = useSearchParams();
+  const { t } = useI18n();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [jobs, setJobs] = useState<
     Array<{ id: string; title: string; description?: string | null }>
   >([]);
   const [remoteApplicants, setRemoteApplicants] = useState<Applicant[]>([]);
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
-  const [filterScore, setFilterScore] = useState<number>(0);
+  const [ratingFilter, setRatingFilter] = useState<string>("all");
+  const [sortOrder, setSortOrder] = useState<string>("newest");
   const [jobFilter, setJobFilter] = useState<string>("all");
-  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilters, setStatusFilters] = useState({
+    new: false,
+    rejected: false,
+    accepted: false,
+  });
+  const [offerStatusFilters, setOfferStatusFilters] = useState({
+    preparing: false,
+    sent: false,
+  });
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [resumePreview, setResumePreview] = useState<string | null>(null);
-  const [resumeFileName, setResumeFileName] = useState<string | null>(null);
-  const [isConverting, setIsConverting] = useState(false);
+  const [resumeItems, setResumeItems] = useState<ResumeImportItem[]>([]);
+  const [selectedResumeId, setSelectedResumeId] = useState<string | null>(null);
+  const [isDraggingResume, setIsDraggingResume] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
-  const [fullName, setFullName] = useState("");
+  const [selectedJobId, setSelectedJobId] = useState<string>("");
   const [jobTitle, setJobTitle] = useState<string>("");
   const [jobDescription, setJobDescription] = useState<string>("");
-  const [stage, setStage] = useState<Stage>("Applied");
-  const [resumeFile, setResumeFile] = useState<File | null>(null);
-  const [resumeText, setResumeText] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const mapCandidateRow = (row: Record<string, any>) => {
     const skillProfile = row.skill_profile as Record<string, number> | undefined;
+    const offerChecklist = row.offer_checklist as Record<string, boolean> | undefined;
 
     return {
       id: row.id,
@@ -60,6 +125,7 @@ export default function Applicants() {
       role: row.job_title,
       stage: (row.stage as Stage) ?? "Applied",
       analysisStatus: row.analysis_status ?? "pending_ai",
+      createdAt: row.created_at,
       aiScore: row.ats_score ?? 0,
       skills: row.skills ?? [],
       experience: Number(row.years_experience ?? 0),
@@ -70,6 +136,13 @@ export default function Applicants() {
       summary: row.analysis_summary ?? "",
       analysisStrengths: row.analysis_strengths ?? [],
       analysisConcerns: row.analysis_concerns ?? [],
+      offerChecklist: offerChecklist
+        ? {
+            offerSent: Boolean(offerChecklist.offerSent),
+          }
+        : undefined,
+      offerSentAt: row.offer_sent_at ?? null,
+      offerFollowUpAt: row.offer_follow_up_at ?? null,
       skillProfile: skillProfile
         ? {
             technical: skillProfile.technical ?? 0,
@@ -89,19 +162,34 @@ export default function Applicants() {
   };
 
   const loadCandidates = useCallback(async () => {
-    const [{ data: candidateRows, error: candidateError }, { data: jobRows, error: jobError }] =
+    const [candidateResult, { data: jobRows, error: jobError }] =
       await Promise.all([
         supabase
           .from("candidates")
-          .select(
-            "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at",
-          )
+          .select(candidateSelectWithOffer)
           .order("created_at", { ascending: false }),
         supabase
           .from("jobs")
           .select("id, title, description")
           .order("created_at", { ascending: false }),
       ]);
+
+    let candidateRows = candidateResult.data;
+    let candidateError = candidateResult.error;
+
+    if (
+      candidateError &&
+      (candidateError.message?.includes("offer_") ||
+        candidateError.details?.includes("offer_"))
+    ) {
+      const retry = await supabase
+        .from("candidates")
+        .select(candidateSelect)
+        .order("created_at", { ascending: false });
+
+      candidateRows = retry.data;
+      candidateError = retry.error;
+    }
 
     if (candidateError || jobError) {
       setRemoteApplicants([]);
@@ -136,50 +224,112 @@ export default function Applicants() {
     };
   }, [loadCandidates]);
 
-  useEffect(() => {
-    const query = searchParams.get("search");
-    if (query) {
-      setSearchQuery(query);
+  const processResumeItem = async (itemId: string, file: File) => {
+    let previewUrl: string | null = null;
+    let normalizedText = "";
+    let error: string | null = null;
+
+    try {
+      const [conversion, extractedText] = await Promise.all([
+        convertPdfToImage(file),
+        extractPdfText(file).catch(() => ""),
+      ]);
+
+      previewUrl = conversion.imageUrl || null;
+      normalizedText = extractedText.trim() ? extractedText : conversion.ocrText ?? "";
+      error = conversion.error ?? null;
+    } catch (processingError) {
+      error =
+        processingError instanceof Error
+          ? processingError.message
+          : t("previewFailed");
     }
-  }, [searchParams]);
 
-  const handleResumeUpload = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+    setResumeItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              candidateName: candidateNameFromText(normalizedText, file.name),
+              text: normalizedText,
+              previewUrl,
+              isProcessing: false,
+              error,
+            }
+          : item,
+      ),
+    );
+  };
 
-    setIsConverting(true);
+  const addResumeFiles = (fileList: FileList | File[]) => {
+    const files = Array.from(fileList).filter((file) => file.type === "application/pdf" || /\.pdf$/i.test(file.name));
+
+    if (files.length === 0) {
+      setResumeError(t("resumePdfOnly"));
+      return;
+    }
+
     setResumeError(null);
-    setResumeFileName(file.name);
-    setResumeFile(file);
-    setResumeText("");
 
-    const result = await convertPdfToImage(file);
-    if (result.imageUrl) {
-      setResumePreview(result.imageUrl);
-      const text = await extractPdfText(file);
-      const normalized = text.trim() ? text : result.ocrText ?? "";
-      setResumeText(normalized);
-    } else {
-      setResumePreview(null);
-      setResumeError(result.error ?? t("previewFailed"));
-      setResumeText("");
+    const nextItems: ResumeImportItem[] = files.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      fileName: file.name,
+      candidateName: candidateNameFromFileName(file.name),
+      text: "",
+      previewUrl: null,
+      isProcessing: true,
+      error: null,
+    }));
+
+    setResumeItems((prev) => [...prev, ...nextItems]);
+    setSelectedResumeId((current) => current ?? nextItems[0]?.id ?? null);
+    void (async () => {
+      for (const item of nextItems) {
+        await processResumeItem(item.id, item.file);
+      }
+    })();
+  };
+
+  const handleResumeUpload = (event: ChangeEvent<HTMLInputElement>) => {
+    if (event.target.files?.length) {
+      addResumeFiles(event.target.files);
     }
+    event.target.value = "";
+  };
 
-    setIsConverting(false);
+  const handleDropResume = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDraggingResume(false);
+    if (event.dataTransfer.files.length) {
+      addResumeFiles(event.dataTransfer.files);
+    }
+  };
+
+  const updateResumeCandidateName = (itemId: string, candidateName: string) => {
+    setResumeItems((prev) =>
+      prev.map((item) => (item.id === itemId ? { ...item, candidateName } : item)),
+    );
+  };
+
+  const removeResumeItem = (itemId: string) => {
+    setResumeItems((prev) => {
+      const next = prev.filter((item) => item.id !== itemId);
+      setSelectedResumeId((current) =>
+        current === itemId ? next[0]?.id ?? null : current,
+      );
+      return next;
+    });
   };
 
   const resetForm = () => {
-    setFullName("");
+    setSelectedJobId("");
     setJobTitle("");
     setJobDescription("");
-    setStage("Applied");
-    setResumeFile(null);
-    setResumeFileName(null);
-    setResumePreview(null);
+    setResumeItems([]);
+    setSelectedResumeId(null);
+    setIsDraggingResume(false);
     setResumeError(null);
-    setResumeText("");
     setSaveError(null);
     setSaveStatus(null);
   };
@@ -196,6 +346,26 @@ export default function Applicants() {
     }
   };
 
+  const handleMarkNewReviewed = async (id: string) => {
+    const nextStage: Stage = "Screening";
+    const previousApplicants = remoteApplicants;
+
+    setRemoteApplicants((prev) =>
+      prev.map((applicant) =>
+        applicant.id === id ? { ...applicant, stage: nextStage } : applicant,
+      ),
+    );
+
+    const { error } = await supabase
+      .from("candidates")
+      .update({ stage: nextStage })
+      .eq("id", id);
+
+    if (error) {
+      setRemoteApplicants(previousApplicants);
+    }
+  };
+
   const handleSaveCandidate = async () => {
     setIsSaving(true);
     setSaveError(null);
@@ -209,113 +379,146 @@ export default function Applicants() {
         throw new Error(t("signedInRequiredCandidate"));
       }
 
-      let resumePath: string | null = null;
-      let normalizedResumeText = resumeText;
+      let latestJobTitle = jobTitle;
+      let latestJobDescription = jobDescription;
 
-      if (resumeFile && !normalizedResumeText.trim()) {
-        setSaveStatus(t("extractingResumeText"));
-        const extracted = await extractPdfText(resumeFile);
-        normalizedResumeText = extracted;
-        setResumeText(extracted);
-      }
+      if (selectedJobId) {
+        const { data: latestJob, error: latestJobError } = await supabase
+          .from("jobs")
+          .select("title, description")
+          .eq("id", selectedJobId)
+          .single();
 
-      if (resumeFile && !normalizedResumeText.trim()) {
-        throw new Error(
-          t("resumeExtractFailed"),
-        );
-      }
-
-      if (resumeFile) {
-        setSaveStatus(t("uploadingResume"));
-        const fileExt = resumeFile.name.split(".").pop() || "pdf";
-        const fileName = `${crypto.randomUUID()}.${fileExt}`;
-        const filePath = `${sessionData.session.user.id}/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from("resumes")
-          .upload(filePath, resumeFile, { upsert: false });
-
-        if (uploadError) {
-          throw uploadError;
+        if (latestJobError) {
+          throw latestJobError;
         }
 
-        resumePath = filePath;
+        latestJobTitle = latestJob?.title ?? jobTitle;
+        latestJobDescription = latestJob?.description ?? "";
+        setJobTitle(latestJobTitle);
+        setJobDescription(latestJobDescription);
       }
 
-      setSaveStatus(t("savingCandidateProfile"));
-      const { data: inserted, error: insertError } = await supabase
-        .from("candidates")
-        .insert({
-          user_id: sessionData.session.user.id,
-          full_name: fullName,
-          job_title: jobTitle,
-          stage,
-          resume_path: resumePath,
-          resume_preview_url: resumePreview,
-          analysis_status: "pending_ai",
-        })
-        .select("id")
-        .single();
+      const readyItems = resumeItems.filter(
+        (item) => !item.isProcessing && item.candidateName.trim() && !item.error,
+      );
 
-      if (insertError) {
-        throw insertError;
+      if (readyItems.length === 0) {
+        throw new Error(t("resumeImportMissing"));
       }
 
-      if (inserted?.id) {
-        setRemoteApplicants((prev) => [
-          {
-            id: inserted.id,
-            name: fullName,
-            role: jobTitle,
-            stage,
-            analysisStatus: "pending_ai",
-            aiScore: 0,
-            skills: [],
-            experience: 0,
-            location: "Location pending",
-            avatar: resumePreview ?? "",
-            email: "",
-            phone: "",
-            summary: "",
-            matchAnalysis: { pros: [], cons: [] },
-          },
-          ...prev,
-        ]);
+      const failedImports: string[] = [];
 
-        setSaveStatus(t("runningAiAnalysis"));
+      for (const [index, item] of readyItems.entries()) {
+        try {
+          setSaveStatus(`${t("uploadingResume")} ${index + 1}/${readyItems.length}`);
 
-        const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`;
-        const analysisResponse = await fetch(functionUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${sessionData.session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({
-              candidateId: inserted.id,
-              jobTitle,
-              jobDescription,
-              resumeText: normalizedResumeText,
-          }),
-        });
+          let normalizedResumeText = item.text;
+          if (!normalizedResumeText.trim()) {
+            normalizedResumeText = await extractPdfText(item.file);
+          }
 
-        if (!analysisResponse.ok) {
-          const analysisMessage = await analysisResponse.text();
-          await supabase
+          if (!normalizedResumeText.trim()) {
+            throw new Error(t("resumeExtractFailed"));
+          }
+
+          const fileExt = item.file.name.split(".").pop() || "pdf";
+          const fileName = `${crypto.randomUUID()}.${fileExt}`;
+          const filePath = `${sessionData.session.user.id}/${fileName}`;
+
+          const { error: uploadError } = await supabase.storage
+            .from("resumes")
+            .upload(filePath, item.file, { upsert: false });
+
+          if (uploadError) {
+            throw uploadError;
+          }
+
+          setSaveStatus(`${t("savingCandidateProfile")} ${index + 1}/${readyItems.length}`);
+          const { data: inserted, error: insertError } = await supabase
             .from("candidates")
-            .update({ analysis_status: "failed" })
-            .eq("id", inserted.id);
+            .insert({
+              user_id: sessionData.session.user.id,
+              full_name: item.candidateName.trim(),
+              job_title: latestJobTitle,
+              stage: "Applied",
+              resume_path: filePath,
+              resume_preview_url: item.previewUrl,
+              analysis_status: "pending_ai",
+            })
+            .select("id")
+            .single();
 
-          throw new Error(
-            `${t("candidateSavedAiFailed")} ${analysisMessage || analysisResponse.statusText}`,
-          );
+          if (insertError) {
+            throw insertError;
+          }
+
+          if (inserted?.id) {
+            setRemoteApplicants((prev) => [
+              {
+                id: inserted.id,
+                name: item.candidateName.trim(),
+                role: latestJobTitle,
+                stage: "Applied",
+                analysisStatus: "pending_ai",
+                createdAt: new Date().toISOString(),
+                aiScore: 0,
+                skills: [],
+                experience: 0,
+                location: "Location pending",
+                avatar: item.previewUrl ?? "",
+                email: "",
+                phone: "",
+                summary: "",
+                matchAnalysis: { pros: [], cons: [] },
+              },
+              ...prev,
+            ]);
+
+            setSaveStatus(`${t("runningAiAnalysis")} ${index + 1}/${readyItems.length}`);
+
+            const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`;
+            const analysisResponse = await fetch(functionUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${sessionData.session.access_token}`,
+                apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+              },
+              body: JSON.stringify({
+              candidateId: inserted.id,
+              jobTitle: latestJobTitle,
+              jobDescription: latestJobDescription,
+              resumeText: normalizedResumeText,
+              }),
+            });
+
+            if (!analysisResponse.ok) {
+              const analysisMessage = await analysisResponse.text();
+              await supabase
+                .from("candidates")
+                .update({ analysis_status: "failed" })
+                .eq("id", inserted.id);
+
+              failedImports.push(
+                `${item.candidateName}: ${analysisMessage || analysisResponse.statusText}`,
+              );
+            }
+          }
+        } catch (importError) {
+          const message =
+            importError instanceof Error ? importError.message : t("failedCandidateSave");
+          failedImports.push(`${item.candidateName || item.fileName}: ${message}`);
         }
       }
 
       await loadCandidates();
-      resetForm();
-      setIsAddOpen(false);
+      if (failedImports.length > 0) {
+        setSaveError(`${t("resumeImportPartialFailure")} ${failedImports.join(" | ")}`);
+      } else {
+        resetForm();
+        setIsAddOpen(false);
+      }
     } catch (error) {
       await loadCandidates();
       const message =
@@ -327,14 +530,74 @@ export default function Applicants() {
     }
   };
 
-  const filteredApplicants = remoteApplicants.filter((app) => {
+  const toggleStatusFilter = (filter: keyof typeof statusFilters, checked: boolean) => {
+    setStatusFilters((current) => ({
+      ...current,
+      [filter]: checked,
+    }));
+  };
+
+  const toggleOfferStatusFilter = (
+    filter: keyof typeof offerStatusFilters,
+    checked: boolean,
+  ) => {
+    setOfferStatusFilters((current) => ({
+      ...current,
+      [filter]: checked,
+    }));
+  };
+
+  const matchesStatusFilters = (applicant: Applicant) => {
+    const hasActiveStatusFilter = Object.values(statusFilters).some(Boolean);
+    if (!hasActiveStatusFilter) return true;
+
     return (
-      (jobFilter === "all" || app.role === jobFilter) &&
-      app.aiScore >= filterScore &&
-      (app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-       app.role.toLowerCase().includes(searchQuery.toLowerCase()))
+      (statusFilters.new && applicant.stage === "Applied") ||
+      (statusFilters.rejected && applicant.stage === "Rejected") ||
+      (statusFilters.accepted && applicant.stage === "Offer")
     );
-  });
+  };
+
+  const matchesOfferStatusFilters = (applicant: Applicant) => {
+    const hasActiveOfferFilter = Object.values(offerStatusFilters).some(Boolean);
+    if (!hasActiveOfferFilter) return true;
+    if (applicant.stage !== "Offer") return false;
+
+    const offerSent = Boolean(applicant.offerChecklist?.offerSent);
+    return (
+      (offerStatusFilters.preparing && !offerSent) ||
+      (offerStatusFilters.sent && offerSent)
+    );
+  };
+
+  const filteredApplicants = remoteApplicants
+    .filter((applicant) => matchesStatusFilters(applicant))
+    .filter((applicant) => matchesOfferStatusFilters(applicant))
+    .filter((applicant) => jobFilter === "all" || applicant.role === jobFilter)
+    .sort((left, right) => {
+      if (ratingFilter === "highest") {
+        return (right.aiScore ?? 0) - (left.aiScore ?? 0);
+      }
+
+      if (ratingFilter === "lowest") {
+        return (left.aiScore ?? 0) - (right.aiScore ?? 0);
+      }
+
+      const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
+      const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+
+      return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
+    });
+
+  const selectedResume =
+    resumeItems.find((item) => item.id === selectedResumeId) ?? resumeItems[0] ?? null;
+  const isProcessingResumes = resumeItems.some((item) => item.isProcessing);
+  const canSaveCandidates =
+    !isSaving &&
+    Boolean(selectedJobId) &&
+    resumeItems.length > 0 &&
+    !isProcessingResumes &&
+    resumeItems.some((item) => item.candidateName.trim() && !item.error);
 
   return (
     <div className="page-container">
@@ -364,21 +627,13 @@ export default function Applicants() {
           <div className="grid min-h-0 gap-6 overflow-y-auto pr-1 xl:grid-cols-[340px_minmax(0,1fr)] xl:gap-8 xl:overflow-hidden xl:pr-0">
             <div className="grid min-w-0 content-start gap-2.5">
               <div className="grid gap-1.5">
-                <Label htmlFor="candidate-name">{t("fullName")}</Label>
-                <Input
-                  id="candidate-name"
-                  placeholder="Jane Doe"
-                  value={fullName}
-                  onChange={(event) => setFullName(event.target.value)}
-                />
-              </div>
-              <div className="grid gap-1.5">
                 <Label htmlFor="candidate-role">{t("jobTitle")}</Label>
                 <Select
-                  value={jobTitle}
+                  value={selectedJobId}
                   onValueChange={(value) => {
-                    setJobTitle(value);
-                    const selectedJob = jobs.find((job) => job.title === value);
+                    setSelectedJobId(value);
+                    const selectedJob = jobs.find((job) => job.id === value);
+                    setJobTitle(selectedJob?.title ?? "");
                     setJobDescription(selectedJob?.description ?? "");
                   }}
                 >
@@ -387,48 +642,114 @@ export default function Applicants() {
                   </SelectTrigger>
                   <SelectContent>
                     {jobs.map((job) => (
-                      <SelectItem key={job.id} value={job.title}>
+                      <SelectItem key={job.id} value={job.id}>
                         {job.title}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="candidate-stage">{t("stage")}</Label>
-                <Select value={stage} onValueChange={(value) => setStage(value as Stage)}>
-                  <SelectTrigger id="candidate-stage">
-                    <SelectValue placeholder={t("selectStage")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(["Applied", "Screening", "Interview", "Offer", "Rejected"] as Stage[]).map(
-                      (stageOption) => (
-                        <SelectItem key={stageOption} value={stageOption}>
-                          {stageLabel(stageOption)}
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="candidate-resume">{t("uploadResumePdf")}</Label>
-                <Input
+              <div className="grid gap-2">
+                <Label>{t("uploadResumePdf")}</Label>
+                <input
+                  ref={fileInputRef}
                   id="candidate-resume"
                   type="file"
                   accept="application/pdf"
+                  multiple
+                  className="hidden"
                   onChange={handleResumeUpload}
                 />
-                {resumeFileName && (
-                  <p className="text-xs subtle-text">
-                    {isConverting
-                      ? t("convertingPdfPreview")
-                      : resumeFileName}
-                  </p>
-                )}
-                {resumeError && (
-                  <p className="text-xs text-red-500">{resumeError}</p>
-                )}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => fileInputRef.current?.click()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setIsDraggingResume(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setIsDraggingResume(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    setIsDraggingResume(false);
+                  }}
+                  onDrop={handleDropResume}
+                  className={`flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-md border border-dashed px-4 py-6 text-center transition-colors ${
+                    isDraggingResume
+                      ? "border-ring bg-muted"
+                      : "border-border bg-input-background hover:border-ring hover:bg-muted/60"
+                  }`}
+                >
+                  <Upload className="mb-3 h-8 w-8 text-muted-foreground" />
+                  <p className="text-sm font-medium text-foreground">{t("dropResumeHere")}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("dropResumeHint")}</p>
+                </div>
+                {resumeError ? <p className="text-xs text-red-500">{resumeError}</p> : null}
+              </div>
+
+              {resumeItems.length > 0 ? (
+                <div className="grid gap-2">
+                  <Label>{t("selectedResumes")}</Label>
+                  <div className="max-h-[280px] space-y-2 overflow-y-auto pr-1">
+                    {resumeItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className={`rounded-md border p-3 ${
+                          selectedResume?.id === item.id
+                            ? "border-ring bg-muted/50"
+                            : "border-border bg-card"
+                        }`}
+                      >
+                        <div className="mb-2 flex items-start justify-between gap-2">
+                          <button
+                            type="button"
+                            className="flex min-w-0 items-center gap-2 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+                            onClick={() => setSelectedResumeId(item.id)}
+                          >
+                            <FileText className="h-4 w-4 shrink-0" />
+                            <span className="truncate">{item.fileName}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-full p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-600"
+                            onClick={() => removeResumeItem(item.id)}
+                            aria-label={t("removeResume")}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <Input
+                          value={item.candidateName}
+                          placeholder={t("candidateNamePlaceholder")}
+                          onFocus={() => setSelectedResumeId(item.id)}
+                          onChange={(event) =>
+                            updateResumeCandidateName(item.id, event.target.value)
+                          }
+                        />
+                        {item.isProcessing ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            {t("convertingPdfPreview")}
+                          </p>
+                        ) : null}
+                        {item.error ? (
+                          <p className="mt-2 text-xs text-red-500">{item.error}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                {t("candidateStageAppliedNote")}
               </div>
               {saveError && (
                 <p className="text-sm text-red-500">{saveError}</p>
@@ -445,20 +766,25 @@ export default function Applicants() {
                 <h3 className="text-sm font-semibold text-foreground">
                   {t("resumePreview")}
                 </h3>
-                {resumePreview && (
-                  <button className="text-xs font-medium text-foreground underline-offset-4 hover:underline">
-                    {t("viewFull")}
-                  </button>
-                )}
+                {selectedResume ? (
+                  <span className="max-w-[220px] truncate text-xs font-medium text-muted-foreground">
+                    {selectedResume.fileName}
+                  </span>
+                ) : null}
               </div>
               <div className="mt-3 flex min-h-[360px] items-center justify-center xl:h-[60vh] xl:max-h-[620px]">
-                {resumePreview ? (
+                {selectedResume?.previewUrl ? (
                   <div className="flex h-[330px] max-h-full w-auto min-w-0 justify-center rounded-sm bg-white xl:h-full">
                     <img
-                      src={resumePreview}
+                      src={selectedResume.previewUrl}
                       alt={t("resumePreview")}
                       className="aspect-[210/297] h-full max-h-full w-auto max-w-full rounded-sm border border-border/60 object-contain shadow-sm"
                     />
+                  </div>
+                ) : selectedResume?.isProcessing ? (
+                  <div className="flex h-[320px] max-h-full w-full items-center justify-center rounded-sm border border-dashed border-border px-5 text-center text-xs subtle-text xl:h-full">
+                    <span className="mr-2 inline-flex h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-primary" />
+                    {t("convertingPdfPreview")}
                   </div>
                 ) : (
                   <span className="flex aspect-[210/297] h-[320px] max-h-full w-auto max-w-full items-center justify-center rounded-sm border border-dashed border-border px-5 text-center text-xs subtle-text xl:h-full">
@@ -481,34 +807,45 @@ export default function Applicants() {
             </Button>
             <Button
               onClick={handleSaveCandidate}
-              disabled={
-                isSaving ||
-                !fullName ||
-                !jobTitle ||
-                isConverting
-              }
+              disabled={!canSaveCandidates}
             >
-              {isSaving ? saveStatus ?? t("saving") : t("saveCandidate")}
+              {isSaving ? saveStatus ?? t("saving") : t("importCandidates")}
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Filters Bar */}
-      <div className="surface-card flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder={t("searchCandidates")}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-md border border-border bg-input-background px-3 py-2 pl-10 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/30"
-          />
+      <div className="surface-card ml-0 flex flex-wrap items-end gap-3 p-3 sm:ml-2">
+        <div className="grid min-w-[180px] flex-1 gap-1.5 sm:flex-none sm:basis-[190px]">
+          <Label>{t("filterByRating")}</Label>
+          <Select value={ratingFilter} onValueChange={setRatingFilter}>
+            <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+              <SelectValue placeholder={t("filterByRating")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("allRatings")}</SelectItem>
+              <SelectItem value="highest">{t("highestRating")}</SelectItem>
+              <SelectItem value="lowest">{t("lowestRating")}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <div className="min-w-[220px]">
+        <div className="grid min-w-[180px] flex-1 gap-1.5 sm:flex-none sm:basis-[190px]">
+          <Label>{t("timeline")}</Label>
+          <Select value={sortOrder} onValueChange={setSortOrder}>
+            <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+              <SelectValue placeholder={t("timeline")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="newest">{t("newestFirst")}</SelectItem>
+              <SelectItem value="oldest">{t("oldestFirst")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid min-w-[220px] flex-[1.25] gap-1.5 sm:flex-none sm:basis-[260px] lg:basis-[300px]">
+          <Label>{t("filterByJob")}</Label>
           <Select value={jobFilter} onValueChange={setJobFilter}>
-            <SelectTrigger>
+            <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
               <SelectValue placeholder={t("filterByJob")} />
             </SelectTrigger>
             <SelectContent>
@@ -521,16 +858,65 @@ export default function Applicants() {
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center space-x-2">
-          <span className="whitespace-nowrap text-sm font-medium text-foreground">{t("minAiScore")}: {filterScore}%</span>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            value={filterScore}
-            onChange={(e) => setFilterScore(Number(e.target.value))}
-            className="h-3 w-32 cursor-pointer appearance-none rounded-lg bg-muted accent-primary"
-          />
+        <div className="grid min-w-[300px] flex-[1.5] gap-1.5">
+          <Label>{t("statusFilters")}</Label>
+          <div className="flex min-h-10 flex-wrap items-center gap-x-5 gap-y-2 rounded-md border border-border bg-background px-3 py-2 shadow-sm dark:bg-muted/30">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+              <Checkbox
+                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                checked={statusFilters.new}
+                onCheckedChange={(checked) =>
+                  toggleStatusFilter("new", checked === true)
+                }
+              />
+              {t("newApplicantBadge")}
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+              <Checkbox
+                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                checked={statusFilters.rejected}
+                onCheckedChange={(checked) =>
+                  toggleStatusFilter("rejected", checked === true)
+                }
+              />
+              {t("rejectedStatusFilter")}
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+              <Checkbox
+                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                checked={statusFilters.accepted}
+                onCheckedChange={(checked) =>
+                  toggleStatusFilter("accepted", checked === true)
+                }
+              />
+              {t("acceptedStatusFilter")}
+            </label>
+          </div>
+        </div>
+        <div className="grid min-w-[260px] flex-1 gap-1.5 sm:flex-none sm:basis-[280px]">
+          <Label>{t("offerStatusFilters")}</Label>
+          <div className="flex min-h-10 flex-wrap items-center gap-x-5 gap-y-2 rounded-md border border-border bg-background px-3 py-2 shadow-sm dark:bg-muted/30">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+              <Checkbox
+                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                checked={offerStatusFilters.preparing}
+                onCheckedChange={(checked) =>
+                  toggleOfferStatusFilter("preparing", checked === true)
+                }
+              />
+              {t("offerStatusPreparing")}
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+              <Checkbox
+                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                checked={offerStatusFilters.sent}
+                onCheckedChange={(checked) =>
+                  toggleOfferStatusFilter("sent", checked === true)
+                }
+              />
+              {t("offerStatusSent")}
+            </label>
+          </div>
         </div>
       </div>
 
@@ -548,6 +934,7 @@ export default function Applicants() {
               key={applicant.id}
               applicant={applicant}
               onDelete={handleDeleteApplicant}
+              onMarkNewReviewed={handleMarkNewReviewed}
             />
           ))}
         </div>

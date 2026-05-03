@@ -10,9 +10,10 @@ import {
   Megaphone,
   Plus,
   Clock,
+  Pencil,
   Trash2,
 } from "lucide-react";
-import { Link } from "react-router";
+import { useNavigate } from "react-router";
 import { supabase } from "../lib/supabase";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Button } from "../components/ui/button";
@@ -50,6 +51,7 @@ const iconOptions = [
 
 export default function Jobs() {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -59,6 +61,12 @@ export default function Jobs() {
   const [jobIcon, setJobIcon] = useState("briefcase");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [editingJob, setEditingJob] = useState<JobRow | null>(null);
+  const [editJobTitle, setEditJobTitle] = useState("");
+  const [editJobType, setEditJobType] = useState("");
+  const [editJobDescription, setEditJobDescription] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -158,6 +166,69 @@ export default function Jobs() {
     }
   };
 
+  const openEditJob = (job: JobRow) => {
+    setEditingJob(job);
+    setEditJobTitle(job.title);
+    setEditJobType(job.type ?? "");
+    setEditJobDescription(job.description ?? "");
+    setUpdateError(null);
+  };
+
+  const closeEditJob = () => {
+    if (isUpdating) return;
+
+    setEditingJob(null);
+    setUpdateError(null);
+  };
+
+  const handleUpdateJob = async () => {
+    if (!editingJob) return;
+
+    setIsUpdating(true);
+    setUpdateError(null);
+    const previousTitle = editingJob.title;
+    const nextTitle = editJobTitle.trim();
+
+    const { data, error } = await supabase
+      .from("jobs")
+      .update({
+        title: nextTitle,
+        type: editJobType,
+        description: editJobDescription,
+      })
+      .eq("id", editingJob.id)
+      .select("id, title, type, description, icon, created_at")
+      .single();
+
+    if (error) {
+      setUpdateError(error.message || t("failedJobUpdate"));
+      setIsUpdating(false);
+      return;
+    }
+
+    if (previousTitle !== nextTitle) {
+      const { error: candidateUpdateError } = await supabase
+        .from("candidates")
+        .update({ job_title: nextTitle })
+        .eq("job_title", previousTitle);
+
+      if (candidateUpdateError) {
+        setUpdateError(candidateUpdateError.message || t("failedJobUpdate"));
+        setIsUpdating(false);
+        return;
+      }
+    }
+
+    if (data) {
+      setJobs((prev) =>
+        prev.map((job) => (job.id === editingJob.id ? (data as JobRow) : job)),
+      );
+    }
+
+    setIsUpdating(false);
+    setEditingJob(null);
+  };
+
   const handleDeleteJob = async (jobId: string) => {
     const confirmed = window.confirm(t("deleteJobConfirm"));
     if (!confirmed) return;
@@ -194,14 +265,14 @@ export default function Jobs() {
       </div>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="border-border bg-card text-card-foreground sm:max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden border-border bg-card p-0 text-card-foreground sm:max-w-3xl">
+          <DialogHeader className="border-b border-border px-6 py-5 pr-12">
             <DialogTitle>{t("createNewJobTitle")}</DialogTitle>
             <DialogDescription>
               {t("createJobDescription")}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-6 overflow-y-auto px-6 py-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(16rem,0.9fr)]">
             <div className="grid gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="job-title">{t("jobTitle")}</Label>
@@ -234,13 +305,13 @@ export default function Jobs() {
                   placeholder={t("jobDescriptionPlaceholder")}
                   value={jobDescription}
                   onChange={(event) => setJobDescription(event.target.value)}
-                  className="min-h-[140px]"
+                  className="h-64 min-h-40 max-h-[40vh] resize-y overflow-y-auto [field-sizing:fixed]"
                 />
               </div>
               {saveError && <p className="text-sm text-red-500">{saveError}</p>}
             </div>
 
-            <div className="muted-panel p-4">
+            <div className="muted-panel h-fit p-4">
               <h3 className="text-sm font-semibold text-foreground">{t("selectIcon")}</h3>
               <div className="mt-4 grid grid-cols-4 gap-3">
                 {iconOptions.map((option) => {
@@ -265,7 +336,7 @@ export default function Jobs() {
               </div>
             </div>
           </div>
-          <div className="flex justify-end gap-3">
+          <div className="flex flex-col-reverse gap-3 border-t border-border bg-card px-6 py-4 sm:flex-row sm:justify-end">
             <Button
               variant="outline"
               onClick={() => {
@@ -286,6 +357,74 @@ export default function Jobs() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={Boolean(editingJob)}
+        onOpenChange={(open) => (open ? undefined : closeEditJob())}
+      >
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden border-border bg-card p-0 text-card-foreground sm:max-w-2xl">
+          <DialogHeader className="border-b border-border px-6 py-5 pr-12">
+            <DialogTitle>{t("editJobTitle")}</DialogTitle>
+            <DialogDescription>{t("editJobDescription")}</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 overflow-y-auto px-6 py-5">
+            <div className="grid gap-2">
+              <Label htmlFor="edit-list-job-title">{t("jobTitle")}</Label>
+              <Input
+                id="edit-list-job-title"
+                placeholder="Senior Frontend Engineer"
+                value={editJobTitle}
+                onChange={(event) => setEditJobTitle(event.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-list-job-type">{t("jobType")}</Label>
+              <Select value={editJobType} onValueChange={setEditJobType}>
+                <SelectTrigger id="edit-list-job-type">
+                  <SelectValue placeholder={t("selectType")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {["Full-time", "Part-time", "Contract", "Internship"].map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-list-job-description">{t("jobDescription")}</Label>
+              <Textarea
+                id="edit-list-job-description"
+                placeholder={t("jobDescriptionPlaceholder")}
+                value={editJobDescription}
+                onChange={(event) => setEditJobDescription(event.target.value)}
+                className="h-72 min-h-40 max-h-[48vh] resize-y overflow-y-auto [field-sizing:fixed]"
+              />
+            </div>
+            {updateError ? <p className="text-sm text-red-500">{updateError}</p> : null}
+          </div>
+
+          <div className="flex flex-col-reverse gap-3 border-t border-border bg-card px-6 py-4 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={closeEditJob}
+              disabled={isUpdating}
+            >
+              {t("cancel")}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleUpdateJob}
+              disabled={isUpdating || !editJobTitle.trim() || !editJobType || !editJobDescription}
+            >
+              {isUpdating ? t("saving") : t("updateJob")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {deleteError ? (
           <div className="surface-card border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:col-span-2 xl:col-span-3">
@@ -295,10 +434,25 @@ export default function Jobs() {
 
         {jobs.map((job) => {
           const Icon = iconMap[job.icon ?? "briefcase"] ?? Briefcase;
+          const jobPath = `/jobs/${job.id}`;
+
+          const openJob = () => {
+            navigate(jobPath);
+          };
+
           return (
             <div
               key={job.id}
-              className="surface-card flex min-h-[280px] flex-col justify-between p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
+              role="link"
+              tabIndex={0}
+              onClick={openJob}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openJob();
+                }
+              }}
+              className="surface-card flex min-h-[280px] cursor-pointer flex-col justify-between p-6 transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             >
               <div>
                 <div className="flex items-start justify-between">
@@ -310,9 +464,7 @@ export default function Jobs() {
                   </span>
                 </div>
                 <h3 className="mt-4 text-lg font-semibold text-foreground">
-                  <Link to={`/jobs/${job.id}`} className="hover:underline">
-                    {job.title}
-                  </Link>
+                  {job.title}
                 </h3>
                 {job.type && <p className="mt-1 text-sm text-muted-foreground">{job.type}</p>}
                 {job.description && (
@@ -322,22 +474,38 @@ export default function Jobs() {
                 )}
               </div>
 
-              <div className="mt-6 flex items-center justify-between border-t border-border pt-4">
+              <div className="mt-6 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center text-xs text-muted-foreground">
                   <Clock className="mr-1.5 h-3.5 w-3.5" />
                   {t("posted")} {new Date(job.created_at).toLocaleDateString()}
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDeleteJob(job.id)}
-                  disabled={deletingJobId === job.id}
-                  className="gap-2 text-red-600 hover:text-red-700"
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
                 >
-                  <Trash2 className="h-4 w-4" />
-                  {deletingJobId === job.id ? t("deleting") : t("deleteJob")}
-                </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openEditJob(job)}
+                    className="gap-2"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    {t("editJob")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDeleteJob(job.id)}
+                    disabled={deletingJobId === job.id}
+                    className="gap-2 text-red-600 hover:text-red-700"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deletingJobId === job.id ? t("deleting") : t("deleteJob")}
+                  </Button>
+                </div>
               </div>
             </div>
           );

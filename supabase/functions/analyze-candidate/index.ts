@@ -87,13 +87,26 @@ Deno.serve(async (req) => {
 
     let resumeText = payload.resumeText || "";
     const jobTitle = payload.jobTitle || candidate.job_title || "";
-    const jobDescription = payload.jobDescription || "";
+    let jobDescription = payload.jobDescription || "";
+
+    if (!jobDescription.trim() && jobTitle.trim()) {
+      const { data: latestJob } = await supabase
+        .from("jobs")
+        .select("description")
+        .eq("title", jobTitle)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      jobDescription = latestJob?.description || "";
+    }
+
     const hasDetailedJobDescription = jobDescription.trim().length >= 120;
 
     const prompt = `You are an ATS analyzer. Follow these rules:
 - Use the Job Title and Job Description as the target role requirements.
 - Always write every human-readable response field in Slovenian, regardless of the resume language.
-- Keep JSON field names exactly as specified, but translate values such as summary, strengths, concerns, ai_writing_label, and ai_writing_notes into Slovenian.
+- Keep JSON field names exactly as specified, but translate values such as summary, strengths, concerns, interview_questions, offer_summary, ai_writing_label, and ai_writing_notes into Slovenian.
 - Skill names may stay in their common industry form when appropriate (for example React, TypeScript, SQL), but explanations and labels must be Slovenian.
 - Extract only the top 10 most relevant skills for the role.
 - Compute ats_score (0-100) using weighted scoring:
@@ -128,6 +141,10 @@ Deno.serve(async (req) => {
 - Do not present ai_writing_score as proof. Base it on generic phrasing, overly polished structure, repeated template language, lack of specific measurable detail, and unusually uniform tone.
 - Provide ai_writing_label in Slovenian, using one of: "Nizek signal AI pisanja", "Mešan signal avtorstva", "Visok signal AI pisanja".
 - Provide ai_writing_notes as short Slovenian evidence cues a recruiter can review.
+- Provide exactly 3 interview_questions in Slovenian for an interviewer.
+- Each interview question must be tailored to the Job Description and the candidate's CV evidence, focused on verifying key requirements, gaps, concrete experience, or measurable impact.
+- Interview questions must be open-ended, practical, concise, and must not ask about or imply protected characteristics.
+- Provide offer_summary as a short Slovenian recruiter-facing paragraph explaining why this candidate is suitable enough to prepare an offer, based only on job-relevant CV evidence and the target role.
 
 Return strict JSON with these fields:
 {
@@ -139,6 +156,8 @@ Return strict JSON with these fields:
   "summary": string,
   "strengths": string[],
   "concerns": string[],
+  "interview_questions": string[],
+  "offer_summary": string,
   "ai_writing_score": number,
   "ai_writing_label": "Nizek signal AI pisanja" | "Mešan signal avtorstva" | "Visok signal AI pisanja",
   "ai_writing_notes": string[],
@@ -183,6 +202,8 @@ Return JSON only.`;
       summary?: string;
       strengths?: string[];
       concerns?: string[];
+      interview_questions?: string[];
+      offer_summary?: string;
       ai_writing_score?: number;
       ai_writing_label?: string;
       ai_writing_notes?: string[];
@@ -263,10 +284,44 @@ Return JSON only.`;
       ai_writing_notes: parsed.ai_writing_notes ?? [],
     };
 
+    const updateWithInterviewQuestions = {
+      ...updateWithAiWriting,
+      interview_questions: (parsed.interview_questions ?? []).slice(0, 3),
+    };
+
+    const updateWithOfferSummary = {
+      ...updateWithInterviewQuestions,
+      offer_summary: parsed.offer_summary ?? null,
+    };
+
     let { error: updateError } = await supabase
       .from("candidates")
-      .update(updateWithAiWriting)
+      .update(updateWithOfferSummary)
       .eq("id", payload.candidateId);
+
+    if (
+      updateError &&
+      (updateError.message?.includes("offer_summary") ||
+        updateError.details?.includes("offer_summary"))
+    ) {
+      const retry = await supabase
+        .from("candidates")
+        .update(updateWithInterviewQuestions)
+        .eq("id", payload.candidateId);
+      updateError = retry.error;
+    }
+
+    if (
+      updateError &&
+      (updateError.message?.includes("interview_questions") ||
+        updateError.details?.includes("interview_questions"))
+    ) {
+      const retry = await supabase
+        .from("candidates")
+        .update(updateWithAiWriting)
+        .eq("id", payload.candidateId);
+      updateError = retry.error;
+    }
 
     if (
       updateError &&

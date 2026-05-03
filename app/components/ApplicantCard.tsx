@@ -8,10 +8,12 @@ import { useI18n } from '../lib/i18n';
 interface ApplicantCardProps {
   applicant: Applicant;
   onDelete?: (id: string) => void;
+  onMarkNewReviewed?: (id: string) => void;
 }
 
-export function ApplicantCard({ applicant, onDelete }: ApplicantCardProps) {
+export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed }: ApplicantCardProps) {
   const { stageLabel, t } = useI18n();
+  const isNewApplicant = applicant.stage === "Applied";
   const isSafeImageUrl = (value?: string) => {
     if (!value) return false;
     if (value.startsWith("blob:")) return false;
@@ -67,7 +69,15 @@ export function ApplicantCard({ applicant, onDelete }: ApplicantCardProps) {
           </div>
         </div>
         <div className="relative z-10 flex items-center gap-1">
-          
+          {isNewApplicant ? (
+            <button
+              type="button"
+              className="inline-flex items-center rounded-full bg-sky-500/10 px-2.5 py-1 text-xs font-semibold text-sky-700 ring-1 ring-inset ring-sky-500/20 hover:bg-sky-500/15 dark:text-sky-300"
+              onClick={() => onMarkNewReviewed?.(applicant.id)}
+            >
+              {t("newApplicantBadge")}
+            </button>
+          ) : null}
           <button
             type="button"
             className="rounded-full p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-600"

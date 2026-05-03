@@ -27,6 +27,14 @@ import {
 import { Button } from "../components/ui/button";
 import { useI18n } from "../lib/i18n";
 
+type OfferChecklist = {
+  interviewCompleted: boolean;
+  referencesChecked: boolean;
+  termsAligned: boolean;
+  internalApproval: boolean;
+  offerSent: boolean;
+};
+
 type CandidateDetailRecord = {
   id: string;
   full_name: string;
@@ -44,7 +52,21 @@ type CandidateDetailRecord = {
   ai_writing_score: number | null;
   ai_writing_label: string | null;
   ai_writing_notes: string[] | null;
+  interview_questions: string[] | null;
+  offer_summary: string | null;
+  offer_checklist: Partial<OfferChecklist> | null;
+  offer_sent_at: string | null;
+  offer_response_due_at: string | null;
+  offer_follow_up_at: string | null;
   skill_profile: Record<string, number> | null;
+};
+
+const defaultOfferChecklist: OfferChecklist = {
+  interviewCompleted: false,
+  referencesChecked: false,
+  termsAligned: false,
+  internalApproval: false,
+  offerSent: false,
 };
 
 const baseCandidateSelect =
@@ -52,6 +74,12 @@ const baseCandidateSelect =
 
 const candidateSelectWithAiWriting =
   `${baseCandidateSelect}, ai_writing_score, ai_writing_label, ai_writing_notes`;
+
+const candidateSelectWithInterviewQuestions =
+  `${candidateSelectWithAiWriting}, interview_questions`;
+
+const candidateSelectWithOfferPreparation =
+  `${candidateSelectWithInterviewQuestions}, offer_summary, offer_checklist, offer_sent_at, offer_response_due_at, offer_follow_up_at`;
 
 export default function CandidateDetail() {
   const { id } = useParams();
@@ -62,6 +90,7 @@ export default function CandidateDetail() {
   const [isOpeningCv, setIsOpeningCv] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
+  const [offerError, setOfferError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -71,14 +100,40 @@ export default function CandidateDetail() {
 
       const result = await supabase
         .from("candidates")
-        .select(candidateSelectWithAiWriting)
+        .select(candidateSelectWithOfferPreparation)
         .eq("id", id)
         .single();
 
-      const shouldRetryWithoutAiWriting =
+      const shouldRetryWithoutOfferPreparation =
         result.error &&
-        (result.error.message?.includes("ai_writing") ||
-          result.error.details?.includes("ai_writing"));
+        (result.error.message?.includes("offer_") ||
+          result.error.details?.includes("offer_"));
+
+      const interviewResult = shouldRetryWithoutOfferPreparation
+        ? await supabase
+            .from("candidates")
+            .select(candidateSelectWithInterviewQuestions)
+            .eq("id", id)
+            .single()
+        : result;
+
+      const shouldRetryWithoutInterviewQuestions =
+        interviewResult.error &&
+        (interviewResult.error.message?.includes("interview_questions") ||
+          interviewResult.error.details?.includes("interview_questions"));
+
+      const aiWritingResult = shouldRetryWithoutInterviewQuestions
+        ? await supabase
+            .from("candidates")
+            .select(candidateSelectWithAiWriting)
+            .eq("id", id)
+            .single()
+        : interviewResult;
+
+      const shouldRetryWithoutAiWriting =
+        aiWritingResult.error &&
+        (aiWritingResult.error.message?.includes("ai_writing") ||
+          aiWritingResult.error.details?.includes("ai_writing"));
 
       const fallbackResult = shouldRetryWithoutAiWriting
         ? await supabase
@@ -86,7 +141,7 @@ export default function CandidateDetail() {
             .select(baseCandidateSelect)
             .eq("id", id)
             .single()
-        : result;
+        : aiWritingResult;
 
       if (!isMounted) return;
 
@@ -96,14 +151,35 @@ export default function CandidateDetail() {
         return;
       }
 
-      setCandidate({
+      const loadedStage = (fallbackResult.data.stage as Stage) ?? "Applied";
+      const shouldMarkReviewed = loadedStage === "Applied";
+      const nextCandidate = {
         ai_writing_score: null,
         ai_writing_label: null,
         ai_writing_notes: [],
+        interview_questions: [],
+        offer_summary: null,
+        offer_checklist: defaultOfferChecklist,
+        offer_sent_at: null,
+        offer_response_due_at: null,
+        offer_follow_up_at: null,
         ...fallbackResult.data,
-        stage: (fallbackResult.data.stage as Stage) ?? "Applied",
-      } as CandidateDetailRecord);
+        stage: shouldMarkReviewed ? "Screening" : loadedStage,
+      } as CandidateDetailRecord;
+
+      setCandidate(nextCandidate);
       setIsLoading(false);
+
+      if (shouldMarkReviewed) {
+        const { error } = await supabase
+          .from("candidates")
+          .update({ stage: "Screening" })
+          .eq("id", fallbackResult.data.id);
+
+        if (error && isMounted) {
+          setStageError(error.message || t("failedStageUpdate"));
+        }
+      }
     };
 
     loadCandidate();
@@ -185,6 +261,82 @@ export default function CandidateDetail() {
           : fallbackSignal.notes,
     };
   }, [candidate]);
+
+  const interviewQuestions = useMemo(
+    () => (candidate?.interview_questions ?? []).slice(0, 3),
+    [candidate],
+  );
+  const offerChecklist = useMemo(
+    () => ({
+      ...defaultOfferChecklist,
+      ...(candidate?.offer_checklist ?? {}),
+    }),
+    [candidate],
+  );
+  const isInterviewStage = candidate?.stage === "Interview";
+  const isOfferStage = candidate?.stage === "Offer";
+  const offerChecklistItems: Array<{ key: keyof OfferChecklist; label: string }> = [
+    { key: "interviewCompleted", label: t("offerChecklistInterviewCompleted") },
+    { key: "referencesChecked", label: t("offerChecklistReferencesChecked") },
+    { key: "termsAligned", label: t("offerChecklistTermsAligned") },
+    { key: "internalApproval", label: t("offerChecklistInternalApproval") },
+    { key: "offerSent", label: t("offerChecklistOfferSent") },
+  ];
+
+  const updateOfferChecklist = async (
+    key: keyof OfferChecklist,
+    checked: boolean,
+  ) => {
+    if (!candidate) return;
+
+    const previousCandidate = candidate;
+    const nextChecklist = { ...offerChecklist, [key]: checked };
+    const datePatch =
+      key === "offerSent" && checked && !candidate.offer_sent_at
+        ? { offer_sent_at: new Date().toISOString().slice(0, 10) }
+        : {};
+
+    setCandidate({
+      ...candidate,
+      offer_checklist: nextChecklist,
+      ...datePatch,
+    });
+    setOfferError(null);
+
+    const { error } = await supabase
+      .from("candidates")
+      .update({
+        offer_checklist: nextChecklist,
+        ...datePatch,
+      })
+      .eq("id", candidate.id);
+
+    if (error) {
+      setCandidate(previousCandidate);
+      setOfferError(error.message || t("failedOfferUpdate"));
+    }
+  };
+
+  const updateOfferDate = async (
+    field: "offer_sent_at" | "offer_response_due_at" | "offer_follow_up_at",
+    value: string,
+  ) => {
+    if (!candidate) return;
+
+    const previousCandidate = candidate;
+    setCandidate({ ...candidate, [field]: value || null });
+    setOfferError(null);
+
+    const { error } = await supabase
+      .from("candidates")
+      .update({ [field]: value || null })
+      .eq("id", candidate.id);
+
+    if (error) {
+      setCandidate(previousCandidate);
+      setOfferError(error.message || t("failedOfferUpdate"));
+    }
+  };
 
   const handleStageChange = async (nextStage: Stage) => {
     if (!candidate || nextStage === candidate.stage) return;
@@ -294,7 +446,7 @@ export default function CandidateDetail() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(["Applied", "Screening", "Interview", "Offer", "Rejected"] as Stage[]).map(
+                  {(["Screening", "Interview", "Offer", "Rejected"] as Stage[]).map(
                     (stageOption) => (
                       <SelectItem key={stageOption} value={stageOption}>
                         {stageLabel(stageOption)}
@@ -390,39 +542,147 @@ export default function CandidateDetail() {
               </div>
 
               <div className="surface-card p-6">
-                <h2 className="mb-4 text-lg font-semibold text-foreground">{t("skillsProfile")}</h2>
-                <div className="h-64 min-h-[256px] w-full">
-                  <ResponsiveContainer width="100%" height="100%" minHeight={256}>
-                    <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
-                      <PolarGrid stroke="var(--border)" />
-                      <PolarAngleAxis dataKey="subject" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} />
-                      <PolarRadiusAxis
-                        angle={30}
-                        domain={[0, (dataMax: number) => Math.max(dataMax, 1)]}
-                        tick={false}
-                        axisLine={false}
-                      />
-                      <Radar
-                        name="Candidate"
-                        dataKey="A"
-                        stroke="#06b6d4"
-                        strokeWidth={2}
-                        fill="#8b5cf6"
-                        fillOpacity={0.36}
-                      />
-                    </RadarChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {(candidate.skills ?? []).slice(0, 5).map((skill) => (
-                    <span
-                      key={skill}
-                      className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
+                {isInterviewStage ? (
+                  <>
+                    <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold text-foreground">
+                      <Bot className="h-5 w-5 text-cyan-500" />
+                      {t("interviewQuestions")}
+                    </h2>
+                    <p className="mb-5 text-sm text-muted-foreground">
+                      {t("interviewQuestionsSubtitle")}
+                    </p>
+                    {interviewQuestions.length ? (
+                      <ol className="space-y-3">
+                        {interviewQuestions.map((question, index) => (
+                          <li
+                            key={`${question}-${index}`}
+                            className="rounded-md border border-border bg-muted/35 p-4 text-sm leading-relaxed text-foreground"
+                          >
+                            <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-cyan-500">
+                              {index + 1}. {t("question")}
+                            </span>
+                            {question}
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <div className="rounded-md border border-border bg-muted/35 p-4 text-sm text-muted-foreground">
+                        {t("interviewQuestionsUnavailable")}
+                      </div>
+                    )}
+                  </>
+                ) : isOfferStage ? (
+                  <>
+                    <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold text-foreground">
+                      <Bot className="h-5 w-5 text-emerald-500" />
+                      {t("offerPreparation")}
+                    </h2>
+                    <p className="mb-5 text-sm text-muted-foreground">
+                      {t("offerPreparationSubtitle")}
+                    </p>
+
+                    <div className="rounded-md border border-border bg-muted/35 p-4">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {t("offerSuitabilitySummary")}
+                      </h3>
+                      <p className="mt-2 text-sm leading-relaxed text-foreground">
+                        {candidate.offer_summary || t("offerSummaryUnavailable")}
+                      </p>
+                    </div>
+
+                    <div className="mt-5">
+                      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {t("offerChecklist")}
+                      </h3>
+                      <div className="space-y-2">
+                        {offerChecklistItems.map((item) => (
+                          <label
+                            key={item.key}
+                            className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground dark:bg-muted/30"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={offerChecklist[item.key]}
+                              onChange={(event) =>
+                                updateOfferChecklist(item.key, event.target.checked)
+                              }
+                              className="h-4 w-4 rounded border-border accent-primary"
+                            />
+                            {item.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-3">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {t("offerDatesAndReminder")}
+                      </h3>
+                      <label className="grid gap-1.5 text-sm text-foreground">
+                        <span>{t("offerSentDate")}</span>
+                        <input
+                          type="date"
+                          value={candidate.offer_sent_at ?? ""}
+                          onChange={(event) =>
+                            updateOfferDate("offer_sent_at", event.target.value)
+                          }
+                          className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground dark:bg-muted/30"
+                        />
+                      </label>
+                      <label className="grid gap-1.5 text-sm text-foreground">
+                        <span>{t("offerFollowUpDate")}</span>
+                        <input
+                          type="date"
+                          value={candidate.offer_follow_up_at ?? ""}
+                          onChange={(event) =>
+                            updateOfferDate("offer_follow_up_at", event.target.value)
+                          }
+                          className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground dark:bg-muted/30"
+                        />
+                      </label>
+                    </div>
+
+                    {offerError ? (
+                      <p className="mt-4 text-sm text-red-500">{offerError}</p>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <h2 className="mb-4 text-lg font-semibold text-foreground">{t("skillsProfile")}</h2>
+                    <div className="h-64 min-h-[256px] w-full">
+                      <ResponsiveContainer width="100%" height="100%" minHeight={256}>
+                        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
+                          <PolarGrid stroke="var(--border)" />
+                          <PolarAngleAxis dataKey="subject" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} />
+                          <PolarRadiusAxis
+                            angle={30}
+                            domain={[0, (dataMax: number) => Math.max(dataMax, 1)]}
+                            tick={false}
+                            axisLine={false}
+                          />
+                          <Radar
+                            name="Candidate"
+                            dataKey="A"
+                            stroke="#06b6d4"
+                            strokeWidth={2}
+                            fill="#8b5cf6"
+                            fillOpacity={0.36}
+                          />
+                        </RadarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {(candidate.skills ?? []).slice(0, 5).map((skill) => (
+                        <span
+                          key={skill}
+                          className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
 
            </div>
@@ -430,67 +690,71 @@ export default function CandidateDetail() {
 
         </div>
 
+        {!isInterviewStage && !isOfferStage ? (
         <aside className="hidden w-[22rem] overflow-y-auto border-l border-border bg-card p-6 xl:block">
           <div className="surface-card bg-background/45 p-6">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-                  <Bot className="h-5 w-5 text-cyan-500" />
-                  {t("cvAiWritingSignal")}
-                </h2>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {t("aiWritingSignalDescription")}
-                </p>
-              </div>
-              <div className="text-right">
-                <div className="text-4xl font-semibold leading-none text-foreground">
-                  {aiWritingSignal.score}
+            <>
+              <div className="mb-5 flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+                    <Bot className="h-5 w-5 text-cyan-500" />
+                    {t("cvAiWritingSignal")}
+                  </h2>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {t("aiWritingSignalDescription")}
+                  </p>
                 </div>
-                <div className="text-xs text-muted-foreground">/100</div>
+                <div className="text-right">
+                  <div className="text-4xl font-semibold leading-none text-foreground">
+                    {aiWritingSignal.score}
+                  </div>
+                  <div className="text-xs text-muted-foreground">/100</div>
+                </div>
               </div>
-            </div>
 
-            <div className="h-3 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500"
-                style={{ width: `${aiWritingSignal.score}%` }}
-              />
-            </div>
+              <div className="h-3 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500"
+                  style={{ width: `${aiWritingSignal.score}%` }}
+                />
+              </div>
 
-            <div className="mt-4 flex items-center justify-between gap-3 text-sm">
-              <span
-                className={
-                  aiWritingSignal.tone === "high"
-                    ? "font-medium text-pink-500"
-                    : aiWritingSignal.tone === "medium"
-                      ? "font-medium text-purple-500"
-                      : "font-medium text-green-500"
-                }
-              >
-                {aiWritingSignal.label}
-              </span>
-              <span className="text-muted-foreground">{t("reviewCue")}</span>
-            </div>
+              <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+                <span
+                  className={
+                    aiWritingSignal.tone === "high"
+                      ? "font-medium text-pink-500"
+                      : aiWritingSignal.tone === "medium"
+                        ? "font-medium text-purple-500"
+                        : "font-medium text-green-500"
+                  }
+                >
+                  {aiWritingSignal.label}
+                </span>
+                <span className="text-muted-foreground">{t("reviewCue")}</span>
+              </div>
 
-            <div className="mt-5 border-t border-border pt-5">
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {t("signalNotes")}
-              </h3>
-              <ul className="space-y-3 text-sm text-muted-foreground">
-                {aiWritingSignal.notes.map((note) => (
-                  <li key={note} className="flex gap-2">
-                    <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-cyan-400" />
-                    <span>{note}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+              <div className="mt-5 border-t border-border pt-5">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t("signalNotes")}
+                </h3>
+                <ul className="space-y-3 text-sm text-muted-foreground">
+                  {aiWritingSignal.notes.map((note) => (
+                    <li key={note} className="flex gap-2">
+                      <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-cyan-400" />
+                      <span>{note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
-            <div className="mt-5 rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
-              {t("aiWritingProofNote")}
-            </div>
+              <div className="mt-5 rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+                {t("aiWritingProofNote")}
+              </div>
+            </>
           </div>
         </aside>
+        ) : null}
       </div>
     </div>
   );
