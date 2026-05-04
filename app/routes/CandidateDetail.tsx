@@ -26,6 +26,7 @@ import {
 } from "../components/ui/select";
 import { Button } from "../components/ui/button";
 import { useI18n } from "../lib/i18n";
+import { updateCachedApplicants } from "../lib/candidateListCache";
 
 type OfferChecklist = {
   interviewCompleted: boolean;
@@ -178,6 +179,14 @@ export default function CandidateDetail() {
 
         if (error && isMounted) {
           setStageError(error.message || t("failedStageUpdate"));
+        } else {
+          updateCachedApplicants((applicants) =>
+            applicants.map((applicant) =>
+              applicant.id === fallbackResult.data.id
+                ? { ...applicant, stage: "Screening" }
+                : applicant,
+            ),
+          );
         }
       }
     };
@@ -314,6 +323,21 @@ export default function CandidateDetail() {
     if (error) {
       setCandidate(previousCandidate);
       setOfferError(error.message || t("failedOfferUpdate"));
+    } else {
+      updateCachedApplicants((applicants) =>
+        applicants.map((applicant) =>
+          applicant.id === candidate.id
+            ? {
+                ...applicant,
+                offerChecklist: { offerSent: Boolean(nextChecklist.offerSent) },
+                offerSentAt:
+                  "offer_sent_at" in datePatch
+                    ? datePatch.offer_sent_at ?? null
+                    : applicant.offerSentAt,
+              }
+            : applicant,
+        ),
+      );
     }
   };
 
@@ -335,6 +359,22 @@ export default function CandidateDetail() {
     if (error) {
       setCandidate(previousCandidate);
       setOfferError(error.message || t("failedOfferUpdate"));
+    } else {
+      updateCachedApplicants((applicants) =>
+        applicants.map((applicant) =>
+          applicant.id === candidate.id
+            ? {
+                ...applicant,
+                offerSentAt:
+                  field === "offer_sent_at" ? value || null : applicant.offerSentAt,
+                offerFollowUpAt:
+                  field === "offer_follow_up_at"
+                    ? value || null
+                    : applicant.offerFollowUpAt,
+              }
+            : applicant,
+        ),
+      );
     }
   };
 
@@ -354,6 +394,14 @@ export default function CandidateDetail() {
     if (error) {
       setCandidate({ ...candidate, stage: previousStage });
       setStageError(error.message || t("failedStageUpdate"));
+    } else {
+      updateCachedApplicants((applicants) =>
+        applicants.map((applicant) =>
+          applicant.id === candidate.id
+            ? { ...applicant, stage: nextStage }
+            : applicant,
+        ),
+      );
     }
 
     setIsUpdatingStage(false);
@@ -372,7 +420,11 @@ export default function CandidateDetail() {
     if (pdfWindow) {
       pdfWindow.opener = null;
       pdfWindow.document.title = t("openingCv");
-      pdfWindow.document.body.innerHTML = `<p style="font-family: sans-serif; color: #444;">${t("openingCv")}</p>`;
+      const message = pdfWindow.document.createElement("p");
+      message.textContent = t("openingCv");
+      message.style.fontFamily = "sans-serif";
+      message.style.color = "#444";
+      pdfWindow.document.body.replaceChildren(message);
     }
 
     const { data, error } = await supabase.storage

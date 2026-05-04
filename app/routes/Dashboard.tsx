@@ -9,6 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  ComposedChart,
   PieChart,
   Pie,
   Legend,
@@ -21,6 +22,7 @@ import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { supabase } from "../lib/supabase";
 import { useI18n } from "../lib/i18n";
+import { dedupeCandidateRows } from "../lib/candidateRows";
 
 type DashboardApplicant = Applicant & {
   createdAt: string | null;
@@ -33,7 +35,7 @@ type DashboardApplicant = Applicant & {
 };
 
 const dashboardCandidateSelect =
-  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, created_at";
+  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, created_at";
 
 const dashboardCandidateSelectWithAiWriting =
   `${dashboardCandidateSelect}, ai_writing_score`;
@@ -113,7 +115,7 @@ export default function Dashboard() {
         return;
       }
 
-      const mapped = (candidateRows ?? []).map((row) => ({
+      const mapped = dedupeCandidateRows(candidateRows ?? []).map((row) => ({
         id: row.id,
         name: row.full_name,
         role: row.job_title,
@@ -339,7 +341,7 @@ export default function Dashboard() {
           <h2 className="mb-4 text-base font-semibold text-foreground">{t("applicantPipeline")}</h2>
           <div className="h-64 w-full min-w-0 min-h-[256px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={256}>
-              <BarChart data={stageData}>
+              <ComposedChart data={stageData}>
                 <XAxis dataKey="label" fontSize={12} tickLine={false} axisLine={false} stroke="var(--muted-foreground)" />
                 <YAxis fontSize={12} tickLine={false} axisLine={false} stroke="var(--muted-foreground)" />
                 <Tooltip 
@@ -352,7 +354,15 @@ export default function Dashboard() {
                     <Cell key={`cell-${index}`} fill={STAGE_COLORS[entry.stage]} />
                   ))}
                 </Bar>
-              </BarChart>
+                <Line
+                  type="monotone"
+                  dataKey="value"
+                  stroke="var(--foreground)"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, strokeWidth: 2, fill: "var(--card)" }}
+                  activeDot={{ r: 6 }}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </div>

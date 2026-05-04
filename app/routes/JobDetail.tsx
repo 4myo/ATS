@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { ArrowLeft, Briefcase, CalendarDays, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, Briefcase, CalendarDays, Pencil, Trash2, Users } from "lucide-react";
+import type { Stage } from "../store";
 import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -14,6 +16,8 @@ import {
 } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { supabase } from "../lib/supabase";
+import { dedupeCandidateRows } from "../lib/candidateRows";
+import { updateCachedApplicants } from "../lib/candidateListCache";
 import { useI18n } from "../lib/i18n";
 
 type JobDetailRecord = {
@@ -26,11 +30,19 @@ type JobDetailRecord = {
   created_at: string;
 };
 
+type JobCandidate = {
+  id: string;
+  name: string;
+  stage: Stage;
+  aiScore: number;
+};
+
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, stageLabel } = useI18n();
   const [job, setJob] = useState<JobDetailRecord | null>(null);
+  const [jobCandidates, setJobCandidates] = useState<JobCandidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -64,7 +76,25 @@ export default function JobDetail() {
         return;
       }
 
+      const { data: candidateRows } = await supabase
+        .from("candidates")
+        .select("id, full_name, job_title, stage, email, resume_path, ats_score, created_at")
+        .eq("job_title", data.title)
+        .order("created_at", { ascending: false });
+
+      if (!isMounted) return;
+
       setJob(data as JobDetailRecord);
+      setJobCandidates(
+        dedupeCandidateRows(
+          (candidateRows ?? []) as Array<Record<string, unknown>>,
+        ).map((candidate) => ({
+          id: candidate.id as string,
+          name: (candidate.full_name as string | null | undefined) ?? t("candidate"),
+          stage: (candidate.stage as Stage) ?? "Applied",
+          aiScore: Number(candidate.ats_score ?? 0),
+        })),
+      );
       setIsLoading(false);
     };
 
@@ -148,6 +178,14 @@ export default function JobDetail() {
         setIsUpdating(false);
         return;
       }
+
+      updateCachedApplicants((applicants) =>
+        applicants.map((applicant) =>
+          applicant.role === previousTitle
+            ? { ...applicant, role: nextTitle }
+            : applicant,
+        ),
+      );
     }
 
     setJob(data as JobDetailRecord);
@@ -296,7 +334,7 @@ export default function JobDetail() {
         </div>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_18rem]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <section className="surface-card p-6">
           <h2 className="text-base font-semibold text-foreground">
             {t("jobDescription")}
@@ -304,29 +342,61 @@ export default function JobDetail() {
           <p className="mt-4 whitespace-pre-wrap leading-relaxed text-muted-foreground">
             {job.description || t("jobDescriptionUnavailable")}
           </p>
+          <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-border pt-4 text-sm text-muted-foreground">
+            <CalendarDays className="h-4 w-4" />
+            <span>{t("posted")} {new Date(job.created_at).toLocaleDateString()}</span>
+          </div>
         </section>
 
         <aside className="surface-card p-6">
-          <h2 className="text-base font-semibold text-foreground">
-            {t("jobDetails")}
-          </h2>
-          <dl className="mt-4 space-y-4 text-sm">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {t("jobType")}
-              </dt>
-              <dd className="mt-1 text-foreground">{job.type || "-"}</dd>
+              <h2 className="text-base font-semibold text-foreground">
+                {t("jobCandidates")}
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("jobCandidatesSubtitle")}
+              </p>
             </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {t("posted")}
-              </dt>
-              <dd className="mt-1 flex items-center gap-2 text-foreground">
-                <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                {new Date(job.created_at).toLocaleDateString()}
-              </dd>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-foreground">
+              <Users className="h-3.5 w-3.5" />
+              {jobCandidates.length}
+            </span>
+          </div>
+
+          {jobCandidates.length > 0 ? (
+            <div className="mt-5 overflow-hidden rounded-md border border-border">
+              <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <span>{t("candidate")}</span>
+                <span>{t("stage")}</span>
+              </div>
+              <div className="max-h-[520px] divide-y divide-border overflow-y-auto">
+                {jobCandidates.map((candidate) => (
+                  <Link
+                    key={candidate.id}
+                    to={`/applicants/${candidate.id}`}
+                    className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/45"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {candidate.name}
+                      </p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {candidate.aiScore}% {t("match")}
+                      </p>
+                    </div>
+                    <Badge variant="secondary" className="justify-center">
+                      {stageLabel(candidate.stage)}
+                    </Badge>
+                  </Link>
+                ))}
+              </div>
             </div>
-          </dl>
+          ) : (
+            <div className="mt-5 rounded-md border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
+              {t("noJobCandidates")}
+            </div>
+          )}
         </aside>
       </div>
     </div>

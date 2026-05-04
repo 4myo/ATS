@@ -7,6 +7,9 @@ import { cn } from "./utils";
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const;
+const cssIdentifierPattern = /^[a-zA-Z_][a-zA-Z0-9_-]*$/;
+const cssColorPattern =
+  /^(#[0-9a-fA-F]{3,8}|(?:rgb|rgba|hsl|hsla)\([0-9%.,\s-]+\)|var\(--[a-zA-Z0-9_-]+\)|[a-zA-Z]+)$/;
 
 export type ChartConfig = {
   [k in string]: {
@@ -70,9 +73,15 @@ function ChartContainer({
 }
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme || config.color,
-  );
+  const safeChartId = cssIdentifierPattern.test(id) ? id : "chart";
+  const colorConfig = Object.entries(config).filter(([key, config]) => {
+    if (!cssIdentifierPattern.test(key)) return false;
+
+    const colors = config.theme ? Object.values(config.theme) : [config.color];
+    return colors.every(
+      (color) => !color || cssColorPattern.test(String(color).trim()),
+    );
+  });
 
   if (!colorConfig.length) {
     return null;
@@ -84,7 +93,7 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
         __html: Object.entries(THEMES)
           .map(
             ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
+${prefix} [data-chart=${safeChartId}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
     const color =

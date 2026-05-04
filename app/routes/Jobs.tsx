@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Briefcase,
+  ChevronLeft,
+  ChevronRight,
   Code,
   Paintbrush,
   Database,
@@ -9,12 +11,13 @@ import {
   Users,
   Megaphone,
   Plus,
-  Clock,
   Pencil,
   Trash2,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { supabase } from "../lib/supabase";
+import { dedupeCandidateRows } from "../lib/candidateRows";
+import { updateCachedApplicants } from "../lib/candidateListCache";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -36,6 +39,7 @@ type JobRow = {
   description: string | null;
   icon: string | null;
   created_at: string;
+  applicantsCount: number;
 };
 
 const iconOptions = [
@@ -48,6 +52,8 @@ const iconOptions = [
   { value: "users", label: "People", icon: Users },
   { value: "megaphone", label: "Marketing", icon: Megaphone },
 ];
+
+const jobsPerPage = 6;
 
 export default function Jobs() {
   const { t } = useI18n();
@@ -69,6 +75,7 @@ export default function Jobs() {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [jobPage, setJobPage] = useState(1);
 
   const iconMap = useMemo(
     () =>
@@ -93,10 +100,15 @@ export default function Jobs() {
         return;
       }
 
-      const { data, error } = await supabase
-        .from("jobs")
-        .select("id, title, type, description, icon, created_at")
-        .order("created_at", { ascending: false });
+      const [{ data, error }, { data: candidateRows }] = await Promise.all([
+        supabase
+          .from("jobs")
+          .select("id, title, type, description, icon, created_at")
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("candidates")
+          .select("id, full_name, job_title, email, resume_path, stage, created_at"),
+      ]);
 
       if (!isMounted) return;
 
@@ -106,7 +118,23 @@ export default function Jobs() {
         return;
       }
 
-      setJobs((data ?? []) as JobRow[]);
+      const applicantCounts = dedupeCandidateRows(
+        ((candidateRows ?? []) as Array<Record<string, unknown>>),
+      ).reduce<Record<string, number>>((counts, candidate) => {
+        const jobTitle =
+          typeof candidate.job_title === "string" ? candidate.job_title : "";
+        if (!jobTitle) return counts;
+
+        counts[jobTitle] = (counts[jobTitle] ?? 0) + 1;
+        return counts;
+      }, {});
+
+      setJobs(
+        ((data ?? []) as Omit<JobRow, "applicantsCount">[]).map((job) => ({
+          ...job,
+          applicantsCount: applicantCounts[job.title] ?? 0,
+        })),
+      );
       setIsLoading(false);
     };
 
@@ -152,7 +180,8 @@ export default function Jobs() {
       }
 
       if (data) {
-        setJobs((prev) => [data as JobRow, ...prev]);
+        setJobs((prev) => [{ ...(data as Omit<JobRow, "applicantsCount">), applicantsCount: 0 }, ...prev]);
+        setJobPage(1);
       }
 
       setIsAddOpen(false);
@@ -217,11 +246,26 @@ export default function Jobs() {
         setIsUpdating(false);
         return;
       }
+
+      updateCachedApplicants((applicants) =>
+        applicants.map((applicant) =>
+          applicant.role === previousTitle
+            ? { ...applicant, role: nextTitle }
+            : applicant,
+        ),
+      );
     }
 
     if (data) {
       setJobs((prev) =>
-        prev.map((job) => (job.id === editingJob.id ? (data as JobRow) : job)),
+        prev.map((job) =>
+          job.id === editingJob.id
+            ? {
+                ...(data as Omit<JobRow, "applicantsCount">),
+                applicantsCount: job.applicantsCount,
+              }
+            : job,
+        ),
       );
     }
 
@@ -247,6 +291,16 @@ export default function Jobs() {
     setJobs((prev) => prev.filter((job) => job.id !== jobId));
     setDeletingJobId(null);
   };
+
+  const jobPageCount = Math.max(1, Math.ceil(jobs.length / jobsPerPage));
+  const paginatedJobs = jobs.slice(
+    (jobPage - 1) * jobsPerPage,
+    jobPage * jobsPerPage,
+  );
+
+  useEffect(() => {
+    setJobPage((page) => Math.min(page, jobPageCount));
+  }, [jobPageCount]);
 
   return (
     <div className="page-container">
@@ -432,7 +486,7 @@ export default function Jobs() {
           </div>
         ) : null}
 
-        {jobs.map((job) => {
+        {paginatedJobs.map((job) => {
           const Icon = iconMap[job.icon ?? "briefcase"] ?? Briefcase;
           const jobPath = `/jobs/${job.id}`;
 
@@ -456,8 +510,11 @@ export default function Jobs() {
             >
               <div>
                 <div className="flex items-start justify-between">
-                  <div className="rounded-md bg-muted p-3 text-foreground">
+                  <div className="relative rounded-md bg-muted p-3 text-foreground">
                     <Icon className="h-6 w-6" />
+                    <span className="absolute -right-2 -top-2 inline-flex min-w-6 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-foreground ring-2 ring-card">
+                      {job.applicantsCount}
+                    </span>
                   </div>
                   <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
                     {t("active")}
@@ -476,8 +533,9 @@ export default function Jobs() {
 
               <div className="mt-6 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center text-xs text-muted-foreground">
-                  <Clock className="mr-1.5 h-3.5 w-3.5" />
-                  {t("posted")} {new Date(job.created_at).toLocaleDateString()}
+                  <Users className="mr-1.5 h-3.5 w-3.5" />
+                  {job.applicantsCount}{" "}
+                  {job.applicantsCount === 1 ? t("applicant") : t("applicants")}
                 </div>
                 <div
                   className="flex flex-wrap items-center gap-2"
@@ -511,6 +569,38 @@ export default function Jobs() {
           );
         })}
       </div>
+
+      {!isLoading && jobs.length > jobsPerPage && (
+        <div className="flex justify-center">
+          <div className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-card p-1 shadow-sm">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setJobPage((page) => Math.max(page - 1, 1))}
+              disabled={jobPage === 1}
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="min-w-16 px-2 text-center text-xs font-medium text-muted-foreground">
+              {jobPage} / {jobPageCount}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setJobPage((page) => Math.min(page + 1, jobPageCount))}
+              disabled={jobPage === jobPageCount}
+              aria-label="Next page"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {!isLoading && jobs.length === 0 && (
         <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">

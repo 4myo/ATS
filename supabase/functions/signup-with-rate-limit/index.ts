@@ -9,14 +9,13 @@ const corsHeaders = {
 
 const supabaseUrl =
   Deno.env.get("SUPABASE_URL") || Deno.env.get("VITE_SUPABASE_URL") || "";
-const serviceRoleKey =
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ||
-  Deno.env.get("SUPABASE_ANON_KEY") ||
-  Deno.env.get("VITE_SUPABASE_ANON_KEY") ||
-  "";
+const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const MAX_EMAIL_LENGTH = 254;
+const MAX_PASSWORD_LENGTH = 128;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY env vars.");
@@ -46,9 +45,34 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { email, password } = await req.json();
+  let payload: { email?: unknown; password?: unknown };
+  try {
+    payload = await req.json();
+  } catch (_error) {
+    return new Response("Invalid JSON body", {
+      status: 400,
+      headers: corsHeaders,
+    });
+  }
+
+  const email =
+    typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+  const password = typeof payload.password === "string" ? payload.password : "";
+
   if (!email || !password) {
     return new Response("Missing email or password", {
+      status: 400,
+      headers: corsHeaders,
+    });
+  }
+
+  if (
+    email.length > MAX_EMAIL_LENGTH ||
+    !emailPattern.test(email) ||
+    password.length < 8 ||
+    password.length > MAX_PASSWORD_LENGTH
+  ) {
+    return new Response("Invalid email or password", {
       status: 400,
       headers: corsHeaders,
     });
@@ -98,13 +122,23 @@ Deno.serve(async (req) => {
   });
 
   if (error) {
-    return new Response(error.message, {
+    return new Response("Unable to create account", {
       status: 400,
       headers: corsHeaders,
     });
   }
 
-  return new Response(JSON.stringify({ user: data.user }), {
-    headers: { "Content-Type": "application/json", ...corsHeaders },
-  });
+  return new Response(
+    JSON.stringify({
+      user: data.user
+        ? {
+            id: data.user.id,
+            email: data.user.email,
+          }
+        : null,
+    }),
+    {
+      headers: { "Content-Type": "application/json", ...corsHeaders },
+    },
+  );
 });

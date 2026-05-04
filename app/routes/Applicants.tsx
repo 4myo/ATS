@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import type { Applicant, Stage } from "../store";
 import { ApplicantCard } from "../components/ApplicantCard";
-import { FileText, Upload, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, Upload, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +23,13 @@ import {
 import { convertPdfToImage, extractPdfText } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { useI18n } from "../lib/i18n";
+import {
+  getCandidateListCache,
+  setCandidateListCache,
+  updateCachedApplicants,
+} from "../lib/candidateListCache";
+import { dedupeCandidateRows } from "../lib/candidateRows";
+import { enqueueAiAnalysisRetry } from "../lib/aiAnalysisQueue";
 
 type ResumeImportItem = {
   id: string;
@@ -36,10 +43,12 @@ type ResumeImportItem = {
 };
 
 const candidateSelect =
-  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at";
+  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at";
 
 const candidateSelectWithOffer =
   `${candidateSelect}, offer_checklist, offer_sent_at, offer_follow_up_at`;
+
+const applicantsPerPage = 12;
 
 const candidateNameFromFileName = (fileName: string) => {
   const withoutExtension = fileName.replace(/\.pdf$/i, "");
@@ -86,11 +95,16 @@ const candidateNameFromText = (text: string, fileName: string) => {
 export default function Applicants() {
   const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cachedCandidateList = getCandidateListCache();
   const [jobs, setJobs] = useState<
     Array<{ id: string; title: string; description?: string | null }>
-  >([]);
-  const [remoteApplicants, setRemoteApplicants] = useState<Applicant[]>([]);
-  const [isLoadingCandidates, setIsLoadingCandidates] = useState(true);
+  >(cachedCandidateList?.jobs ?? []);
+  const [remoteApplicants, setRemoteApplicants] = useState<Applicant[]>(
+    cachedCandidateList?.applicants ?? [],
+  );
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(
+    !cachedCandidateList,
+  );
   const [ratingFilter, setRatingFilter] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<string>("newest");
   const [jobFilter, setJobFilter] = useState<string>("all");
@@ -114,6 +128,7 @@ export default function Applicants() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [applicantPage, setApplicantPage] = useState(1);
 
   const mapCandidateRow = (row: Record<string, any>) => {
     const skillProfile = row.skill_profile as Record<string, number> | undefined;
@@ -161,7 +176,11 @@ export default function Applicants() {
     } as Applicant;
   };
 
-  const loadCandidates = useCallback(async () => {
+  const loadCandidates = useCallback(async (options?: { showLoading?: boolean }) => {
+    if (options?.showLoading) {
+      setIsLoadingCandidates(true);
+    }
+
     const [candidateResult, { data: jobRows, error: jobError }] =
       await Promise.all([
         supabase
@@ -174,7 +193,7 @@ export default function Applicants() {
           .order("created_at", { ascending: false }),
       ]);
 
-    let candidateRows = candidateResult.data;
+    let candidateRows = candidateResult.data as Array<Record<string, any>> | null;
     let candidateError = candidateResult.error;
 
     if (
@@ -187,7 +206,7 @@ export default function Applicants() {
         .select(candidateSelect)
         .order("created_at", { ascending: false });
 
-      candidateRows = retry.data;
+      candidateRows = retry.data as Array<Record<string, any>> | null;
       candidateError = retry.error;
     }
 
@@ -198,14 +217,16 @@ export default function Applicants() {
       return;
     }
 
-    setRemoteApplicants(((candidateRows ?? []) as Array<Record<string, any>>).map(mapCandidateRow));
-    setJobs(
-      (jobRows ?? []).map((row) => ({
+    const nextApplicants = dedupeCandidateRows(candidateRows ?? []).map(mapCandidateRow);
+    const nextJobs = (jobRows ?? []).map((row) => ({
         id: row.id,
         title: row.title,
         description: row.description,
-      })),
-    );
+    }));
+
+    setRemoteApplicants(nextApplicants);
+    setJobs(nextJobs);
+    setCandidateListCache({ applicants: nextApplicants, jobs: nextJobs });
     setIsLoadingCandidates(false);
   }, []);
 
@@ -213,7 +234,7 @@ export default function Applicants() {
     let isMounted = true;
 
     const loadIfMounted = async () => {
-      await loadCandidates();
+      await loadCandidates({ showLoading: !getCandidateListCache() });
       if (!isMounted) return;
     };
 
@@ -343,6 +364,9 @@ export default function Applicants() {
     const { error } = await supabase.from("candidates").delete().eq("id", id);
     if (!error) {
       setRemoteApplicants((prev) => prev.filter((app) => app.id !== id));
+      updateCachedApplicants((applicants) =>
+        applicants.filter((applicant) => applicant.id !== id),
+      );
     }
   };
 
@@ -355,6 +379,11 @@ export default function Applicants() {
         applicant.id === id ? { ...applicant, stage: nextStage } : applicant,
       ),
     );
+    updateCachedApplicants((applicants) =>
+      applicants.map((applicant) =>
+        applicant.id === id ? { ...applicant, stage: nextStage } : applicant,
+      ),
+    );
 
     const { error } = await supabase
       .from("candidates")
@@ -363,6 +392,7 @@ export default function Applicants() {
 
     if (error) {
       setRemoteApplicants(previousApplicants);
+      setCandidateListCache({ applicants: previousApplicants, jobs });
     }
   };
 
@@ -408,6 +438,8 @@ export default function Applicants() {
       }
 
       const failedImports: string[] = [];
+      const queuedAnalyses: string[] = [];
+      const savedItemIds: string[] = [];
 
       for (const [index, item] of readyItems.entries()) {
         try {
@@ -454,6 +486,7 @@ export default function Applicants() {
           }
 
           if (inserted?.id) {
+            savedItemIds.push(item.id);
             setRemoteApplicants((prev) => [
               {
                 id: inserted.id,
@@ -473,6 +506,26 @@ export default function Applicants() {
                 matchAnalysis: { pros: [], cons: [] },
               },
               ...prev,
+            ]);
+            updateCachedApplicants((applicants) => [
+              {
+                id: inserted.id,
+                name: item.candidateName.trim(),
+                role: latestJobTitle,
+                stage: "Applied",
+                analysisStatus: "pending_ai",
+                createdAt: new Date().toISOString(),
+                aiScore: 0,
+                skills: [],
+                experience: 0,
+                location: "Location pending",
+                avatar: item.previewUrl ?? "",
+                email: "",
+                phone: "",
+                summary: "",
+                matchAnalysis: { pros: [], cons: [] },
+              },
+              ...applicants,
             ]);
 
             setSaveStatus(`${t("runningAiAnalysis")} ${index + 1}/${readyItems.length}`);
@@ -497,12 +550,18 @@ export default function Applicants() {
               const analysisMessage = await analysisResponse.text();
               await supabase
                 .from("candidates")
-                .update({ analysis_status: "failed" })
+                .update({ analysis_status: "pending_ai" })
                 .eq("id", inserted.id);
 
-              failedImports.push(
-                `${item.candidateName}: ${analysisMessage || analysisResponse.statusText}`,
-              );
+              enqueueAiAnalysisRetry({
+                candidateId: inserted.id,
+                candidateName: item.candidateName.trim(),
+                jobTitle: latestJobTitle,
+                jobDescription: latestJobDescription,
+                resumeText: normalizedResumeText,
+                lastError: analysisMessage || analysisResponse.statusText,
+              });
+              queuedAnalyses.push(item.candidateName.trim());
             }
           }
         } catch (importError) {
@@ -514,7 +573,16 @@ export default function Applicants() {
 
       await loadCandidates();
       if (failedImports.length > 0) {
+        setResumeItems((currentItems) =>
+          currentItems.filter((item) => !savedItemIds.includes(item.id)),
+        );
+        setSelectedResumeId((currentId) =>
+          currentId && savedItemIds.includes(currentId) ? null : currentId,
+        );
         setSaveError(`${t("resumeImportPartialFailure")} ${failedImports.join(" | ")}`);
+      } else if (queuedAnalyses.length > 0) {
+        resetForm();
+        setIsAddOpen(false);
       } else {
         resetForm();
         setIsAddOpen(false);
@@ -589,6 +657,23 @@ export default function Applicants() {
       return sortOrder === "oldest" ? leftTime - rightTime : rightTime - leftTime;
     });
 
+  const applicantPageCount = Math.max(
+    1,
+    Math.ceil(filteredApplicants.length / applicantsPerPage),
+  );
+  const paginatedApplicants = filteredApplicants.slice(
+    (applicantPage - 1) * applicantsPerPage,
+    applicantPage * applicantsPerPage,
+  );
+
+  useEffect(() => {
+    setApplicantPage(1);
+  }, [ratingFilter, sortOrder, jobFilter, statusFilters, offerStatusFilters]);
+
+  useEffect(() => {
+    setApplicantPage((page) => Math.min(page, applicantPageCount));
+  }, [applicantPageCount]);
+
   const selectedResume =
     resumeItems.find((item) => item.id === selectedResumeId) ?? resumeItems[0] ?? null;
   const isProcessingResumes = resumeItems.some((item) => item.isProcessing);
@@ -617,14 +702,14 @@ export default function Applicants() {
       </div>
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="grid max-h-[94vh] w-[min(1180px,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border bg-card p-4 text-card-foreground sm:max-w-none sm:p-5">
+        <DialogContent className="grid max-h-[94vh] w-[min(1240px,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border bg-card p-4 text-card-foreground sm:max-w-none sm:p-5">
           <DialogHeader>
             <DialogTitle>{t("addCandidate")}</DialogTitle>
             <DialogDescription>
               {t("addCandidateDescription")}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid min-h-0 gap-6 overflow-y-auto pr-1 xl:grid-cols-[340px_minmax(0,1fr)] xl:gap-8 xl:overflow-hidden xl:pr-0">
+          <div className="grid min-h-0 gap-6 overflow-y-auto pr-1 2xl:grid-cols-[minmax(420px,440px)_minmax(0,1fr)] 2xl:gap-8 2xl:overflow-hidden 2xl:pr-0">
             <div className="grid min-w-0 content-start gap-2.5">
               <div className="grid gap-1.5">
                 <Label htmlFor="candidate-role">{t("jobTitle")}</Label>
@@ -637,7 +722,10 @@ export default function Applicants() {
                     setJobDescription(selectedJob?.description ?? "");
                   }}
                 >
-                  <SelectTrigger id="candidate-role">
+                  <SelectTrigger
+                    id="candidate-role"
+                    className="min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate"
+                  >
                     <SelectValue placeholder={t("selectJob")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -761,7 +849,7 @@ export default function Applicants() {
                 </div>
               )}
             </div>
-            <div className="muted-panel min-h-0 min-w-0 p-4 xl:ml-2">
+            <div className="muted-panel min-h-0 min-w-0 p-4 2xl:ml-2">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground">
                   {t("resumePreview")}
@@ -772,9 +860,9 @@ export default function Applicants() {
                   </span>
                 ) : null}
               </div>
-              <div className="mt-3 flex min-h-[360px] items-center justify-center xl:h-[60vh] xl:max-h-[620px]">
+              <div className="mt-3 flex min-h-[360px] items-center justify-center 2xl:h-[60vh] 2xl:max-h-[620px]">
                 {selectedResume?.previewUrl ? (
-                  <div className="flex h-[330px] max-h-full w-auto min-w-0 justify-center rounded-sm bg-white xl:h-full">
+                  <div className="flex h-[330px] max-h-full w-auto min-w-0 justify-center rounded-sm bg-white 2xl:h-full">
                     <img
                       src={selectedResume.previewUrl}
                       alt={t("resumePreview")}
@@ -782,12 +870,12 @@ export default function Applicants() {
                     />
                   </div>
                 ) : selectedResume?.isProcessing ? (
-                  <div className="flex h-[320px] max-h-full w-full items-center justify-center rounded-sm border border-dashed border-border px-5 text-center text-xs subtle-text xl:h-full">
+                  <div className="flex h-[320px] max-h-full w-full items-center justify-center rounded-sm border border-dashed border-border px-5 text-center text-xs subtle-text 2xl:h-full">
                     <span className="mr-2 inline-flex h-4 w-4 animate-spin rounded-full border-2 border-muted border-t-primary" />
                     {t("convertingPdfPreview")}
                   </div>
                 ) : (
-                  <span className="flex aspect-[210/297] h-[320px] max-h-full w-auto max-w-full items-center justify-center rounded-sm border border-dashed border-border px-5 text-center text-xs subtle-text xl:h-full">
+                  <span className="flex aspect-[210/297] h-[320px] max-h-full w-auto max-w-full items-center justify-center rounded-sm border border-dashed border-border px-5 text-center text-xs subtle-text 2xl:h-full">
                     {t("uploadPdfPreview")}
                   </span>
                 )}
@@ -929,7 +1017,7 @@ export default function Applicants() {
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filteredApplicants.map((applicant) => (
+          {paginatedApplicants.map((applicant) => (
             <ApplicantCard
               key={applicant.id}
               applicant={applicant}
@@ -937,6 +1025,40 @@ export default function Applicants() {
               onMarkNewReviewed={handleMarkNewReviewed}
             />
           ))}
+        </div>
+      )}
+
+      {!isLoadingCandidates && filteredApplicants.length > applicantsPerPage && (
+        <div className="flex justify-center">
+          <div className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-card p-1 shadow-sm">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setApplicantPage((page) => Math.max(page - 1, 1))}
+              disabled={applicantPage === 1}
+              aria-label="Previous page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="min-w-16 px-2 text-center text-xs font-medium text-muted-foreground">
+              {applicantPage} / {applicantPageCount}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() =>
+                setApplicantPage((page) => Math.min(page + 1, applicantPageCount))
+              }
+              disabled={applicantPage === applicantPageCount}
+              aria-label="Next page"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
       

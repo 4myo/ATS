@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { Outlet, useNavigate } from "react-router";
 import { Sidebar } from "../components/Sidebar";
+import { AiAnalysisQueueBar } from "../components/AiAnalysisQueueBar";
 import { Briefcase, LogOut, Menu, Search, Moon, Sun, Users } from "lucide-react";
 import { Link } from "react-router";
 import { supabase } from "../lib/supabase";
+import { clearCandidateListCache } from "../lib/candidateListCache";
 import { Sheet, SheetContent, SheetTrigger } from "../components/ui/sheet";
 import { useI18n } from "../lib/i18n";
 
@@ -19,6 +21,14 @@ type SearchResult = {
   type: "candidate" | "job";
   path: string;
 };
+
+const normalizeSearchForIlike = (value: string) =>
+  value
+    .slice(0, 80)
+    .replace(/[^\p{L}\p{N}\s@._-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\\%_]/g, "\\$&");
 
 export function Layout() {
   const navigate = useNavigate();
@@ -62,6 +72,7 @@ export function Layout() {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (_event, session) => {
         if (!session) {
+          clearCandidateListCache();
           setProfile(null);
           navigate("/auth", { replace: true });
           return;
@@ -131,7 +142,12 @@ export function Layout() {
           .limit(4);
 
       if (normalizedQuery.length >= 2) {
-        const escapedQuery = normalizedQuery.replace(/[%_]/g, "\\$&");
+        const escapedQuery = normalizeSearchForIlike(normalizedQuery);
+        if (!escapedQuery) {
+          setSearchResults([]);
+          setIsSearching(false);
+          return;
+        }
         const searchPattern = `%${escapedQuery}%`;
 
         candidateQuery = candidateQuery.or(
@@ -203,6 +219,7 @@ export function Layout() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
+      <AiAnalysisQueueBar />
       <div className="hidden flex-none lg:block">
         <Sidebar />
       </div>
