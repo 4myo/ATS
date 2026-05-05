@@ -2,7 +2,7 @@ import type { Applicant } from "../store";
 
 export type CandidateListCache = {
   applicants: Applicant[];
-  jobs: Array<{ id: string; title: string; description?: string | null }>;
+  jobs: Array<{ id: string; title: string; description?: string | null; status?: string | null }>;
   loadedAt: number;
 };
 

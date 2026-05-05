@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import { Link, useSearchParams } from "react-router";
 import type { Applicant, Stage } from "../store";
 import { ApplicantCard } from "../components/ApplicantCard";
 import { ChevronLeft, ChevronRight, FileText, Upload, X } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   setCandidateListCache,
   updateCachedApplicants,
 } from "../lib/candidateListCache";
+import { fetchJobOptions, getCachedJobOptions, setCachedJobOptions } from "../lib/jobCache";
 import { dedupeCandidateRows } from "../lib/candidateRows";
 import { enqueueAiAnalysisRetry } from "../lib/aiAnalysisQueue";
 
@@ -46,9 +48,18 @@ const candidateSelect =
   "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at";
 
 const candidateSelectWithOffer =
-  `${candidateSelect}, offer_checklist, offer_sent_at, offer_follow_up_at`;
+  `${candidateSelect}, offer_checklist, offer_outcome, offer_sent_at`;
 
 const applicantsPerPage = 12;
+
+const savedViewOptions = [
+  { key: "today", label: "Moji kandidati za danes" },
+  { key: "offersToSend", label: "Ponudbe za poslati" },
+  { key: "declinedAfterOffer", label: "Zavrnjeni po ponudbi" },
+  { key: "top80", label: "Top kandidati 80+" },
+] as const;
+
+type SavedViewKey = (typeof savedViewOptions)[number]["key"];
 
 const candidateNameFromFileName = (fileName: string) => {
   const withoutExtension = fileName.replace(/\.pdf$/i, "");
@@ -94,11 +105,13 @@ const candidateNameFromText = (text: string, fileName: string) => {
 
 export default function Applicants() {
   const { t } = useI18n();
+  const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cachedCandidateList = getCandidateListCache();
+  const cachedJobOptions = getCachedJobOptions();
   const [jobs, setJobs] = useState<
-    Array<{ id: string; title: string; description?: string | null }>
-  >(cachedCandidateList?.jobs ?? []);
+    Array<{ id: string; title: string; description?: string | null; status?: string | null }>
+  >(cachedCandidateList?.jobs ?? cachedJobOptions?.jobs ?? []);
   const [remoteApplicants, setRemoteApplicants] = useState<Applicant[]>(
     cachedCandidateList?.applicants ?? [],
   );
@@ -106,16 +119,23 @@ export default function Applicants() {
     !cachedCandidateList,
   );
   const [ratingFilter, setRatingFilter] = useState<string>("all");
+  const [searchFilter, setSearchFilter] = useState<string>(
+    searchParams.get("search") ?? "",
+  );
+  const [isApplicantSearchOpen, setIsApplicantSearchOpen] = useState(false);
   const [sortOrder, setSortOrder] = useState<string>("newest");
   const [jobFilter, setJobFilter] = useState<string>("all");
+  const [jobStatusFilter, setJobStatusFilter] = useState<string>("all");
+  const [savedView, setSavedView] = useState<SavedViewKey | "all">("all");
   const [statusFilters, setStatusFilters] = useState({
     new: false,
-    rejected: false,
-    accepted: false,
   });
   const [offerStatusFilters, setOfferStatusFilters] = useState({
+    offer: false,
     preparing: false,
     sent: false,
+    accepted: false,
+    declined: false,
   });
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [resumeItems, setResumeItems] = useState<ResumeImportItem[]>([]);
@@ -129,6 +149,10 @@ export default function Applicants() {
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [applicantPage, setApplicantPage] = useState(1);
+
+  useEffect(() => {
+    setSearchFilter(searchParams.get("search") ?? "");
+  }, [searchParams]);
 
   const mapCandidateRow = (row: Record<string, any>) => {
     const skillProfile = row.skill_profile as Record<string, number> | undefined;
@@ -156,8 +180,8 @@ export default function Applicants() {
             offerSent: Boolean(offerChecklist.offerSent),
           }
         : undefined,
+      offerOutcome: row.offer_outcome ?? null,
       offerSentAt: row.offer_sent_at ?? null,
-      offerFollowUpAt: row.offer_follow_up_at ?? null,
       skillProfile: skillProfile
         ? {
             technical: skillProfile.technical ?? 0,
@@ -181,20 +205,23 @@ export default function Applicants() {
       setIsLoadingCandidates(true);
     }
 
-    const [candidateResult, { data: jobRows, error: jobError }] =
-      await Promise.all([
+    const [candidateResult, jobResult] =
+      await Promise.allSettled([
         supabase
           .from("candidates")
           .select(candidateSelectWithOffer)
           .order("created_at", { ascending: false }),
-        supabase
-          .from("jobs")
-          .select("id, title, description")
-          .order("created_at", { ascending: false }),
+        fetchJobOptions({ force: true }),
       ]);
 
-    let candidateRows = candidateResult.data as Array<Record<string, any>> | null;
-    let candidateError = candidateResult.error;
+    if (candidateResult.status === "rejected") {
+      setRemoteApplicants([]);
+      setIsLoadingCandidates(false);
+      return;
+    }
+
+    let candidateRows = candidateResult.value.data as Array<Record<string, any>> | null;
+    let candidateError = candidateResult.value.error;
 
     if (
       candidateError &&
@@ -210,22 +237,21 @@ export default function Applicants() {
       candidateError = retry.error;
     }
 
-    if (candidateError || jobError) {
+    if (candidateError) {
       setRemoteApplicants([]);
-      setJobs([]);
       setIsLoadingCandidates(false);
       return;
     }
 
     const nextApplicants = dedupeCandidateRows(candidateRows ?? []).map(mapCandidateRow);
-    const nextJobs = (jobRows ?? []).map((row) => ({
-        id: row.id,
-        title: row.title,
-        description: row.description,
-    }));
+    const nextJobs =
+      jobResult.status === "fulfilled"
+        ? jobResult.value
+        : getCachedJobOptions()?.jobs ?? getCandidateListCache()?.jobs ?? [];
 
     setRemoteApplicants(nextApplicants);
     setJobs(nextJobs);
+    setCachedJobOptions(nextJobs);
     setCandidateListCache({ applicants: nextApplicants, jobs: nextJobs });
     setIsLoadingCandidates(false);
   }, []);
@@ -540,6 +566,7 @@ export default function Applicants() {
               },
               body: JSON.stringify({
               candidateId: inserted.id,
+              jobId: selectedJobId,
               jobTitle: latestJobTitle,
               jobDescription: latestJobDescription,
               resumeText: normalizedResumeText,
@@ -556,6 +583,7 @@ export default function Applicants() {
               enqueueAiAnalysisRetry({
                 candidateId: inserted.id,
                 candidateName: item.candidateName.trim(),
+                jobId: selectedJobId,
                 jobTitle: latestJobTitle,
                 jobDescription: latestJobDescription,
                 resumeText: normalizedResumeText,
@@ -612,35 +640,143 @@ export default function Applicants() {
     setOfferStatusFilters((current) => ({
       ...current,
       [filter]: checked,
+      ...(filter === "offer" && !checked
+        ? { preparing: false, sent: false, accepted: false, declined: false }
+        : {}),
     }));
   };
+
+  const updateSearchFilter = (value: string) => {
+    setSearchFilter(value);
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (value.trim()) {
+      nextParams.set("search", value);
+    } else {
+      nextParams.delete("search");
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  };
+
+  const applicantSearchSuggestions = useMemo(() => {
+    const normalizedSearch = searchFilter.trim().toLowerCase();
+    const source =
+      normalizedSearch.length >= 2
+        ? remoteApplicants.filter((applicant) =>
+            [
+              applicant.name,
+              applicant.role,
+              applicant.email,
+              applicant.location,
+              ...(applicant.skills ?? []),
+            ]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
+          )
+        : remoteApplicants;
+
+    return source
+      .slice()
+      .sort((left, right) => {
+        const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
+        const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+        return rightTime - leftTime;
+      })
+      .slice(0, 6);
+  }, [remoteApplicants, searchFilter]);
 
   const matchesStatusFilters = (applicant: Applicant) => {
     const hasActiveStatusFilter = Object.values(statusFilters).some(Boolean);
     if (!hasActiveStatusFilter) return true;
 
-    return (
-      (statusFilters.new && applicant.stage === "Applied") ||
-      (statusFilters.rejected && applicant.stage === "Rejected") ||
-      (statusFilters.accepted && applicant.stage === "Offer")
-    );
+    return statusFilters.new && applicant.stage === "Applied";
   };
 
   const matchesOfferStatusFilters = (applicant: Applicant) => {
     const hasActiveOfferFilter = Object.values(offerStatusFilters).some(Boolean);
     if (!hasActiveOfferFilter) return true;
-    if (applicant.stage !== "Offer") return false;
 
     const offerSent = Boolean(applicant.offerChecklist?.offerSent);
+    const outcome = applicant.offerOutcome ?? "pending";
+    const hasActiveOfferSubFilter =
+      offerStatusFilters.preparing ||
+      offerStatusFilters.sent ||
+      offerStatusFilters.accepted ||
+      offerStatusFilters.declined;
+
+    if (offerStatusFilters.offer && !hasActiveOfferSubFilter) {
+      return (
+        applicant.stage === "Offer" ||
+        applicant.stage === "Accepted" ||
+        offerSent
+      );
+    }
+
     return (
-      (offerStatusFilters.preparing && !offerSent) ||
-      (offerStatusFilters.sent && offerSent)
+      (offerStatusFilters.preparing && applicant.stage === "Offer" && !offerSent) ||
+      (offerStatusFilters.sent && offerSent && outcome === "pending") ||
+      (offerStatusFilters.accepted && outcome === "accepted") ||
+      (offerStatusFilters.declined && outcome === "declined")
     );
   };
 
+  const getApplicantJobStatus = (applicant: Applicant) =>
+    jobs.find((job) => job.title === applicant.role)?.status ?? "active";
+
+  const matchesJobStatusFilter = (applicant: Applicant) => {
+    if (jobStatusFilter === "all") return true;
+    return getApplicantJobStatus(applicant) === jobStatusFilter;
+  };
+
+  const matchesSavedView = (applicant: Applicant) => {
+    if (savedView === "all") return true;
+
+    const offerSent = Boolean(applicant.offerChecklist?.offerSent);
+    const outcome = applicant.offerOutcome ?? "pending";
+
+    if (savedView === "today") {
+      if (!applicant.createdAt) return false;
+      return new Date(applicant.createdAt).toDateString() === new Date().toDateString();
+    }
+
+    if (savedView === "offersToSend") {
+      return applicant.stage === "Offer" && !offerSent;
+    }
+
+    if (savedView === "top80") {
+      return (applicant.aiScore ?? 0) >= 80;
+    }
+
+    if (savedView === "declinedAfterOffer") {
+      return outcome === "declined" || (applicant.stage === "Rejected" && offerSent);
+    }
+
+    return true;
+  };
+
+  const matchesSearchFilter = (applicant: Applicant) => {
+    const normalizedSearch = searchFilter.trim().toLowerCase();
+    if (!normalizedSearch) return true;
+
+    return [
+      applicant.name,
+      applicant.role,
+      applicant.email,
+      applicant.location,
+      applicant.summary,
+      ...(applicant.skills ?? []),
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedSearch));
+  };
+
   const filteredApplicants = remoteApplicants
+    .filter((applicant) => matchesSearchFilter(applicant))
+    .filter((applicant) => matchesSavedView(applicant))
     .filter((applicant) => matchesStatusFilters(applicant))
     .filter((applicant) => matchesOfferStatusFilters(applicant))
+    .filter((applicant) => matchesJobStatusFilter(applicant))
     .filter((applicant) => jobFilter === "all" || applicant.role === jobFilter)
     .sort((left, right) => {
       if (ratingFilter === "highest") {
@@ -668,7 +804,7 @@ export default function Applicants() {
 
   useEffect(() => {
     setApplicantPage(1);
-  }, [ratingFilter, sortOrder, jobFilter, statusFilters, offerStatusFilters]);
+  }, [ratingFilter, sortOrder, jobFilter, jobStatusFilter, statusFilters, offerStatusFilters, searchFilter, savedView]);
 
   useEffect(() => {
     setApplicantPage((page) => Math.min(page, applicantPageCount));
@@ -676,6 +812,7 @@ export default function Applicants() {
 
   const selectedResume =
     resumeItems.find((item) => item.id === selectedResumeId) ?? resumeItems[0] ?? null;
+  const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? null;
   const isProcessingResumes = resumeItems.some((item) => item.isProcessing);
   const canSaveCandidates =
     !isSaving &&
@@ -737,6 +874,24 @@ export default function Applicants() {
                   </SelectContent>
                 </Select>
               </div>
+              {selectedJob ? (
+                <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <span className="font-medium text-foreground">
+                        {t("selectedJobAiAgentReference")}
+                      </span>
+                      <p className="mt-0.5">{t("selectedJobAiAgentDefault")}</p>
+                    </div>
+                    <Link
+                      to={`/ai-agent?jobId=${encodeURIComponent(selectedJob.id)}`}
+                      className="font-medium text-foreground underline-offset-4 hover:underline"
+                    >
+                      {t("selectedJobAiAgentEdit")}
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
               <div className="grid gap-2">
                 <Label>{t("uploadResumePdf")}</Label>
                 <input
@@ -904,51 +1059,190 @@ export default function Applicants() {
       </Dialog>
 
       {/* Filters Bar */}
-      <div className="surface-card ml-0 flex flex-wrap items-end gap-3 p-3 sm:ml-2">
-        <div className="grid min-w-[180px] flex-1 gap-1.5 sm:flex-none sm:basis-[190px]">
-          <Label>{t("filterByRating")}</Label>
-          <Select value={ratingFilter} onValueChange={setRatingFilter}>
-            <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
-              <SelectValue placeholder={t("filterByRating")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("allRatings")}</SelectItem>
-              <SelectItem value="highest">{t("highestRating")}</SelectItem>
-              <SelectItem value="lowest">{t("lowestRating")}</SelectItem>
-            </SelectContent>
-          </Select>
+      <div className="surface-card ml-0 grid gap-3 p-3 sm:ml-2">
+        <div className="grid min-w-full gap-2">
+          <Label>Shranjeni pogledi</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={savedView === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSavedView("all")}
+            >
+              Vsi kandidati
+            </Button>
+            {savedViewOptions.map((view) => (
+              <Button
+                key={view.key}
+                type="button"
+                variant={savedView === view.key ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSavedView(view.key)}
+              >
+                {view.label}
+              </Button>
+            ))}
+          </div>
         </div>
-        <div className="grid min-w-[180px] flex-1 gap-1.5 sm:flex-none sm:basis-[190px]">
-          <Label>{t("timeline")}</Label>
-          <Select value={sortOrder} onValueChange={setSortOrder}>
-            <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
-              <SelectValue placeholder={t("timeline")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="newest">{t("newestFirst")}</SelectItem>
-              <SelectItem value="oldest">{t("oldestFirst")}</SelectItem>
-            </SelectContent>
-          </Select>
+
+        <div className="rounded-md border border-border bg-background px-3 py-2 shadow-sm dark:bg-muted/30">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
+              <Checkbox
+                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                checked={offerStatusFilters.offer}
+                onCheckedChange={(checked) =>
+                  toggleOfferStatusFilter("offer", checked === true)
+                }
+              />
+              Ponudba
+            </label>
+            {offerStatusFilters.offer ? (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-l border-border pl-4">
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                    checked={offerStatusFilters.preparing}
+                    onCheckedChange={(checked) =>
+                      toggleOfferStatusFilter("preparing", checked === true)
+                    }
+                  />
+                  {t("offerStatusPreparing")}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                    checked={offerStatusFilters.sent}
+                    onCheckedChange={(checked) =>
+                      toggleOfferStatusFilter("sent", checked === true)
+                    }
+                  />
+                  Poslana, čaka odgovor
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                    checked={offerStatusFilters.accepted}
+                    onCheckedChange={(checked) =>
+                      toggleOfferStatusFilter("accepted", checked === true)
+                    }
+                  />
+                  Sprejeta ponudba
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                    checked={offerStatusFilters.declined}
+                    onCheckedChange={(checked) =>
+                      toggleOfferStatusFilter("declined", checked === true)
+                    }
+                  />
+                  Zavrnjena ponudba
+                </label>
+              </div>
+            ) : null}
+          </div>
         </div>
-        <div className="grid min-w-[220px] flex-[1.25] gap-1.5 sm:flex-none sm:basis-[260px] lg:basis-[300px]">
-          <Label>{t("filterByJob")}</Label>
-          <Select value={jobFilter} onValueChange={setJobFilter}>
-            <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
-              <SelectValue placeholder={t("filterByJob")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("allJobs")}</SelectItem>
-              {jobs.map((job) => (
-                <SelectItem key={job.id} value={job.title}>
-                  {job.title}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid min-w-[300px] flex-[1.5] gap-1.5">
-          <Label>{t("statusFilters")}</Label>
-          <div className="flex min-h-10 flex-wrap items-center gap-x-5 gap-y-2 rounded-md border border-border bg-background px-3 py-2 shadow-sm dark:bg-muted/30">
+
+        <div className="grid items-end gap-3 lg:grid-cols-[minmax(16rem,1.5fr)_12rem_minmax(15rem,1.1fr)_minmax(14rem,1fr)_10rem]">
+          <div className="relative grid gap-1.5">
+            <Label>{t("searchCandidates")}</Label>
+            <Input
+              type="search"
+              value={searchFilter}
+              onChange={(event) => {
+                updateSearchFilter(event.target.value);
+                setIsApplicantSearchOpen(true);
+              }}
+              onFocus={() => setIsApplicantSearchOpen(true)}
+              onBlur={() => {
+                window.setTimeout(() => setIsApplicantSearchOpen(false), 120);
+              }}
+              placeholder={t("searchCandidates")}
+              className="h-10 border-border bg-background shadow-sm dark:bg-muted/30"
+            />
+            {isApplicantSearchOpen ? (
+              <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-80 overflow-auto rounded-md border border-border bg-popover p-2 shadow-xl">
+                {applicantSearchSuggestions.length ? (
+                  <div className="space-y-1">
+                    {applicantSearchSuggestions.map((applicant) => (
+                      <button
+                        key={applicant.id}
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          updateSearchFilter(applicant.name);
+                          setIsApplicantSearchOpen(false);
+                        }}
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-foreground">
+                            {applicant.name}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {applicant.role}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-xs font-semibold text-emerald-500">
+                          {Math.round(applicant.aiScore ?? 0)}%
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-3 py-3 text-sm text-muted-foreground">
+                    {t("noSearchResults")}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+          <div className="grid gap-1.5">
+            <Label>{t("filterByRating")}</Label>
+            <Select value={ratingFilter} onValueChange={setRatingFilter}>
+              <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+                <SelectValue placeholder={t("filterByRating")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("allRatings")}</SelectItem>
+                <SelectItem value="highest">{t("highestRating")}</SelectItem>
+                <SelectItem value="lowest">{t("lowestRating")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>{t("filterByJob")}</Label>
+            <Select value={jobFilter} onValueChange={setJobFilter}>
+              <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+                <SelectValue placeholder={t("filterByJob")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("allJobs")}</SelectItem>
+                {jobs.map((job) => (
+                  <SelectItem key={job.id} value={job.title}>
+                    {job.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>Status delovnega mesta</Label>
+            <Select value={jobStatusFilter} onValueChange={setJobStatusFilter}>
+              <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+                <SelectValue placeholder="Status delovnega mesta" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Aktivna in neaktivna dela</SelectItem>
+                <SelectItem value="active">Kandidati za aktivna dela</SelectItem>
+                <SelectItem value="inactive">Kandidati za neaktivna dela</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <Label>{t("statusFilters")}</Label>
+            <div className="flex h-10 items-center rounded-md border border-border bg-background px-3 shadow-sm dark:bg-muted/30">
             <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
               <Checkbox
                 className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
@@ -959,51 +1253,7 @@ export default function Applicants() {
               />
               {t("newApplicantBadge")}
             </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-              <Checkbox
-                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                checked={statusFilters.rejected}
-                onCheckedChange={(checked) =>
-                  toggleStatusFilter("rejected", checked === true)
-                }
-              />
-              {t("rejectedStatusFilter")}
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-              <Checkbox
-                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                checked={statusFilters.accepted}
-                onCheckedChange={(checked) =>
-                  toggleStatusFilter("accepted", checked === true)
-                }
-              />
-              {t("acceptedStatusFilter")}
-            </label>
-          </div>
-        </div>
-        <div className="grid min-w-[260px] flex-1 gap-1.5 sm:flex-none sm:basis-[280px]">
-          <Label>{t("offerStatusFilters")}</Label>
-          <div className="flex min-h-10 flex-wrap items-center gap-x-5 gap-y-2 rounded-md border border-border bg-background px-3 py-2 shadow-sm dark:bg-muted/30">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-              <Checkbox
-                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                checked={offerStatusFilters.preparing}
-                onCheckedChange={(checked) =>
-                  toggleOfferStatusFilter("preparing", checked === true)
-                }
-              />
-              {t("offerStatusPreparing")}
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-              <Checkbox
-                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                checked={offerStatusFilters.sent}
-                onCheckedChange={(checked) =>
-                  toggleOfferStatusFilter("sent", checked === true)
-                }
-              />
-              {t("offerStatusSent")}
-            </label>
+            </div>
           </div>
         </div>
       </div>

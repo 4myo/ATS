@@ -6,6 +6,8 @@ import { Briefcase, LogOut, Menu, Search, Moon, Sun, Users } from "lucide-react"
 import { Link } from "react-router";
 import { supabase } from "../lib/supabase";
 import { clearCandidateListCache } from "../lib/candidateListCache";
+import { clearDashboardCache } from "../lib/dashboardCache";
+import { clearJobCache, prefetchJobList } from "../lib/jobCache";
 import { Sheet, SheetContent, SheetTrigger } from "../components/ui/sheet";
 import { useI18n } from "../lib/i18n";
 
@@ -63,6 +65,7 @@ export function Layout() {
       const avatarUrl = metadata.avatar_url || metadata.picture || null;
 
       setProfile({ name, avatarUrl });
+      prefetchJobList();
 
       setCheckingSession(false);
     };
@@ -73,6 +76,8 @@ export function Layout() {
       (_event, session) => {
         if (!session) {
           clearCandidateListCache();
+          clearDashboardCache();
+          clearJobCache();
           setProfile(null);
           navigate("/auth", { replace: true });
           return;
@@ -86,6 +91,7 @@ export function Layout() {
           "Account";
         const avatarUrl = metadata.avatar_url || metadata.picture || null;
         setProfile({ name, avatarUrl });
+        prefetchJobList();
       },
     );
 

@@ -9,6 +9,8 @@ export default [
     route("applicants/:id", "routes/CandidateDetail.tsx"),
     route("jobs", "routes/Jobs.tsx"),
     route("jobs/:id", "routes/JobDetail.tsx"),
+    route("offers", "routes/Offers.tsx"),
+    route("ai-agent", "routes/AiAgentSettings.tsx"),
     route("settings", "routes/Settings.tsx"),
     route("*", "routes/NotFound.tsx"),
   ]),

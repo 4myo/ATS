@@ -16,6 +16,7 @@ export type AiAnalysisQueueItem = {
   id: string;
   candidateId: string;
   candidateName: string;
+  jobId?: string;
   jobTitle: string;
   jobDescription: string;
   resumeText: string;
@@ -122,6 +123,7 @@ const analyzeCandidate = async (item: AiAnalysisQueueItem) => {
     },
     body: JSON.stringify({
       candidateId: item.candidateId,
+      jobId: item.jobId,
       jobTitle: item.jobTitle,
       jobDescription: item.jobDescription,
       resumeText: item.resumeText,

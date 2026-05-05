@@ -3,7 +3,8 @@ import {
   LayoutDashboard,
   Users,
   Briefcase,
-  MessageSquare,
+  Bot,
+  FileText,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -18,6 +19,8 @@ export function Sidebar() {
     { to: '/', icon: LayoutDashboard, label: t("dashboard") },
     { to: '/applicants', icon: Users, label: t("applicants") },
     { to: '/jobs', icon: Briefcase, label: t("jobs") },
+    { to: '/offers', icon: FileText, label: t("offers") },
+    { to: '/ai-agent', icon: Bot, label: t("aiAgent") },
     { to: '/settings', icon: Settings, label: t("settings") },
   ];
 

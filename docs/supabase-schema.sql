@@ -9,6 +9,8 @@ create table if not exists public.jobs (
   department text,
   location text,
   type text,
+  openings integer not null default 1 check (openings >= 1),
+  status text not null default 'active' check (status in ('active', 'inactive')),
   created_at timestamptz not null default now()
 );
 
@@ -35,9 +37,9 @@ create table if not exists public.candidates (
   interview_questions text[] not null default '{}',
   offer_summary text,
   offer_checklist jsonb not null default '{"interviewCompleted":false,"referencesChecked":false,"termsAligned":false,"internalApproval":false,"offerSent":false}'::jsonb,
+  offer_outcome text not null default 'pending',
   offer_sent_at date,
   offer_response_due_at date,
-  offer_follow_up_at date,
   skill_profile jsonb,
   analysis_status text not null default 'pending_ai',
   created_at timestamptz not null default now()
@@ -51,9 +53,38 @@ create table if not exists public.signup_rate_limits (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.ai_agent_settings (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  job_id uuid not null references public.jobs(id) on delete cascade,
+  scoring_strictness text not null default 'balanced',
+  response_tone text not null default 'professional',
+  interview_question_style text not null default 'practical',
+  ai_writing_sensitivity text not null default 'balanced',
+  evaluation_focus text[] not null default '{}',
+  custom_instructions text,
+  updated_at timestamptz not null default now(),
+  unique (user_id, job_id)
+);
+
+create table if not exists public.offer_documents (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  candidate_id uuid not null references public.candidates(id) on delete cascade,
+  title text not null,
+  content text not null,
+  inputs jsonb not null default '{}'::jsonb,
+  status text not null default 'draft',
+  generated_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.jobs enable row level security;
 alter table public.candidates enable row level security;
 alter table public.signup_rate_limits enable row level security;
+alter table public.ai_agent_settings enable row level security;
+alter table public.offer_documents enable row level security;
 
 create policy "jobs_select_own" on public.jobs
   for select using (user_id = auth.uid());
@@ -75,6 +106,24 @@ create policy "candidates_delete_own" on public.candidates
 
 create policy "signup_rate_limits_no_access" on public.signup_rate_limits
   for all using (false);
+
+create policy "ai_agent_settings_select_own" on public.ai_agent_settings
+  for select using (user_id = auth.uid());
+create policy "ai_agent_settings_insert_own" on public.ai_agent_settings
+  for insert with check (user_id = auth.uid());
+create policy "ai_agent_settings_update_own" on public.ai_agent_settings
+  for update using (user_id = auth.uid());
+create policy "ai_agent_settings_delete_own" on public.ai_agent_settings
+  for delete using (user_id = auth.uid());
+
+create policy "offer_documents_select_own" on public.offer_documents
+  for select using (user_id = auth.uid());
+create policy "offer_documents_insert_own" on public.offer_documents
+  for insert with check (user_id = auth.uid());
+create policy "offer_documents_update_own" on public.offer_documents
+  for update using (user_id = auth.uid());
+create policy "offer_documents_delete_own" on public.offer_documents
+  for delete using (user_id = auth.uid());
 
 -- Storage bucket: create a private bucket named "resumes".
 -- Storage RLS policies (run in Storage -> Policies):
@@ -102,12 +151,69 @@ create policy "signup_rate_limits_no_access" on public.signup_rate_limits
 --   add column if not exists interview_questions text[] not null default '{}',
 --   add column if not exists offer_summary text,
 --   add column if not exists offer_checklist jsonb not null default '{"interviewCompleted":false,"referencesChecked":false,"termsAligned":false,"internalApproval":false,"offerSent":false}'::jsonb,
+--   add column if not exists offer_outcome text not null default 'pending',
 --   add column if not exists offer_sent_at date,
 --   add column if not exists offer_response_due_at date,
---   add column if not exists offer_follow_up_at date,
 --   add column if not exists skill_profile jsonb;
 
 -- If you already created the jobs table earlier, run this ALTER block:
 -- alter table public.jobs
 --   add column if not exists description text;
 --   add column if not exists icon text;
+-- alter table public.jobs
+--   add column if not exists openings integer not null default 1;
+-- alter table public.jobs
+--   add constraint jobs_openings_min check (openings >= 1);
+-- alter table public.jobs
+--   add column if not exists status text not null default 'active';
+-- alter table public.jobs
+--   add constraint jobs_status_check check (status in ('active', 'inactive'));
+
+-- If you already created the schema earlier, run this block for AI agent settings:
+-- create table if not exists public.ai_agent_settings (
+--   id uuid primary key default gen_random_uuid(),
+--   user_id uuid not null references auth.users(id) on delete cascade,
+--   job_id uuid not null references public.jobs(id) on delete cascade,
+--   scoring_strictness text not null default 'balanced',
+--   response_tone text not null default 'professional',
+--   interview_question_style text not null default 'practical',
+--   ai_writing_sensitivity text not null default 'balanced',
+--   evaluation_focus text[] not null default '{}',
+--   custom_instructions text,
+--   updated_at timestamptz not null default now(),
+--   unique (user_id, job_id)
+-- );
+-- alter table public.ai_agent_settings enable row level security;
+-- create policy "ai_agent_settings_select_own" on public.ai_agent_settings
+--   for select using (user_id = auth.uid());
+-- create policy "ai_agent_settings_insert_own" on public.ai_agent_settings
+--   for insert with check (user_id = auth.uid());
+-- create policy "ai_agent_settings_update_own" on public.ai_agent_settings
+--   for update using (user_id = auth.uid());
+-- create policy "ai_agent_settings_delete_own" on public.ai_agent_settings
+--   for delete using (user_id = auth.uid());
+
+-- If you already created the schema earlier, run this block for offer documents:
+-- create table if not exists public.offer_documents (
+--   id uuid primary key default gen_random_uuid(),
+--   user_id uuid not null references auth.users(id) on delete cascade,
+--   candidate_id uuid not null references public.candidates(id) on delete cascade,
+--   title text not null,
+--   content text not null,
+--   inputs jsonb not null default '{}'::jsonb,
+--   status text not null default 'draft',
+--   generated_by uuid references auth.users(id) on delete set null,
+--   created_at timestamptz not null default now(),
+--   updated_at timestamptz not null default now()
+-- );
+-- alter table public.offer_documents enable row level security;
+-- create policy "offer_documents_select_own" on public.offer_documents
+--   for select using (user_id = auth.uid());
+-- create policy "offer_documents_insert_own" on public.offer_documents
+--   for insert with check (user_id = auth.uid());
+-- create policy "offer_documents_update_own" on public.offer_documents
+--   for update using (user_id = auth.uid());
+-- create policy "offer_documents_delete_own" on public.offer_documents
+--   for delete using (user_id = auth.uid());
+-- alter table public.offer_documents
+--   add column if not exists inputs jsonb not null default '{}'::jsonb;

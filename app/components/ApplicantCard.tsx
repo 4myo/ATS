@@ -44,6 +44,7 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed }: Applic
     Screening: 'bg-violet-500/10 text-violet-700 dark:text-violet-300',
     Interview: 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
     Offer: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+    Accepted: 'bg-teal-500/10 text-teal-700 dark:text-teal-300',
     Rejected: 'bg-red-500/10 text-red-700 dark:text-red-300',
   };
 

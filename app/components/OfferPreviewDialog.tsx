@@ -1,0 +1,129 @@
+import { useEffect, useState } from "react";
+import { Download, Printer, Save } from "lucide-react";
+import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "./ui/dialog";
+import { Textarea } from "./ui/textarea";
+import { supabase } from "../lib/supabase";
+import { useI18n } from "../lib/i18n";
+import {
+  downloadOfferText,
+  openPrintableOffer,
+  type OfferDocument,
+} from "../lib/offerDocument";
+
+type OfferPreviewDialogProps = {
+  candidateName?: string;
+  document: OfferDocument | null;
+  open: boolean;
+  onDocumentChange?: (document: OfferDocument) => void;
+  onOpenChange: (open: boolean) => void;
+};
+
+export function OfferPreviewDialog({
+  candidateName,
+  document,
+  open,
+  onDocumentChange,
+  onOpenChange,
+}: OfferPreviewDialogProps) {
+  const { t } = useI18n();
+  const [content, setContent] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setContent(document?.content ?? "");
+      setError(null);
+    }
+  }, [document, open]);
+
+  const saveContent = async () => {
+    if (!document) return;
+
+    setIsSaving(true);
+    setError(null);
+
+    const { data, error: updateError } = await supabase
+      .from("offer_documents")
+      .update({
+        content,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", document.id)
+      .select("id, title, content, inputs, status, created_at")
+      .single();
+
+    if (updateError || !data) {
+      setError(updateError?.message || t("offerDocumentSaveFailed"));
+    } else {
+      onDocumentChange?.(data as OfferDocument);
+    }
+
+    setIsSaving(false);
+  };
+
+  const activeDocument = document ? { ...document, content } : null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[92vh] overflow-hidden border-border bg-card p-0 text-card-foreground sm:max-w-3xl">
+        <DialogHeader className="border-b border-border px-6 py-5 pr-12">
+          <DialogTitle>{document?.title}</DialogTitle>
+          <DialogDescription>
+            {candidateName
+              ? `${t("candidate")}: ${candidateName}`
+              : t("offerDocumentPreview")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="overflow-y-auto px-6 py-5">
+          <Textarea
+            value={content}
+            onChange={(event) => setContent(event.target.value)}
+            className="min-h-[420px] resize-y font-sans text-sm leading-relaxed"
+          />
+          {error ? <p className="mt-3 text-sm text-red-500">{error}</p> : null}
+        </div>
+        <div className="flex flex-col-reverse gap-3 border-t border-border px-6 py-4 sm:flex-row sm:justify-end">
+          {activeDocument ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={saveContent}
+                disabled={isSaving}
+                className="gap-2"
+              >
+                <Save className="h-4 w-4" />
+                {isSaving ? t("saving") : t("saveChanges")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => openPrintableOffer(activeDocument)}
+                className="gap-2"
+              >
+                <Printer className="h-4 w-4" />
+                {t("printOrSavePdf")}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => downloadOfferText(activeDocument)}
+                className="gap-2"
+              >
+                <Download className="h-4 w-4" />
+                {t("downloadTxt")}
+              </Button>
+            </>
+          ) : null}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

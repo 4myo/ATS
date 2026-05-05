@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { ArrowLeft, Briefcase, CalendarDays, Pencil, Trash2, Users } from "lucide-react";
+import { Archive, ArrowLeft, Briefcase, CalendarDays, Pencil, RotateCcw, Trash2, Users } from "lucide-react";
 import type { Stage } from "../store";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
@@ -18,6 +18,7 @@ import { Textarea } from "../components/ui/textarea";
 import { supabase } from "../lib/supabase";
 import { dedupeCandidateRows } from "../lib/candidateRows";
 import { updateCachedApplicants } from "../lib/candidateListCache";
+import { syncJobStatusForTitle, updateCachedJobList } from "../lib/jobCache";
 import { useI18n } from "../lib/i18n";
 
 type JobDetailRecord = {
@@ -27,6 +28,8 @@ type JobDetailRecord = {
   description: string | null;
   department: string | null;
   location: string | null;
+  openings: number | null;
+  status: string | null;
   created_at: string;
 };
 
@@ -49,6 +52,7 @@ export default function JobDetail() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editType, setEditType] = useState("");
+  const [editOpenings, setEditOpenings] = useState("1");
   const [editDescription, setEditDescription] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
@@ -64,7 +68,7 @@ export default function JobDetail() {
 
       const { data, error } = await supabase
         .from("jobs")
-        .select("id, title, type, description, department, location, created_at")
+        .select("id, title, type, description, department, location, openings, status, created_at")
         .eq("id", id)
         .single();
 
@@ -84,16 +88,39 @@ export default function JobDetail() {
 
       if (!isMounted) return;
 
-      setJob(data as JobDetailRecord);
-      setJobCandidates(
-        dedupeCandidateRows(
-          (candidateRows ?? []) as Array<Record<string, unknown>>,
-        ).map((candidate) => ({
+      const nextCandidates = dedupeCandidateRows(
+        (candidateRows ?? []) as Array<Record<string, unknown>>,
+      ).map((candidate) => ({
           id: candidate.id as string,
           name: (candidate.full_name as string | null | undefined) ?? t("candidate"),
           stage: (candidate.stage as Stage) ?? "Applied",
           aiScore: Number(candidate.ats_score ?? 0),
-        })),
+      }));
+      const acceptedCount = nextCandidates.filter(
+        (candidate) => candidate.stage === "Accepted",
+      ).length;
+      const openings = Math.max(1, Number(data.openings ?? 1));
+      let nextJob = data as JobDetailRecord;
+
+      if ((data.status ?? "active") !== "inactive" && acceptedCount >= openings) {
+        const { error: statusError } = await supabase
+          .from("jobs")
+          .update({ status: "inactive" })
+          .eq("id", data.id);
+
+        if (!statusError) {
+          nextJob = { ...nextJob, status: "inactive" };
+          updateCachedJobList((jobs) =>
+            jobs.map((cachedJob) =>
+              cachedJob.id === data.id ? { ...cachedJob, status: "inactive" } : cachedJob,
+            ),
+          );
+        }
+      }
+
+      setJob(nextJob);
+      setJobCandidates(
+        nextCandidates,
       );
       setIsLoading(false);
     };
@@ -122,6 +149,7 @@ export default function JobDetail() {
       return;
     }
 
+    updateCachedJobList((jobs) => jobs.filter((cachedJob) => cachedJob.id !== job.id));
     navigate("/jobs", { replace: true });
   };
 
@@ -130,6 +158,7 @@ export default function JobDetail() {
 
     setEditTitle(job.title);
     setEditType(job.type ?? "");
+    setEditOpenings(String(job.openings ?? 1));
     setEditDescription(job.description ?? "");
     setUpdateError(null);
     setIsEditOpen(true);
@@ -155,10 +184,11 @@ export default function JobDetail() {
       .update({
         title: nextTitle,
         type: editType,
+        openings: Math.max(1, Number(editOpenings) || 1),
         description: editDescription,
       })
       .eq("id", job.id)
-      .select("id, title, type, description, department, location, created_at")
+      .select("id, title, type, description, department, location, openings, status, created_at")
       .single();
 
     if (error) {
@@ -189,8 +219,48 @@ export default function JobDetail() {
     }
 
     setJob(data as JobDetailRecord);
+    updateCachedJobList((jobs) =>
+      jobs.map((cachedJob) =>
+        cachedJob.id === job.id
+          ? {
+              ...cachedJob,
+              title: data.title,
+              type: data.type,
+              description: data.description,
+              openings: Math.max(1, Number(data.openings ?? 1)),
+              status: data.status ?? cachedJob.status,
+            }
+          : cachedJob,
+      ),
+    );
     setIsUpdating(false);
     setIsEditOpen(false);
+    await syncJobStatusForTitle(data.title);
+  };
+
+  const updateJobStatus = async (status: "active" | "inactive") => {
+    if (!job) return;
+
+    setDeleteError(null);
+    const previousJob = job;
+    setJob({ ...job, status });
+
+    const { error } = await supabase
+      .from("jobs")
+      .update({ status })
+      .eq("id", job.id);
+
+    if (error) {
+      setJob(previousJob);
+      setDeleteError(error.message || t("failedJobUpdate"));
+      return;
+    }
+
+    updateCachedJobList((jobs) =>
+      jobs.map((cachedJob) =>
+        cachedJob.id === job.id ? { ...cachedJob, status } : cachedJob,
+      ),
+    );
   };
 
   if (isLoading) {
@@ -215,6 +285,13 @@ export default function JobDetail() {
     );
   }
 
+  const acceptedCount = jobCandidates.filter(
+    (candidate) => candidate.stage === "Accepted",
+  ).length;
+  const openings = Math.max(1, Number(job.openings ?? 1));
+  const isOverfilled = acceptedCount > openings;
+  const isFilled = acceptedCount >= openings;
+
   return (
     <div className="page-container">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -232,9 +309,35 @@ export default function JobDetail() {
               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 {job.type ? <span>{job.type}</span> : null}
                 {job.location ? <span>{job.location}</span> : null}
-                <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
-                  {t("active")}
+                <span
+                  className={
+                    isOverfilled
+                      ? "font-semibold text-red-600"
+                      : isFilled
+                        ? "font-semibold text-amber-600"
+                        : ""
+                  }
+                >
+                  {t("jobOpenings")}: {acceptedCount}/{openings}
                 </span>
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset ${
+                    (job.status ?? "active") === "inactive"
+                      ? "bg-muted text-muted-foreground ring-border"
+                      : "bg-green-50 text-green-700 ring-green-600/20"
+                  }`}
+                >
+                  {(job.status ?? "active") === "inactive" ? t("inactive") : t("active")}
+                </span>
+                {isOverfilled ? (
+                  <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
+                    Preseženo število mest
+                  </span>
+                ) : isFilled ? (
+                  <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                    Delo je zapolnjeno
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>
@@ -249,6 +352,25 @@ export default function JobDetail() {
           >
             <Pencil className="h-4 w-4" />
             {t("editJob")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              updateJobStatus(
+                (job.status ?? "active") === "inactive" ? "active" : "inactive",
+              )
+            }
+            className="gap-2"
+          >
+            {(job.status ?? "active") === "inactive" ? (
+              <RotateCcw className="h-4 w-4" />
+            ) : (
+              <Archive className="h-4 w-4" />
+            )}
+            {(job.status ?? "active") === "inactive"
+              ? t("activateJob")
+              : t("deactivateJob")}
           </Button>
           <Button
             type="button"
@@ -296,6 +418,18 @@ export default function JobDetail() {
               </Select>
             </div>
             <div className="grid gap-2">
+              <Label htmlFor="edit-job-openings">{t("jobOpenings")}</Label>
+              <Input
+                id="edit-job-openings"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                value={editOpenings}
+                onChange={(event) => setEditOpenings(event.target.value)}
+              />
+            </div>
+            <div className="grid gap-2">
               <Label htmlFor="edit-job-description">{t("jobDescription")}</Label>
               <Textarea
                 id="edit-job-description"
@@ -320,7 +454,13 @@ export default function JobDetail() {
             <Button
               type="button"
               onClick={handleUpdateJob}
-              disabled={isUpdating || !editTitle.trim() || !editType || !editDescription}
+              disabled={
+                isUpdating ||
+                !editTitle.trim() ||
+                !editType ||
+                !editDescription ||
+                Number(editOpenings) < 1
+              }
             >
               {isUpdating ? t("saving") : t("updateJob")}
             </Button>
@@ -331,6 +471,16 @@ export default function JobDetail() {
       {deleteError ? (
         <div className="surface-card border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {deleteError}
+        </div>
+      ) : null}
+
+      {isOverfilled ? (
+        <div className="surface-card border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          To delovno mesto ima {acceptedCount}/{openings} sprejetih kandidatov. Povečajte število mest ali preglejte sprejete kandidate.
+        </div>
+      ) : isFilled ? (
+        <div className="surface-card border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          To delovno mesto je zapolnjeno ({acceptedCount}/{openings}). Novi sprejemi zahtevajo povečanje števila mest.
         </div>
       ) : null}
 
@@ -374,7 +524,8 @@ export default function JobDetail() {
                 {jobCandidates.map((candidate) => (
                   <Link
                     key={candidate.id}
-                    to={`/applicants/${candidate.id}`}
+                    to={`/applicants/${candidate.id}?returnTo=${encodeURIComponent(`/jobs/${job.id}`)}`}
+                    state={{ returnTo: `/jobs/${job.id}` }}
                     className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/45"
                   >
                     <div className="min-w-0">

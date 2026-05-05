@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router";
+import { useParams, Link, useLocation } from "react-router";
 import type { Stage } from "../store";
 import { supabase } from "../lib/supabase";
 import { getAiWritingSignal } from "../lib/aiWritingSignal";
 import { ScoreRing } from '../components/ScoreRing';
 import { 
   ArrowLeft, ThumbsUp, ThumbsDown,
-  CheckCircle, XCircle, Clock, Bot, FileText
+  CheckCircle, XCircle, Clock, Bot, FileText, Eye, Loader2
 } from 'lucide-react';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer 
@@ -25,8 +25,18 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { Button } from "../components/ui/button";
+import {
+  OfferDraftDialog,
+} from "../components/OfferDraftDialog";
+import { OfferPreviewDialog } from "../components/OfferPreviewDialog";
 import { useI18n } from "../lib/i18n";
 import { updateCachedApplicants } from "../lib/candidateListCache";
+import {
+  getJobCapacityForTitle,
+  increaseJobOpeningsForTitle,
+  syncJobStatusForTitle,
+} from "../lib/jobCache";
+import { type OfferDocument, type OfferInputs } from "../lib/offerDocument";
 
 type OfferChecklist = {
   interviewCompleted: boolean;
@@ -56,10 +66,18 @@ type CandidateDetailRecord = {
   interview_questions: string[] | null;
   offer_summary: string | null;
   offer_checklist: Partial<OfferChecklist> | null;
+  offer_outcome: string | null;
   offer_sent_at: string | null;
   offer_response_due_at: string | null;
-  offer_follow_up_at: string | null;
   skill_profile: Record<string, number> | null;
+};
+
+type JobCapacity = {
+  id: string;
+  title: string;
+  status: string;
+  openings: number;
+  acceptedCount: number;
 };
 
 const defaultOfferChecklist: OfferChecklist = {
@@ -80,10 +98,11 @@ const candidateSelectWithInterviewQuestions =
   `${candidateSelectWithAiWriting}, interview_questions`;
 
 const candidateSelectWithOfferPreparation =
-  `${candidateSelectWithInterviewQuestions}, offer_summary, offer_checklist, offer_sent_at, offer_response_due_at, offer_follow_up_at`;
+  `${candidateSelectWithInterviewQuestions}, offer_summary, offer_checklist, offer_outcome, offer_sent_at, offer_response_due_at`;
 
 export default function CandidateDetail() {
   const { id } = useParams();
+  const location = useLocation();
   const { t, stageLabel } = useI18n();
   const [candidate, setCandidate] = useState<CandidateDetailRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -92,6 +111,18 @@ export default function CandidateDetail() {
   const [stageError, setStageError] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
   const [offerError, setOfferError] = useState<string | null>(null);
+  const [offerDocument, setOfferDocument] = useState<OfferDocument | null>(null);
+  const [jobCapacity, setJobCapacity] = useState<JobCapacity | null>(null);
+  const [isGeneratingOffer, setIsGeneratingOffer] = useState(false);
+  const [isOfferPreviewOpen, setIsOfferPreviewOpen] = useState(false);
+  const [isOfferDraftOpen, setIsOfferDraftOpen] = useState(false);
+  const [pendingOfferSentAfterDraft, setPendingOfferSentAfterDraft] = useState(false);
+  const returnToFromState =
+    typeof location.state?.returnTo === "string" ? location.state.returnTo : null;
+  const returnToFromQuery = new URLSearchParams(location.search).get("returnTo");
+  const candidateBackPath = [returnToFromState, returnToFromQuery].find(
+    (path) => path?.startsWith("/") && !path.startsWith("//"),
+  ) ?? "/applicants";
 
   useEffect(() => {
     let isMounted = true;
@@ -161,15 +192,34 @@ export default function CandidateDetail() {
         interview_questions: [],
         offer_summary: null,
         offer_checklist: defaultOfferChecklist,
+        offer_outcome: "pending",
         offer_sent_at: null,
         offer_response_due_at: null,
-        offer_follow_up_at: null,
         ...fallbackResult.data,
         stage: shouldMarkReviewed ? "Screening" : loadedStage,
       } as CandidateDetailRecord;
 
       setCandidate(nextCandidate);
       setIsLoading(false);
+
+      const capacity = await getJobCapacityForTitle(nextCandidate.job_title);
+      if (isMounted) {
+        setJobCapacity(capacity);
+      }
+
+      if (nextCandidate.stage === "Offer") {
+        const { data: latestDocument } = await supabase
+          .from("offer_documents")
+          .select("id, title, content, inputs, status, created_at")
+          .eq("candidate_id", nextCandidate.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (isMounted && latestDocument) {
+          setOfferDocument(latestDocument as OfferDocument);
+        }
+      }
 
       if (shouldMarkReviewed) {
         const { error } = await supabase
@@ -283,7 +333,16 @@ export default function CandidateDetail() {
     [candidate],
   );
   const isInterviewStage = candidate?.stage === "Interview";
-  const isOfferStage = candidate?.stage === "Offer";
+  const isOfferStage = candidate?.stage === "Offer" || candidate?.stage === "Accepted";
+  const isJobAtCapacity = Boolean(
+    jobCapacity && jobCapacity.acceptedCount >= jobCapacity.openings,
+  );
+  const isJobClosedForCandidate = Boolean(
+    jobCapacity &&
+      ((jobCapacity.status ?? "active") === "inactive" || isJobAtCapacity) &&
+      candidate?.stage !== "Accepted",
+  );
+  const todayIso = new Date().toISOString().slice(0, 10);
   const offerChecklistItems: Array<{ key: keyof OfferChecklist; label: string }> = [
     { key: "interviewCompleted", label: t("offerChecklistInterviewCompleted") },
     { key: "referencesChecked", label: t("offerChecklistReferencesChecked") },
@@ -292,11 +351,81 @@ export default function CandidateDetail() {
     { key: "offerSent", label: t("offerChecklistOfferSent") },
   ];
 
+  const generateOfferDocument = async (offerInputs: OfferInputs) => {
+    if (!candidate) return null;
+    if (isJobClosedForCandidate) {
+      setOfferError(
+        "To delovno mesto je zaprto ali zapolnjeno. Pred novo ponudbo povečajte število mest ali kandidata prestavite na drugo aktivno delo.",
+      );
+      return null;
+    }
+
+    setIsGeneratingOffer(true);
+    setOfferError(null);
+
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        throw new Error(t("signedInRequiredCandidate"));
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-offer`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ candidateId: candidate.id, offerInputs }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error((await response.text()) || response.statusText);
+      }
+
+      const result = await response.json();
+      const nextDocument = result.document as OfferDocument;
+      setOfferDocument(nextDocument);
+      setIsOfferDraftOpen(false);
+
+      if (pendingOfferSentAfterDraft) {
+        setPendingOfferSentAfterDraft(false);
+        await updateOfferChecklist("offerSent", true, nextDocument);
+      }
+
+      return nextDocument;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t("offerDocumentGenerateFailed");
+      setOfferError(message);
+      return null;
+    } finally {
+      setIsGeneratingOffer(false);
+    }
+  };
+
   const updateOfferChecklist = async (
     key: keyof OfferChecklist,
     checked: boolean,
+    generatedOfferDocument?: OfferDocument,
   ) => {
     if (!candidate) return;
+    if (key === "offerSent" && checked && isJobClosedForCandidate) {
+      setOfferError(
+        "Ponudbe ni mogoče poslati, ker je delovno mesto zaprto ali zapolnjeno.",
+      );
+      return;
+    }
+
+    if (key === "offerSent" && checked && !offerDocument && !generatedOfferDocument) {
+      setPendingOfferSentAfterDraft(true);
+      setIsOfferDraftOpen(true);
+      return;
+    }
 
     const previousCandidate = candidate;
     const nextChecklist = { ...offerChecklist, [key]: checked };
@@ -324,6 +453,24 @@ export default function CandidateDetail() {
       setCandidate(previousCandidate);
       setOfferError(error.message || t("failedOfferUpdate"));
     } else {
+      const activeOfferDocument = generatedOfferDocument ?? offerDocument;
+      if (key === "offerSent" && activeOfferDocument) {
+        const nextDocumentStatus = checked ? "sent" : "draft";
+        const { error: documentError } = await supabase
+          .from("offer_documents")
+          .update({ status: nextDocumentStatus })
+          .eq("id", activeOfferDocument.id);
+
+        if (documentError) {
+          setOfferError(documentError.message || t("failedOfferUpdate"));
+        } else {
+          setOfferDocument({
+            ...activeOfferDocument,
+            status: nextDocumentStatus,
+          });
+        }
+      }
+
       updateCachedApplicants((applicants) =>
         applicants.map((applicant) =>
           applicant.id === candidate.id
@@ -342,10 +489,15 @@ export default function CandidateDetail() {
   };
 
   const updateOfferDate = async (
-    field: "offer_sent_at" | "offer_response_due_at" | "offer_follow_up_at",
+    field: "offer_sent_at" | "offer_response_due_at",
     value: string,
   ) => {
     if (!candidate) return;
+
+    if (value && value < todayIso) {
+      setOfferError(t("offerDateCannotBePast"));
+      return;
+    }
 
     const previousCandidate = candidate;
     setCandidate({ ...candidate, [field]: value || null });
@@ -367,10 +519,6 @@ export default function CandidateDetail() {
                 ...applicant,
                 offerSentAt:
                   field === "offer_sent_at" ? value || null : applicant.offerSentAt,
-                offerFollowUpAt:
-                  field === "offer_follow_up_at"
-                    ? value || null
-                    : applicant.offerFollowUpAt,
               }
             : applicant,
         ),
@@ -378,8 +526,121 @@ export default function CandidateDetail() {
     }
   };
 
+  const updateOfferOutcome = async (outcome: "accepted" | "declined") => {
+    if (!candidate) return;
+
+    let nextJobCapacity = jobCapacity;
+    if (outcome === "accepted") {
+      const latestCapacity = await getJobCapacityForTitle(candidate.job_title);
+      nextJobCapacity = latestCapacity;
+      setJobCapacity(latestCapacity);
+
+      const alreadyAccepted = candidate.stage === "Accepted";
+      const nextAcceptedCount =
+        (latestCapacity?.acceptedCount ?? 0) + (alreadyAccepted ? 0 : 1);
+      const wouldExceedCapacity = latestCapacity
+        ? (latestCapacity.status ?? "active") === "inactive" ||
+          nextAcceptedCount > latestCapacity.openings
+        : false;
+
+      if (latestCapacity && wouldExceedCapacity) {
+        const confirmed = window.confirm(
+          `To delo ima trenutno ${latestCapacity.acceptedCount}/${latestCapacity.openings} sprejetih kandidatov. Sprejem tega kandidata bi presegel kapaciteto. Želite povečati število mest na ${nextAcceptedCount} in nadaljevati?`,
+        );
+
+        if (!confirmed) {
+          setOfferError("Sprejem kandidata je bil preklican, ker je delo zapolnjeno.");
+          return;
+        }
+
+        nextJobCapacity = await increaseJobOpeningsForTitle(
+          candidate.job_title,
+          nextAcceptedCount,
+        );
+        setJobCapacity(nextJobCapacity);
+      }
+    }
+
+    const nextStage: Stage = outcome === "accepted" ? "Accepted" : "Rejected";
+    const nextChecklist = { ...offerChecklist, offerSent: true };
+    const sentDate = candidate.offer_sent_at ?? new Date().toISOString().slice(0, 10);
+    const previousCandidate = candidate;
+
+    setCandidate({
+      ...candidate,
+      stage: nextStage,
+      offer_outcome: outcome,
+      offer_checklist: nextChecklist,
+      offer_sent_at: sentDate,
+    });
+    setOfferError(null);
+
+    const [{ error: candidateError }, { error: documentError }] = await Promise.all([
+      supabase
+        .from("candidates")
+        .update({
+          stage: nextStage,
+          offer_outcome: outcome,
+          offer_checklist: nextChecklist,
+          offer_sent_at: sentDate,
+        })
+        .eq("id", candidate.id),
+      offerDocument
+        ? supabase
+            .from("offer_documents")
+            .update({ status: outcome === "accepted" ? "accepted" : "declined" })
+            .eq("id", offerDocument.id)
+        : Promise.resolve({ error: null }),
+    ]);
+
+    if (candidateError || documentError) {
+      setCandidate(previousCandidate);
+      setOfferError(candidateError?.message || documentError?.message || t("failedOfferUpdate"));
+      return;
+    }
+
+    if (offerDocument) {
+      setOfferDocument({
+        ...offerDocument,
+        status: outcome === "accepted" ? "accepted" : "declined",
+      });
+    }
+
+    updateCachedApplicants((applicants) =>
+      applicants.map((applicant) =>
+        applicant.id === candidate.id
+          ? {
+              ...applicant,
+              stage: nextStage,
+              offerOutcome: outcome,
+              offerChecklist: { offerSent: true },
+              offerSentAt: sentDate,
+            }
+          : applicant,
+      ),
+    );
+
+    if (outcome === "accepted" || previousCandidate.stage === "Accepted") {
+      await syncJobStatusForTitle(candidate.job_title);
+      const capacity = await getJobCapacityForTitle(candidate.job_title);
+      setJobCapacity(capacity);
+    }
+  };
+
   const handleStageChange = async (nextStage: Stage) => {
     if (!candidate || nextStage === candidate.stage) return;
+
+    if (nextStage === "Offer" && isJobClosedForCandidate) {
+      setStageError(
+        "Kandidata ni mogoče premakniti v fazo ponudbe, ker je delovno mesto zaprto ali zapolnjeno.",
+      );
+      return;
+    }
+
+    if (nextStage === "Accepted") {
+      await updateOfferOutcome("accepted");
+      return;
+    }
 
     const previousStage = candidate.stage;
     setCandidate({ ...candidate, stage: nextStage });
@@ -402,6 +663,11 @@ export default function CandidateDetail() {
             : applicant,
         ),
       );
+      if (previousStage === "Accepted" || nextStage === "Accepted") {
+        await syncJobStatusForTitle(candidate.job_title);
+        const capacity = await getJobCapacityForTitle(candidate.job_title);
+        setJobCapacity(capacity);
+      }
     }
 
     setIsUpdatingStage(false);
@@ -463,7 +729,7 @@ export default function CandidateDetail() {
       <div className="flex-none border-b border-border bg-card px-8 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Link to="/applicants" className="rounded-full p-2 text-muted-foreground hover:bg-muted">
+            <Link to={candidateBackPath} className="rounded-full p-2 text-muted-foreground hover:bg-muted">
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <div>
@@ -498,9 +764,13 @@ export default function CandidateDetail() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {(["Screening", "Interview", "Offer", "Rejected"] as Stage[]).map(
+                  {(["Screening", "Interview", "Offer", "Accepted", "Rejected"] as Stage[]).map(
                     (stageOption) => (
-                      <SelectItem key={stageOption} value={stageOption}>
+                      <SelectItem
+                        key={stageOption}
+                        value={stageOption}
+                        disabled={stageOption === "Offer" && isJobClosedForCandidate}
+                      >
                         {stageLabel(stageOption)}
                       </SelectItem>
                     ),
@@ -531,6 +801,19 @@ export default function CandidateDetail() {
       <div className="flex flex-1 overflow-hidden">
         {/* Main Content (Scrollable) */}
         <div className="flex-1 space-y-8 overflow-y-auto p-8">
+          {isJobClosedForCandidate ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+              To delovno mesto je zaprto ali zapolnjeno
+              {jobCapacity
+                ? ` (${jobCapacity.acceptedCount}/${jobCapacity.openings} sprejetih).`
+                : "."}{" "}
+              Za novo ponudbo povečajte število mest ali kandidata prestavite na drugo aktivno delo.
+            </div>
+          ) : jobCapacity && jobCapacity.acceptedCount > jobCapacity.openings ? (
+            <div className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800">
+              Delovno mesto presega kapaciteto: {jobCapacity.acceptedCount}/{jobCapacity.openings} sprejetih kandidatov.
+            </div>
+          ) : null}
            
            {/* Top Stats */}
            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -655,14 +938,60 @@ export default function CandidateDetail() {
                             <input
                               type="checkbox"
                               checked={offerChecklist[item.key]}
+                              disabled={item.key === "offerSent" && isGeneratingOffer}
                               onChange={(event) =>
                                 updateOfferChecklist(item.key, event.target.checked)
                               }
                               className="h-4 w-4 rounded border-border accent-primary"
                             />
+                            {item.key === "offerSent" && isGeneratingOffer ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            ) : null}
                             {item.label}
                           </label>
                         ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 rounded-md border border-border bg-muted/35 p-4">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {t("offerDocument")}
+                      </h3>
+                      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                        {offerDocument
+                          ? offerDocument.title
+                          : t("offerDocumentMissing")}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsOfferDraftOpen(true)}
+                          disabled={isGeneratingOffer || isJobClosedForCandidate}
+                          className="gap-2"
+                        >
+                          {isGeneratingOffer ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <FileText className="h-4 w-4" />
+                          )}
+                          {offerDocument ? t("editOfferData") : t("enterOfferData")}
+                        </Button>
+                        {offerDocument ? (
+                          <>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setIsOfferPreviewOpen(true)}
+                              className="gap-2"
+                            >
+                              <Eye className="h-4 w-4" />
+                              {t("preview")}
+                            </Button>
+                          </>
+                        ) : null}
                       </div>
                     </div>
 
@@ -674,6 +1003,7 @@ export default function CandidateDetail() {
                         <span>{t("offerSentDate")}</span>
                         <input
                           type="date"
+                          min={todayIso}
                           value={candidate.offer_sent_at ?? ""}
                           onChange={(event) =>
                             updateOfferDate("offer_sent_at", event.target.value)
@@ -682,16 +1012,52 @@ export default function CandidateDetail() {
                         />
                       </label>
                       <label className="grid gap-1.5 text-sm text-foreground">
-                        <span>{t("offerFollowUpDate")}</span>
+                        <span>{t("offerResponseDueDate")}</span>
                         <input
                           type="date"
-                          value={candidate.offer_follow_up_at ?? ""}
+                          min={todayIso}
+                          value={candidate.offer_response_due_at ?? ""}
                           onChange={(event) =>
-                            updateOfferDate("offer_follow_up_at", event.target.value)
+                            updateOfferDate("offer_response_due_at", event.target.value)
                           }
                           className="h-10 rounded-md border border-border bg-background px-3 text-sm text-foreground dark:bg-muted/30"
                         />
                       </label>
+                    </div>
+
+                    <div className="mt-5 rounded-md border border-border bg-muted/35 p-4">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {t("offerOutcome")}
+                      </h3>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {candidate.offer_outcome === "accepted"
+                          ? t("offerOutcomeAccepted")
+                          : candidate.offer_outcome === "declined"
+                            ? t("offerOutcomeDeclined")
+                            : t("offerOutcomePending")}
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateOfferOutcome("accepted")}
+                          disabled={!offerChecklist.offerSent}
+                          className="text-emerald-600 hover:text-emerald-700"
+                        >
+                          {t("markOfferAccepted")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => updateOfferOutcome("declined")}
+                          disabled={!offerChecklist.offerSent}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          {t("markOfferDeclined")}
+                        </Button>
+                      </div>
                     </div>
 
                     {offerError ? (
@@ -808,6 +1174,26 @@ export default function CandidateDetail() {
         </aside>
         ) : null}
       </div>
+      <OfferDraftDialog
+        candidateName={candidate.full_name}
+        error={offerError}
+        initialInputs={offerDocument?.inputs}
+        isGenerating={isGeneratingOffer}
+        open={isOfferDraftOpen}
+        onOpenChange={(open) => {
+          setIsOfferDraftOpen(open);
+          if (!open) setPendingOfferSentAfterDraft(false);
+        }}
+        onGenerate={generateOfferDocument}
+      />
+
+      <OfferPreviewDialog
+        candidateName={candidate.full_name}
+        document={offerDocument}
+        open={isOfferPreviewOpen}
+        onDocumentChange={setOfferDocument}
+        onOpenChange={setIsOfferPreviewOpen}
+      />
     </div>
   );
 }

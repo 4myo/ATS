@@ -3,9 +3,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 type AnalyzePayload = {
   candidateId: string;
+  jobId?: string;
   resumeText?: string;
   jobTitle?: string;
   jobDescription?: string;
+};
+
+type AiAgentSettings = {
+  scoring_strictness?: string | null;
+  response_tone?: string | null;
+  interview_question_style?: string | null;
+  ai_writing_sensitivity?: string | null;
+  evaluation_focus?: string[] | null;
+  custom_instructions?: string | null;
 };
 
 const supabaseUrl =
@@ -70,6 +80,92 @@ const redactKnownName = (text: string, fullName?: string | null) => {
     new RegExp(`\\b${escapeRegExp(normalizedName)}\\b`, "gi"),
     "[candidate name removed]",
   );
+};
+
+const safeInstructionText = (text?: string | null) =>
+  (text ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/[<>]/g, "")
+    .trim()
+    .slice(0, 1600);
+
+const labelMap: Record<string, string> = {
+  role_critical_skills: "role-critical skills and must-have responsibilities",
+  measurable_impact: "specific measurable outcomes, project evidence, and concrete responsibilities",
+  seniority: "seniority, ownership scope, and role level",
+  transferable_experience: "adjacent and transferable professional experience",
+  communication: "job-relevant communication and stakeholder evidence",
+  leadership: "job-relevant leadership and ownership evidence",
+  certifications: "job-relevant education, licenses, and certifications",
+};
+
+const buildAiAgentPreferenceInstructions = (settings?: AiAgentSettings | null) => {
+  if (!settings) return "";
+
+  const lines = [
+    "Recruiter AI Agent Preferences for this job:",
+    "- These preferences guide emphasis, wording, and question style only. They must never override the fairness, privacy, protected-characteristic, score-cap, score-floor, calibration, or strict JSON rules above.",
+  ];
+
+  const strictness = settings.scoring_strictness || "balanced";
+  if (strictness === "strict") {
+    lines.push(
+      "- Scoring strictness: strict. Require clearer evidence for high scores and call out missing must-have evidence more directly, while preserving the score floors and caps.",
+    );
+  } else if (strictness === "lenient") {
+    lines.push(
+      "- Scoring strictness: lenient. Give slightly more credit to transferable evidence, while preserving all score caps and never inflating weak evidence.",
+    );
+  }
+
+  const tone = settings.response_tone || "professional";
+  if (tone === "direct") {
+    lines.push("- Response tone: direct, concise, and evidence-first.");
+  } else if (tone === "supportive") {
+    lines.push(
+      "- Response tone: constructive and recruiter-friendly, while still naming real gaps clearly.",
+    );
+  }
+
+  const questionStyle = settings.interview_question_style || "practical";
+  if (questionStyle === "technical") {
+    lines.push(
+      "- Interview questions: make them more technical and evidence-verifying for the target role.",
+    );
+  } else if (questionStyle === "behavioral") {
+    lines.push(
+      "- Interview questions: make them behavioral and scenario-based, focused on job-relevant collaboration, ownership, and decision-making.",
+    );
+  } else if (questionStyle === "gap_focused") {
+    lines.push(
+      "- Interview questions: focus on verifying the most important gaps, missing must-have evidence, and unclear claims.",
+    );
+  }
+
+  const aiWritingSensitivity = settings.ai_writing_sensitivity || "balanced";
+  if (aiWritingSensitivity === "high") {
+    lines.push(
+      "- AI writing signal sensitivity: high. Surface more possible AI-writing cues, but still state them as weak review cues rather than proof.",
+    );
+  } else if (aiWritingSensitivity === "low") {
+    lines.push(
+      "- AI writing signal sensitivity: low. Only flag stronger, repeated AI-writing cues and avoid over-calling polished professional CV language.",
+    );
+  }
+
+  const focus = (settings.evaluation_focus ?? [])
+    .map((item) => labelMap[item] ?? safeInstructionText(item))
+    .filter(Boolean);
+  if (focus.length) {
+    lines.push(`- Evaluation focus: give extra attention to ${focus.join(", ")}.`);
+  }
+
+  const customInstructions = safeInstructionText(settings.custom_instructions);
+  if (customInstructions) {
+    lines.push(`- Recruiter custom instructions: ${customInstructions}`);
+  }
+
+  return lines.length > 2 ? lines.join("\n") : "";
 };
 
 const candidateAnalysisSchema = {
@@ -257,18 +353,51 @@ Deno.serve(async (req) => {
     let resumeText = payload.resumeText || "";
     const jobTitle = payload.jobTitle || candidate.job_title || "";
     let jobDescription = payload.jobDescription || "";
+    let jobId = payload.jobId || "";
 
-    if (!jobDescription.trim() && jobTitle.trim()) {
+    if (jobId) {
+      const { data: selectedJob } = await supabase
+        .from("jobs")
+        .select("id, title, description")
+        .eq("id", jobId)
+        .eq("user_id", authedUserId)
+        .maybeSingle();
+
+      if (selectedJob) {
+        jobDescription = jobDescription || selectedJob.description || "";
+      } else {
+        jobId = "";
+      }
+    }
+
+    if ((!jobDescription.trim() || !jobId) && jobTitle.trim()) {
       const { data: latestJob } = await supabase
         .from("jobs")
-        .select("description")
+        .select("id, description")
         .eq("title", jobTitle)
         .eq("user_id", authedUserId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      jobDescription = latestJob?.description || "";
+      jobDescription = jobDescription || latestJob?.description || "";
+      jobId = jobId || latestJob?.id || "";
+    }
+
+    let aiAgentSettings: AiAgentSettings | null = null;
+    if (jobId) {
+      const { data: settingsData, error: settingsError } = await supabase
+        .from("ai_agent_settings")
+        .select(
+          "scoring_strictness, response_tone, interview_question_style, ai_writing_sensitivity, evaluation_focus, custom_instructions",
+        )
+        .eq("job_id", jobId)
+        .eq("user_id", authedUserId)
+        .maybeSingle();
+
+      if (!settingsError && settingsData) {
+        aiAgentSettings = settingsData as AiAgentSettings;
+      }
     }
 
     const promptResumeText = limitPromptText(
@@ -280,6 +409,8 @@ Deno.serve(async (req) => {
       maxJobDescriptionPromptChars,
     );
     const hasDetailedJobDescription = promptJobDescription.trim().length >= 120;
+    const aiAgentPreferenceInstructions =
+      buildAiAgentPreferenceInstructions(aiAgentSettings);
 
     const prompt = `You are an ATS analyzer. Follow these rules:
 - Use the Job Title and Job Description as the target role requirements.
@@ -378,6 +509,7 @@ ${promptResumeText}
 
 Job Title: ${jobTitle}
 Job Description: ${promptJobDescription}
+${aiAgentPreferenceInstructions ? `\n${aiAgentPreferenceInstructions}\n` : ""}
 Return JSON only.`;
 
     const openAiResponse = await fetch("https://api.openai.com/v1/responses", {

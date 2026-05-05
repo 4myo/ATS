@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type Stage = 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Rejected';
+export type Stage = 'Applied' | 'Screening' | 'Interview' | 'Offer' | 'Accepted' | 'Rejected';
 
 export interface Applicant {
   id: string;
@@ -22,8 +22,8 @@ export interface Applicant {
   offerChecklist?: {
     offerSent?: boolean;
   };
+  offerOutcome?: string | null;
   offerSentAt?: string | null;
-  offerFollowUpAt?: string | null;
   skillProfile?: {
     technical: number;
     communication: number;

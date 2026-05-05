@@ -5,7 +5,8 @@ const stageRank = {
   Screening: 2,
   Interview: 3,
   Offer: 4,
-  Rejected: 5,
+  Accepted: 5,
+  Rejected: 6,
 } satisfies Record<Stage, number>;
 
 const normalizeText = (value: unknown) =>
@@ -69,4 +70,3 @@ export const dedupeCandidateRows = <TRow extends Record<string, unknown>>(
     (left, right) => rowTime(right) - rowTime(left),
   );
 };
-
