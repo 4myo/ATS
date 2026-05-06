@@ -103,61 +103,81 @@ const buildAiAgentPreferenceInstructions = (settings?: AiAgentSettings | null) =
   if (!settings) return "";
 
   const lines = [
-    "Recruiter AI Agent Preferences for this job:",
-    "- These preferences guide emphasis, wording, and question style only. They must never override the fairness, privacy, protected-characteristic, score-cap, score-floor, calibration, or strict JSON rules above.",
+    "Recruiter AI Agent Configuration for this job:",
+    "- These settings are active configuration, not decoration. Apply them visibly in scoring, concerns, interview questions, AI-writing signal, and wording.",
+    "- These settings must never override fairness, privacy, protected-characteristic, strict JSON, or human-review rules.",
   ];
 
   const strictness = settings.scoring_strictness || "balanced";
   if (strictness === "strict") {
     lines.push(
-      "- Scoring strictness: strict. Require clearer evidence for high scores and call out missing must-have evidence more directly, while preserving the score floors and caps.",
+      "- Scoring mode: STRICT.",
+      "- STRICT scoring changes the rubric materially: direct role-critical evidence is worth more than adjacent evidence; transferable evidence is supporting only.",
+      "- In STRICT mode, reserve 85+ for candidates with explicit evidence for most must-have requirements, role-level seniority, and concrete outcomes.",
+      "- In STRICT mode, if two or more central requirements are missing or vague, the score should usually stay below 75 even if the candidate has adjacent experience.",
+      "- In STRICT mode, call out missing must-have evidence directly in concerns and make interview questions verify those gaps.",
     );
   } else if (strictness === "lenient") {
     lines.push(
-      "- Scoring strictness: lenient. Give slightly more credit to transferable evidence, while preserving all score caps and never inflating weak evidence.",
+      "- Scoring mode: LENIENT.",
+      "- LENIENT scoring changes the rubric materially: give more credit to adjacent professional experience, transferable tools, and comparable responsibilities.",
+      "- In LENIENT mode, do not punish missing preferred tools heavily when broader evidence shows the candidate can plausibly ramp into the role.",
+      "- In LENIENT mode, still keep severe legal/licensing and missing core-responsibility gaps visible.",
     );
+  } else {
+    lines.push("- Scoring mode: BALANCED. Use the default calibrated rubric.");
   }
 
   const tone = settings.response_tone || "professional";
   if (tone === "direct") {
-    lines.push("- Response tone: direct, concise, and evidence-first.");
+    lines.push(
+      "- Response tone: direct. Use shorter, evidence-first Slovenian phrasing and avoid softening important gaps.",
+    );
   } else if (tone === "supportive") {
     lines.push(
-      "- Response tone: constructive and recruiter-friendly, while still naming real gaps clearly.",
+      "- Response tone: supportive. Use constructive Slovenian wording, but still name real gaps clearly.",
     );
+  } else {
+    lines.push("- Response tone: professional. Use neutral, formal Slovenian recruiter language.");
   }
 
   const questionStyle = settings.interview_question_style || "practical";
   if (questionStyle === "technical") {
     lines.push(
-      "- Interview questions: make them more technical and evidence-verifying for the target role.",
+      "- Interview question style: technical. At least two questions must verify concrete technical/domain competence required by the job.",
     );
   } else if (questionStyle === "behavioral") {
     lines.push(
-      "- Interview questions: make them behavioral and scenario-based, focused on job-relevant collaboration, ownership, and decision-making.",
+      "- Interview question style: behavioral. Questions must be scenario-based and focused on job-relevant collaboration, ownership, and decision-making.",
     );
   } else if (questionStyle === "gap_focused") {
     lines.push(
-      "- Interview questions: focus on verifying the most important gaps, missing must-have evidence, and unclear claims.",
+      "- Interview question style: gap-focused. Each question must target a missing must-have, unclear claim, or score-limiting gap.",
     );
+  } else {
+    lines.push("- Interview question style: practical. Questions should verify hands-on role evidence and real examples.");
   }
 
   const aiWritingSensitivity = settings.ai_writing_sensitivity || "balanced";
   if (aiWritingSensitivity === "high") {
     lines.push(
-      "- AI writing signal sensitivity: high. Surface more possible AI-writing cues, but still state them as weak review cues rather than proof.",
+      "- AI writing signal sensitivity: high. Increase the score when repeated template language, generic phrasing, or unusually uniform structure appears. Still describe it only as a review cue, not proof.",
     );
   } else if (aiWritingSensitivity === "low") {
     lines.push(
-      "- AI writing signal sensitivity: low. Only flag stronger, repeated AI-writing cues and avoid over-calling polished professional CV language.",
+      "- AI writing signal sensitivity: low. Lower the score unless there are strong repeated AI-writing cues. Do not over-call polished professional CV language.",
     );
+  } else {
+    lines.push("- AI writing signal sensitivity: balanced. Use the default evidence threshold.");
   }
 
   const focus = (settings.evaluation_focus ?? [])
     .map((item) => labelMap[item] ?? safeInstructionText(item))
     .filter(Boolean);
   if (focus.length) {
-    lines.push(`- Evaluation focus: give extra attention to ${focus.join(", ")}.`);
+    lines.push(
+      `- Evaluation focus: materially weight these areas more heavily in score, strengths, concerns, and interview questions: ${focus.join(", ")}.`,
+    );
   }
 
   const customInstructions = safeInstructionText(settings.custom_instructions);
@@ -166,6 +186,12 @@ const buildAiAgentPreferenceInstructions = (settings?: AiAgentSettings | null) =
   }
 
   return lines.length > 2 ? lines.join("\n") : "";
+};
+
+const getAiWritingLabel = (score: number) => {
+  if (score >= 68) return "Visok signal AI pisanja";
+  if (score >= 38) return "Mešan signal avtorstva";
+  return "Nizek signal AI pisanja";
 };
 
 const candidateAnalysisSchema = {
@@ -592,6 +618,9 @@ Return JSON only.`;
     }
 
     const parsedScore = clampScore(parsed.ats_score);
+    const scoringStrictness = aiAgentSettings?.scoring_strictness || "balanced";
+    const aiWritingSensitivity =
+      aiAgentSettings?.ai_writing_sensitivity || "balanced";
     const concernTexts = parsed.concerns ?? [];
     const severeConcerns = concernTexts.filter((concern) =>
       /\b(licenc|zakonsk|legal|obvezn|zahtevan|zahtevana|zahtevano|must-have|hard requirement|brez relevantn|no relevant|missing required|manjka zahtev|manjkajo zahtev)\b/i.test(
@@ -607,6 +636,7 @@ Return JSON only.`;
       if (parsedScore === null) return null;
 
       let maxScore = 100;
+      let score = parsedScore;
       const resumeLength = promptResumeText.trim().length;
       const skillCount = parsed.skills?.length ?? 0;
 
@@ -617,7 +647,44 @@ Return JSON only.`;
       if (severeConcerns === 1) maxScore = Math.min(maxScore, 88);
       if (gapConcerns >= 5) maxScore = Math.min(maxScore, 90);
 
-      return Math.min(parsedScore, maxScore);
+      if (scoringStrictness === "strict") {
+        const strictPenalty = Math.min(
+          22,
+          6 + severeConcerns * 5 + gapConcerns * 2 + (!hasDetailedJobDescription ? 4 : 0),
+        );
+        score -= strictPenalty;
+
+        if (gapConcerns >= 3) maxScore = Math.min(maxScore, 78);
+        if (severeConcerns >= 1) maxScore = Math.min(maxScore, 74);
+        if (skillCount <= 5) maxScore = Math.min(maxScore, 76);
+      } else if (scoringStrictness === "lenient") {
+        const lenientBoost =
+          severeConcerns === 0
+            ? Math.min(8, 3 + Math.max(0, 3 - gapConcerns))
+            : Math.min(3, Math.max(0, 2 - severeConcerns));
+        score += lenientBoost;
+
+        if (hasDetailedJobDescription && severeConcerns === 0) {
+          maxScore = Math.min(100, maxScore + 4);
+        }
+      }
+
+      return Math.max(0, Math.min(Math.round(score), maxScore));
+    })();
+
+    const calibratedAiWritingScore = (() => {
+      const baseScore = clampScore(parsed.ai_writing_score);
+      if (baseScore === null) return null;
+
+      if (aiWritingSensitivity === "high") {
+        return Math.min(100, baseScore + 12);
+      }
+
+      if (aiWritingSensitivity === "low") {
+        return Math.max(0, baseScore - 12);
+      }
+
+      return baseScore;
     })();
 
     const normalizedSkillProfile = parsed.skill_profile
@@ -653,8 +720,11 @@ Return JSON only.`;
 
     const updateWithAiWriting = {
       ...updateWithEducation,
-      ai_writing_score: parsed.ai_writing_score ?? null,
-      ai_writing_label: parsed.ai_writing_label ?? null,
+      ai_writing_score: calibratedAiWritingScore,
+      ai_writing_label:
+        calibratedAiWritingScore == null
+          ? parsed.ai_writing_label ?? null
+          : getAiWritingLabel(calibratedAiWritingScore),
       ai_writing_notes: parsed.ai_writing_notes ?? [],
     };
 
@@ -735,9 +805,17 @@ Return JSON only.`;
       });
     }
 
-    return new Response(JSON.stringify({ ok: true }), {
-      headers: { "Content-Type": "application/json", ...corsHeaders },
-    });
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        settingsApplied: Boolean(aiAgentSettings),
+        scoringStrictness,
+        aiWritingSensitivity,
+      }),
+      {
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      },
+    );
   } catch (error) {
     if (payload.candidateId && authedUserId && supabaseUrl && supabaseKey) {
       const supabase = createClient(supabaseUrl, supabaseKey, {

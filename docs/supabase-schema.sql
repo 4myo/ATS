@@ -80,11 +80,57 @@ create table if not exists public.offer_documents (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.activity_logs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  action text not null,
+  entity_type text not null check (entity_type in ('candidate', 'job', 'offer_document')),
+  entity_id uuid,
+  entity_label text,
+  from_value text,
+  to_value text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.interview_studio_boards (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null default 'Studio razgovorov',
+  nodes jsonb not null default '[]'::jsonb,
+  edges jsonb not null default '[]'::jsonb,
+  transcripts jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id)
+);
+
+create table if not exists public.interview_transcripts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null,
+  transcript_text text,
+  audio_path text,
+  audio_mime_type text,
+  duration_seconds integer not null default 0 check (duration_seconds >= 0 and duration_seconds <= 3600),
+  status text not null default 'recorded' check (status in ('recorded', 'processing', 'complete', 'failed')),
+  source text not null default 'recording' check (source in ('recording', 'manual')),
+  estimated_cost_usd numeric,
+  actual_cost_usd numeric,
+  error_message text,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 alter table public.jobs enable row level security;
 alter table public.candidates enable row level security;
 alter table public.signup_rate_limits enable row level security;
 alter table public.ai_agent_settings enable row level security;
 alter table public.offer_documents enable row level security;
+alter table public.activity_logs enable row level security;
+alter table public.interview_studio_boards enable row level security;
+alter table public.interview_transcripts enable row level security;
 
 create policy "jobs_select_own" on public.jobs
   for select using (user_id = auth.uid());
@@ -124,6 +170,62 @@ create policy "offer_documents_update_own" on public.offer_documents
   for update using (user_id = auth.uid());
 create policy "offer_documents_delete_own" on public.offer_documents
   for delete using (user_id = auth.uid());
+
+create policy "activity_logs_select_own" on public.activity_logs
+  for select using (user_id = auth.uid());
+create policy "activity_logs_insert_own" on public.activity_logs
+  for insert with check (user_id = auth.uid());
+
+create policy "interview_studio_boards_select_own" on public.interview_studio_boards
+  for select using (user_id = auth.uid());
+create policy "interview_studio_boards_insert_own" on public.interview_studio_boards
+  for insert with check (user_id = auth.uid());
+create policy "interview_studio_boards_update_own" on public.interview_studio_boards
+  for update using (user_id = auth.uid());
+create policy "interview_studio_boards_delete_own" on public.interview_studio_boards
+  for delete using (user_id = auth.uid());
+
+create index if not exists interview_studio_boards_user_updated_at_idx
+  on public.interview_studio_boards (user_id, updated_at desc);
+
+create policy "interview_transcripts_select_own" on public.interview_transcripts
+  for select using (user_id = auth.uid());
+create policy "interview_transcripts_insert_own" on public.interview_transcripts
+  for insert with check (user_id = auth.uid());
+create policy "interview_transcripts_update_own" on public.interview_transcripts
+  for update using (user_id = auth.uid());
+create policy "interview_transcripts_delete_own" on public.interview_transcripts
+  for delete using (user_id = auth.uid());
+
+create index if not exists interview_transcripts_user_created_at_idx
+  on public.interview_transcripts (user_id, created_at desc);
+create index if not exists interview_transcripts_status_idx
+  on public.interview_transcripts (user_id, status, updated_at desc);
+
+insert into storage.buckets (id, name, public)
+values ('interview-recordings', 'interview-recordings', false)
+on conflict (id) do nothing;
+
+create policy "interview_recordings_read_own" on storage.objects
+  for select using (
+    bucket_id = 'interview-recordings'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+create policy "interview_recordings_write_own" on storage.objects
+  for insert with check (
+    bucket_id = 'interview-recordings'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+create policy "interview_recordings_update_own" on storage.objects
+  for update using (
+    bucket_id = 'interview-recordings'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+create policy "interview_recordings_delete_own" on storage.objects
+  for delete using (
+    bucket_id = 'interview-recordings'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
 
 -- Storage bucket: create a private bucket named "resumes".
 -- Storage RLS policies (run in Storage -> Policies):
@@ -217,3 +319,101 @@ create policy "offer_documents_delete_own" on public.offer_documents
 --   for delete using (user_id = auth.uid());
 -- alter table public.offer_documents
 --   add column if not exists inputs jsonb not null default '{}'::jsonb;
+
+-- If you already created the schema earlier, run this block for activity logs:
+-- create table if not exists public.activity_logs (
+--   id uuid primary key default gen_random_uuid(),
+--   user_id uuid not null references auth.users(id) on delete cascade,
+--   action text not null,
+--   entity_type text not null check (entity_type in ('candidate', 'job', 'offer_document')),
+--   entity_id uuid,
+--   entity_label text,
+--   from_value text,
+--   to_value text,
+--   metadata jsonb not null default '{}'::jsonb,
+--   created_at timestamptz not null default now()
+-- );
+-- alter table public.activity_logs enable row level security;
+-- create policy "activity_logs_select_own" on public.activity_logs
+--   for select using (user_id = auth.uid());
+-- create policy "activity_logs_insert_own" on public.activity_logs
+--   for insert with check (user_id = auth.uid());
+
+-- If you already created the schema earlier, run this block for the interview studio board:
+-- create table if not exists public.interview_studio_boards (
+--   id uuid primary key default gen_random_uuid(),
+--   user_id uuid not null references auth.users(id) on delete cascade,
+--   title text not null default 'Studio razgovorov',
+--   nodes jsonb not null default '[]'::jsonb,
+--   edges jsonb not null default '[]'::jsonb,
+--   transcripts jsonb not null default '[]'::jsonb,
+--   created_at timestamptz not null default now(),
+--   updated_at timestamptz not null default now(),
+--   unique (user_id)
+-- );
+-- alter table public.interview_studio_boards enable row level security;
+-- create policy "interview_studio_boards_select_own" on public.interview_studio_boards
+--   for select using (user_id = auth.uid());
+-- create policy "interview_studio_boards_insert_own" on public.interview_studio_boards
+--   for insert with check (user_id = auth.uid());
+-- create policy "interview_studio_boards_update_own" on public.interview_studio_boards
+--   for update using (user_id = auth.uid());
+-- create policy "interview_studio_boards_delete_own" on public.interview_studio_boards
+--   for delete using (user_id = auth.uid());
+-- create index if not exists interview_studio_boards_user_updated_at_idx
+--   on public.interview_studio_boards (user_id, updated_at desc);
+
+-- If you already created the schema earlier, run this block for recorded interview transcripts:
+-- create table if not exists public.interview_transcripts (
+--   id uuid primary key default gen_random_uuid(),
+--   user_id uuid not null references auth.users(id) on delete cascade,
+--   title text not null,
+--   transcript_text text,
+--   audio_path text,
+--   audio_mime_type text,
+--   duration_seconds integer not null default 0 check (duration_seconds >= 0 and duration_seconds <= 3600),
+--   status text not null default 'recorded' check (status in ('recorded', 'processing', 'complete', 'failed')),
+--   source text not null default 'recording' check (source in ('recording', 'manual')),
+--   estimated_cost_usd numeric,
+--   actual_cost_usd numeric,
+--   error_message text,
+--   metadata jsonb not null default '{}'::jsonb,
+--   created_at timestamptz not null default now(),
+--   updated_at timestamptz not null default now()
+-- );
+-- alter table public.interview_transcripts enable row level security;
+-- create policy "interview_transcripts_select_own" on public.interview_transcripts
+--   for select using (user_id = auth.uid());
+-- create policy "interview_transcripts_insert_own" on public.interview_transcripts
+--   for insert with check (user_id = auth.uid());
+-- create policy "interview_transcripts_update_own" on public.interview_transcripts
+--   for update using (user_id = auth.uid());
+-- create policy "interview_transcripts_delete_own" on public.interview_transcripts
+--   for delete using (user_id = auth.uid());
+-- create index if not exists interview_transcripts_user_created_at_idx
+--   on public.interview_transcripts (user_id, created_at desc);
+-- create index if not exists interview_transcripts_status_idx
+--   on public.interview_transcripts (user_id, status, updated_at desc);
+-- insert into storage.buckets (id, name, public)
+-- values ('interview-recordings', 'interview-recordings', false)
+-- on conflict (id) do nothing;
+-- create policy "interview_recordings_read_own" on storage.objects
+--   for select using (
+--     bucket_id = 'interview-recordings'
+--     and auth.uid()::text = (storage.foldername(name))[1]
+--   );
+-- create policy "interview_recordings_write_own" on storage.objects
+--   for insert with check (
+--     bucket_id = 'interview-recordings'
+--     and auth.uid()::text = (storage.foldername(name))[1]
+--   );
+-- create policy "interview_recordings_update_own" on storage.objects
+--   for update using (
+--     bucket_id = 'interview-recordings'
+--     and auth.uid()::text = (storage.foldername(name))[1]
+--   );
+-- create policy "interview_recordings_delete_own" on storage.objects
+--   for delete using (
+--     bucket_id = 'interview-recordings'
+--     and auth.uid()::text = (storage.foldername(name))[1]
+--   );

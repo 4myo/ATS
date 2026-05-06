@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router";
-import { Bot, RotateCcw, Save, SlidersHorizontal } from "lucide-react";
+import { useLocation, useNavigate } from "react-router";
+import { ArrowLeft, Bot, RotateCcw, Save, SlidersHorizontal } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
 import { Label } from "../components/ui/label";
@@ -50,14 +50,38 @@ const focusOptions = [
   "certifications",
 ] as const;
 
-const optionLabels: Record<string, string> = {
-  role_critical_skills: "Role-critical skills",
-  measurable_impact: "Measurable impact",
-  seniority: "Seniority and scope",
-  transferable_experience: "Transferable experience",
-  communication: "Communication evidence",
-  leadership: "Leadership evidence",
-  certifications: "Certifications",
+const optionLabels: Record<"en" | "sl", Record<string, string>> = {
+  en: {
+    role_critical_skills: "Role-critical skills",
+    measurable_impact: "Measurable impact",
+    seniority: "Seniority and scope",
+    transferable_experience: "Transferable experience",
+    communication: "Communication evidence",
+    leadership: "Leadership evidence",
+    certifications: "Certifications",
+  },
+  sl: {
+    role_critical_skills: "Ključne veščine za vlogo",
+    measurable_impact: "Merljivi dosežki",
+    seniority: "Senioriteta in obseg odgovornosti",
+    transferable_experience: "Prenosljive izkušnje",
+    communication: "Dokazi komunikacije",
+    leadership: "Dokazi vodenja",
+    certifications: "Certifikati in izobrazba",
+  },
+};
+
+const strictnessLabels: Record<"en" | "sl", Record<string, string>> = {
+  en: {
+    lenient: "Lenient",
+    balanced: "Balanced",
+    strict: "Strict",
+  },
+  sl: {
+    lenient: "Bolj prizanesljivo",
+    balanced: "Uravnoteženo",
+    strict: "Strogo",
+  },
 };
 
 const toJobOptions = (
@@ -70,8 +94,9 @@ const toJobOptions = (
   }));
 
 export default function AiAgentSettings() {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const location = useLocation();
+  const navigate = useNavigate();
   const cachedJobOptions = getCachedJobOptions();
   const [jobs, setJobs] = useState<JobOption[]>(
     cachedJobOptions ? toJobOptions(cachedJobOptions.jobs) : [],
@@ -88,6 +113,15 @@ export default function AiAgentSettings() {
     () => jobs.find((job) => job.id === selectedJobId) ?? null,
     [jobs, selectedJobId],
   );
+
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    navigate("/applicants");
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -233,6 +267,27 @@ export default function AiAgentSettings() {
     if (upsertError) {
       setError(upsertError.message);
     } else {
+      const { data: savedSettings, error: verifyError } = await supabase
+        .from("ai_agent_settings")
+        .select(
+          "scoring_strictness, response_tone, interview_question_style, ai_writing_sensitivity, evaluation_focus, custom_instructions",
+        )
+        .eq("job_id", selectedJobId)
+        .eq("user_id", sessionData.session.user.id)
+        .maybeSingle();
+
+      if (verifyError || !savedSettings) {
+        setError(verifyError?.message ?? t("aiAgentSettingsVerifyFailed"));
+        setIsSaving(false);
+        return;
+      }
+
+      setSettings({
+        ...defaultSettings,
+        ...savedSettings,
+        custom_instructions: savedSettings.custom_instructions ?? "",
+        evaluation_focus: savedSettings.evaluation_focus ?? [],
+      });
       setHasCustomSettings(true);
       setStatus(t("aiAgentSettingsSaved"));
     }
@@ -271,6 +326,15 @@ export default function AiAgentSettings() {
           <p className="text-sm subtle-text">{t("aiAgentSubtitle")}</p>
         </div>
         <div className="flex flex-wrap gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={goBack}
+            className="gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t("back")}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -410,7 +474,7 @@ export default function AiAgentSettings() {
                           toggleFocus(focus, checked === true)
                         }
                       />
-                      {optionLabels[focus]}
+                      {optionLabels[language][focus]}
                     </label>
                   ))}
                 </div>
@@ -470,7 +534,8 @@ export default function AiAgentSettings() {
                   {t("scoringStrictness")}
                 </span>
                 <p className="mt-1 font-medium text-foreground">
-                  {settings.scoring_strictness}
+                  {strictnessLabels[language][settings.scoring_strictness] ??
+                    settings.scoring_strictness}
                 </p>
               </div>
               <div>
@@ -479,7 +544,9 @@ export default function AiAgentSettings() {
                 </span>
                 <p className="mt-1 text-muted-foreground">
                   {settings.evaluation_focus.length
-                    ? settings.evaluation_focus.map((focus) => optionLabels[focus] ?? focus).join(", ")
+                    ? settings.evaluation_focus
+                        .map((focus) => optionLabels[language][focus] ?? focus)
+                        .join(", ")
                     : t("defaultSettings")}
                 </p>
               </div>

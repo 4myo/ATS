@@ -1,17 +1,106 @@
 
 > dev
-> react-router dev --host 127.0.0.1 --port 5173
+> react-router dev --host 127.0.0.1
 
-Port 5173 is in use, trying another one...
-Port 5174 is in use, trying another one...
-  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5175[22m/[39m
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
 [2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
-[2m6:37:21 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
-[2m6:37:21 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
-[2m7:00:50 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
-[2m7:33:24 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
-[2m7:38:37 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
-[2m9:26:01 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
-er][22m[39m [32mConfig saved[39m
-[2m7:38:37 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
-[2m9:26:01 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
+[2m6:47:40 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
+[2m6:47:40 PM[22m [36m[1m[react-router][22m[39m [32mConfig changed.[39m
+[2m6:57:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:57:47 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:57:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:57:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:58:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:58:06 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:58:19 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:58:19 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:58:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:58:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:58:36 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:58:36 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:58:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:58:45 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:58:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:58:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:58:56 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:58:56 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:59:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:59:15 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m6:59:39 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m6:59:39 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:00:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:00:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:00:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:00:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:03:16 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:03:16 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:03:23 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:03:23 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:03:35 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:03:35 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:03:43 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:03:43 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:03:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:03:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:04:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:04:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:04:26 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:04:26 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:04:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:04:33 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:04:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:04:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:04:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:04:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:05:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:05:09 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:05:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:05:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:09:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:09:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:10:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:10:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:10:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:10:07 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:10:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:10:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:10:25 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:10:25 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:25:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:25:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:25:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:25:58 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:26:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:26:12 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:26:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:26:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:26:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:26:49 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:46:46 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:46:46 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:46:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:46:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:47:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:47:02 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:47:08 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:47:08 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:47:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:47:17 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:50:28 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:50:28 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:50:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:50:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:50:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:50:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:50:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:50:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:51:00 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:51:00 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:51:04 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:51:04 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:51:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:51:13 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m7:51:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx[22m
+[2m7:51:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/InterviewStudio.tsx, /styles/index.css[22m
+[2m9:02:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/Sidebar.tsx[22m
+[2m9:02:44 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/Sidebar.tsx, /styles/index.css[22m

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Outlet, useNavigate } from "react-router";
 import { Sidebar } from "../components/Sidebar";
 import { AiAnalysisQueueBar } from "../components/AiAnalysisQueueBar";
+import { CandidateImportProgressBar } from "../components/CandidateImportProgressBar";
 import { Briefcase, LogOut, Menu, Search, Moon, Sun, Users } from "lucide-react";
 import { Link } from "react-router";
 import { supabase } from "../lib/supabase";
@@ -226,6 +227,7 @@ export function Layout() {
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background">
       <AiAnalysisQueueBar />
+      <CandidateImportProgressBar />
       <div className="hidden flex-none lg:block">
         <Sidebar />
       </div>

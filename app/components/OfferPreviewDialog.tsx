@@ -16,6 +16,7 @@ import {
   openPrintableOffer,
   type OfferDocument,
 } from "../lib/offerDocument";
+import { logActivityEvent } from "../lib/activityLog";
 
 type OfferPreviewDialogProps = {
   candidateName?: string;
@@ -63,6 +64,13 @@ export function OfferPreviewDialog({
     if (updateError || !data) {
       setError(updateError?.message || t("offerDocumentSaveFailed"));
     } else {
+      void logActivityEvent({
+        action: "offer_document_updated",
+        entityType: "offer_document",
+        entityId: data.id,
+        entityLabel: data.title,
+        toValue: data.status ?? "draft",
+      });
       onDocumentChange?.(data as OfferDocument);
     }
 

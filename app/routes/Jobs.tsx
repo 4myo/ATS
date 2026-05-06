@@ -32,6 +32,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { useI18n } from "../lib/i18n";
+import { logActivityEvent } from "../lib/activityLog";
 import {
   Select,
   SelectContent,
@@ -175,6 +176,14 @@ export default function Jobs() {
           return nextJobs;
         });
         setJobPage(1);
+        void logActivityEvent({
+          action: "job_created",
+          entityType: "job",
+          entityId: data.id,
+          entityLabel: data.title,
+          toValue: data.status ?? "active",
+          metadata: { type: data.type, openings: data.openings },
+        });
       }
 
       setIsAddOpen(false);
@@ -252,6 +261,19 @@ export default function Jobs() {
     }
 
     if (data) {
+      void logActivityEvent({
+        action: "job_updated",
+        entityType: "job",
+        entityId: editingJob.id,
+        entityLabel: data.title,
+        fromValue: previousTitle,
+        toValue: data.title,
+        metadata: {
+          type: data.type,
+          openings: data.openings,
+          title_changed: previousTitle !== nextTitle,
+        },
+      });
       setJobs((prev) =>
         prev.map((job) =>
           job.id === editingJob.id
@@ -279,6 +301,7 @@ export default function Jobs() {
   };
 
   const handleDeleteJob = async (jobId: string) => {
+    const job = jobs.find((item) => item.id === jobId);
     const confirmed = window.confirm(t("deleteJobConfirm"));
     if (!confirmed) return;
 
@@ -298,11 +321,19 @@ export default function Jobs() {
       setCachedJobList(nextJobs);
       return nextJobs;
     });
+    void logActivityEvent({
+      action: "job_deleted",
+      entityType: "job",
+      entityId: jobId,
+      entityLabel: job?.title ?? "Delovno mesto",
+      metadata: { status: job?.status, openings: job?.openings },
+    });
     setDeletingJobId(null);
   };
 
   const updateJobStatus = async (jobId: string, status: "active" | "inactive") => {
     setDeleteError(null);
+    const job = jobs.find((item) => item.id === jobId);
 
     const { error } = await supabase
       .from("jobs")
@@ -320,6 +351,14 @@ export default function Jobs() {
       );
       setCachedJobList(nextJobs);
       return nextJobs;
+    });
+    void logActivityEvent({
+      action: "job_status_changed",
+      entityType: "job",
+      entityId: jobId,
+      entityLabel: job?.title ?? "Delovno mesto",
+      fromValue: job?.status ?? "active",
+      toValue: status,
     });
   };
 

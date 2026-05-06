@@ -37,6 +37,7 @@ import {
   syncJobStatusForTitle,
 } from "../lib/jobCache";
 import { type OfferDocument, type OfferInputs } from "../lib/offerDocument";
+import { logActivityEvent } from "../lib/activityLog";
 
 type OfferChecklist = {
   interviewCompleted: boolean;
@@ -237,6 +238,15 @@ export default function CandidateDetail() {
                 : applicant,
             ),
           );
+          void logActivityEvent({
+            action: "candidate_stage_changed",
+            entityType: "candidate",
+            entityId: fallbackResult.data.id,
+            entityLabel: fallbackResult.data.full_name,
+            fromValue: "Applied",
+            toValue: "Screening",
+            metadata: { job_title: fallbackResult.data.job_title, automatic: true },
+          });
         }
       }
     };
@@ -390,6 +400,14 @@ export default function CandidateDetail() {
       const result = await response.json();
       const nextDocument = result.document as OfferDocument;
       setOfferDocument(nextDocument);
+      void logActivityEvent({
+        action: "offer_document_created",
+        entityType: "offer_document",
+        entityId: nextDocument.id,
+        entityLabel: nextDocument.title,
+        toValue: nextDocument.status ?? "draft",
+        metadata: { candidate_id: candidate.id, candidate_name: candidate.full_name },
+      });
       setIsOfferDraftOpen(false);
 
       if (pendingOfferSentAfterDraft) {
@@ -467,6 +485,15 @@ export default function CandidateDetail() {
           setOfferDocument({
             ...activeOfferDocument,
             status: nextDocumentStatus,
+          });
+          void logActivityEvent({
+            action: "offer_sent",
+            entityType: "offer_document",
+            entityId: activeOfferDocument.id,
+            entityLabel: activeOfferDocument.title,
+            fromValue: checked ? "draft" : "sent",
+            toValue: nextDocumentStatus,
+            metadata: { candidate_id: candidate.id, candidate_name: candidate.full_name },
           });
         }
       }
@@ -605,6 +632,18 @@ export default function CandidateDetail() {
         status: outcome === "accepted" ? "accepted" : "declined",
       });
     }
+    void logActivityEvent({
+      action: "offer_outcome_changed",
+      entityType: "candidate",
+      entityId: candidate.id,
+      entityLabel: candidate.full_name,
+      fromValue: previousCandidate.offer_outcome ?? "pending",
+      toValue: outcome,
+      metadata: {
+        job_title: candidate.job_title,
+        offer_document_id: offerDocument?.id ?? null,
+      },
+    });
 
     updateCachedApplicants((applicants) =>
       applicants.map((applicant) =>
@@ -660,10 +699,19 @@ export default function CandidateDetail() {
         applicants.map((applicant) =>
           applicant.id === candidate.id
             ? { ...applicant, stage: nextStage }
-            : applicant,
+          : applicant,
         ),
       );
-      if (previousStage === "Accepted" || nextStage === "Accepted") {
+      void logActivityEvent({
+        action: "candidate_stage_changed",
+        entityType: "candidate",
+        entityId: candidate.id,
+        entityLabel: candidate.full_name,
+        fromValue: previousStage,
+        toValue: nextStage,
+        metadata: { job_title: candidate.job_title },
+      });
+      if (previousStage === "Accepted") {
         await syncJobStatusForTitle(candidate.job_title);
         const capacity = await getJobCapacityForTitle(candidate.job_title);
         setJobCapacity(capacity);

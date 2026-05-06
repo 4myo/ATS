@@ -32,6 +32,12 @@ import {
 import { fetchJobOptions, getCachedJobOptions, setCachedJobOptions } from "../lib/jobCache";
 import { dedupeCandidateRows } from "../lib/candidateRows";
 import { enqueueAiAnalysisRetry } from "../lib/aiAnalysisQueue";
+import { logActivityEvent } from "../lib/activityLog";
+import {
+  finishCandidateImportProgress,
+  startCandidateImportProgress,
+  updateCandidateImportProgress,
+} from "../lib/importProgress";
 
 type ResumeImportItem = {
   id: string;
@@ -43,6 +49,19 @@ type ResumeImportItem = {
   isProcessing: boolean;
   error: string | null;
 };
+
+type CandidateImportDraft = {
+  isOpen: boolean;
+  resumeItems: ResumeImportItem[];
+  selectedResumeId: string | null;
+  resumeError: string | null;
+  selectedJobId: string;
+  jobTitle: string;
+  jobDescription: string;
+  saveError: string | null;
+};
+
+let candidateImportDraft: CandidateImportDraft | null = null;
 
 const candidateSelect =
   "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at";
@@ -149,6 +168,54 @@ export default function Applicants() {
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [applicantPage, setApplicantPage] = useState(1);
+
+  useEffect(() => {
+    if (!candidateImportDraft) return;
+
+    setIsAddOpen(candidateImportDraft.isOpen);
+    setResumeItems(candidateImportDraft.resumeItems);
+    setSelectedResumeId(candidateImportDraft.selectedResumeId);
+    setResumeError(candidateImportDraft.resumeError);
+    setSelectedJobId(candidateImportDraft.selectedJobId);
+    setJobTitle(candidateImportDraft.jobTitle);
+    setJobDescription(candidateImportDraft.jobDescription);
+    setSaveError(candidateImportDraft.saveError);
+  }, []);
+
+  useEffect(() => {
+    if (
+      !isAddOpen &&
+      resumeItems.length === 0 &&
+      !selectedJobId &&
+      !jobTitle &&
+      !jobDescription &&
+      !resumeError &&
+      !saveError
+    ) {
+      candidateImportDraft = null;
+      return;
+    }
+
+    candidateImportDraft = {
+      isOpen: isAddOpen,
+      resumeItems,
+      selectedResumeId,
+      resumeError,
+      selectedJobId,
+      jobTitle,
+      jobDescription,
+      saveError,
+    };
+  }, [
+    isAddOpen,
+    jobDescription,
+    jobTitle,
+    resumeError,
+    resumeItems,
+    saveError,
+    selectedJobId,
+    selectedResumeId,
+  ]);
 
   useEffect(() => {
     setSearchFilter(searchParams.get("search") ?? "");
@@ -379,9 +446,24 @@ export default function Applicants() {
     setResumeError(null);
     setSaveError(null);
     setSaveStatus(null);
+    candidateImportDraft = null;
+  };
+
+  const preserveImportDraft = () => {
+    candidateImportDraft = {
+      isOpen: true,
+      resumeItems,
+      selectedResumeId,
+      resumeError,
+      selectedJobId,
+      jobTitle,
+      jobDescription,
+      saveError,
+    };
   };
 
   const handleDeleteApplicant = async (id: string) => {
+    const applicant = remoteApplicants.find((item) => item.id === id);
     const confirmed = window.confirm(
       t("deleteApplicantConfirm"),
     );
@@ -393,12 +475,20 @@ export default function Applicants() {
       updateCachedApplicants((applicants) =>
         applicants.filter((applicant) => applicant.id !== id),
       );
+      void logActivityEvent({
+        action: "candidate_deleted",
+        entityType: "candidate",
+        entityId: id,
+        entityLabel: applicant?.name ?? "Kandidat",
+        metadata: { job_title: applicant?.role, stage: applicant?.stage },
+      });
     }
   };
 
   const handleMarkNewReviewed = async (id: string) => {
     const nextStage: Stage = "Screening";
     const previousApplicants = remoteApplicants;
+    const applicant = remoteApplicants.find((item) => item.id === id);
 
     setRemoteApplicants((prev) =>
       prev.map((applicant) =>
@@ -419,6 +509,16 @@ export default function Applicants() {
     if (error) {
       setRemoteApplicants(previousApplicants);
       setCandidateListCache({ applicants: previousApplicants, jobs });
+    } else {
+      void logActivityEvent({
+        action: "candidate_stage_changed",
+        entityType: "candidate",
+        entityId: id,
+        entityLabel: applicant?.name ?? "Kandidat",
+        fromValue: "Applied",
+        toValue: nextStage,
+        metadata: { job_title: applicant?.role },
+      });
     }
   };
 
@@ -463,6 +563,9 @@ export default function Applicants() {
         throw new Error(t("resumeImportMissing"));
       }
 
+      startCandidateImportProgress(readyItems.length);
+      setIsAddOpen(false);
+
       const failedImports: string[] = [];
       const queuedAnalyses: string[] = [];
       const savedItemIds: string[] = [];
@@ -470,6 +573,10 @@ export default function Applicants() {
       for (const [index, item] of readyItems.entries()) {
         try {
           setSaveStatus(`${t("uploadingResume")} ${index + 1}/${readyItems.length}`);
+          updateCandidateImportProgress({
+            currentLabel: item.candidateName.trim() || item.fileName,
+            message: `${t("uploadingResume")} ${index + 1}/${readyItems.length}`,
+          });
 
           let normalizedResumeText = item.text;
           if (!normalizedResumeText.trim()) {
@@ -513,6 +620,18 @@ export default function Applicants() {
 
           if (inserted?.id) {
             savedItemIds.push(item.id);
+            void logActivityEvent({
+              action: "candidate_created",
+              entityType: "candidate",
+              entityId: inserted.id,
+              entityLabel: item.candidateName.trim(),
+              toValue: "Applied",
+              metadata: {
+                job_id: selectedJobId || null,
+                job_title: latestJobTitle,
+                import_batch_size: readyItems.length,
+              },
+            });
             setRemoteApplicants((prev) => [
               {
                 id: inserted.id,
@@ -555,6 +674,10 @@ export default function Applicants() {
             ]);
 
             setSaveStatus(`${t("runningAiAnalysis")} ${index + 1}/${readyItems.length}`);
+            updateCandidateImportProgress({
+              currentLabel: item.candidateName.trim(),
+              message: `${t("runningAiAnalysis")} ${index + 1}/${readyItems.length}`,
+            });
 
             const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`;
             const analysisResponse = await fetch(functionUrl, {
@@ -590,16 +713,44 @@ export default function Applicants() {
                 lastError: analysisMessage || analysisResponse.statusText,
               });
               queuedAnalyses.push(item.candidateName.trim());
+              updateCandidateImportProgress({
+                queued: queuedAnalyses.length,
+              });
             }
           }
+          updateCandidateImportProgress({
+            completed: index + 1,
+            failed: failedImports.length,
+            queued: queuedAnalyses.length,
+            message: `${index + 1}/${readyItems.length} kandidatov obdelanih`,
+          });
         } catch (importError) {
           const message =
             importError instanceof Error ? importError.message : t("failedCandidateSave");
           failedImports.push(`${item.candidateName || item.fileName}: ${message}`);
+          updateCandidateImportProgress({
+            completed: index + 1,
+            failed: failedImports.length,
+            queued: queuedAnalyses.length,
+            currentLabel: item.candidateName || item.fileName,
+            message,
+          });
         }
       }
 
       await loadCandidates();
+      finishCandidateImportProgress({
+        completed: readyItems.length,
+        failed: failedImports.length,
+        queued: queuedAnalyses.length,
+        currentLabel: null,
+        message:
+          failedImports.length > 0
+            ? "Uvoz končan z napakami."
+            : queuedAnalyses.length > 0
+              ? "Uvoz končan. Nekatere AI analize čakajo na retry."
+              : "Uvoz kandidatov končan.",
+      });
       if (failedImports.length > 0) {
         setResumeItems((currentItems) =>
           currentItems.filter((item) => !savedItemIds.includes(item.id)),
@@ -610,16 +761,17 @@ export default function Applicants() {
         setSaveError(`${t("resumeImportPartialFailure")} ${failedImports.join(" | ")}`);
       } else if (queuedAnalyses.length > 0) {
         resetForm();
-        setIsAddOpen(false);
       } else {
         resetForm();
-        setIsAddOpen(false);
       }
     } catch (error) {
       await loadCandidates();
       const message =
         error instanceof Error ? error.message : t("failedCandidateSave");
       setSaveError(message);
+      finishCandidateImportProgress({
+        message,
+      });
     } finally {
       setIsSaving(false);
       setSaveStatus(null);
@@ -885,6 +1037,7 @@ export default function Applicants() {
                     </div>
                     <Link
                       to={`/ai-agent?jobId=${encodeURIComponent(selectedJob.id)}`}
+                      onClick={preserveImportDraft}
                       className="font-medium text-foreground underline-offset-4 hover:underline"
                     >
                       {t("selectedJobAiAgentEdit")}

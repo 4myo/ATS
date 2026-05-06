@@ -22,6 +22,7 @@ import {
 import { OfferDraftDialog } from "../components/OfferDraftDialog";
 import { OfferPreviewDialog } from "../components/OfferPreviewDialog";
 import { type OfferDocument, type OfferInputs } from "../lib/offerDocument";
+import { logActivityEvent } from "../lib/activityLog";
 
 type OfferCandidate = {
   id: string;
@@ -221,6 +222,14 @@ export default function Offers() {
 
       const result = await response.json();
       const document = result.document as OfferDocument;
+      void logActivityEvent({
+        action: "offer_document_created",
+        entityType: "offer_document",
+        entityId: document.id,
+        entityLabel: document.title,
+        toValue: document.status ?? "draft",
+        metadata: { candidate_id: candidate.id, candidate_name: candidate.full_name },
+      });
       setCandidates((current) =>
         current.map((item) =>
           item.id === candidate.id ? { ...item, latestDocument: document } : item,
@@ -242,6 +251,13 @@ export default function Offers() {
   };
 
   const updateDocument = (document: OfferDocument) => {
+    void logActivityEvent({
+      action: "offer_document_updated",
+      entityType: "offer_document",
+      entityId: document.id,
+      entityLabel: document.title,
+      toValue: document.status ?? "draft",
+    });
     setSelectedDocument((current) =>
       current ? { ...document, candidateName: current.candidateName } : document,
     );
@@ -296,6 +312,15 @@ export default function Offers() {
           : item,
       ),
     );
+    void logActivityEvent({
+      action: "offer_sent",
+      entityType: "offer_document",
+      entityId: candidate.latestDocument?.id ?? candidate.id,
+      entityLabel: candidate.latestDocument?.title ?? candidate.full_name,
+      fromValue: candidate.latestDocument?.status ?? "draft",
+      toValue: "sent",
+      metadata: { candidate_id: candidate.id, candidate_name: candidate.full_name },
+    });
   };
 
   const updateOfferOutcome = async (
@@ -378,6 +403,18 @@ export default function Offers() {
     if (outcome === "accepted" || candidate.stage === "Accepted") {
       await syncJobStatusForTitle(candidate.job_title);
     }
+    void logActivityEvent({
+      action: "offer_outcome_changed",
+      entityType: "candidate",
+      entityId: candidate.id,
+      entityLabel: candidate.full_name,
+      fromValue: candidate.offer_outcome ?? "pending",
+      toValue: outcome,
+      metadata: {
+        job_title: candidate.job_title,
+        offer_document_id: candidate.latestDocument?.id ?? null,
+      },
+    });
   };
 
   return (

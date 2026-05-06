@@ -5,6 +5,8 @@ import {
   Briefcase,
   Bot,
   FileText,
+  GitBranch,
+  Mic,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -19,8 +21,10 @@ export function Sidebar() {
     { to: '/', icon: LayoutDashboard, label: t("dashboard") },
     { to: '/applicants', icon: Users, label: t("applicants") },
     { to: '/jobs', icon: Briefcase, label: t("jobs") },
+    { to: '/interviews', icon: Mic, label: t("interviews") },
     { to: '/offers', icon: FileText, label: t("offers") },
     { to: '/ai-agent', icon: Bot, label: t("aiAgent") },
+    { to: '/pipeline', icon: GitBranch, label: t("pipeline") },
     { to: '/settings', icon: Settings, label: t("settings") },
   ];
 

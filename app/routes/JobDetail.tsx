@@ -20,6 +20,7 @@ import { dedupeCandidateRows } from "../lib/candidateRows";
 import { updateCachedApplicants } from "../lib/candidateListCache";
 import { syncJobStatusForTitle, updateCachedJobList } from "../lib/jobCache";
 import { useI18n } from "../lib/i18n";
+import { logActivityEvent } from "../lib/activityLog";
 
 type JobDetailRecord = {
   id: string;
@@ -150,6 +151,13 @@ export default function JobDetail() {
     }
 
     updateCachedJobList((jobs) => jobs.filter((cachedJob) => cachedJob.id !== job.id));
+    void logActivityEvent({
+      action: "job_deleted",
+      entityType: "job",
+      entityId: job.id,
+      entityLabel: job.title,
+      metadata: { status: job.status, openings: job.openings },
+    });
     navigate("/jobs", { replace: true });
   };
 
@@ -219,6 +227,19 @@ export default function JobDetail() {
     }
 
     setJob(data as JobDetailRecord);
+    void logActivityEvent({
+      action: "job_updated",
+      entityType: "job",
+      entityId: job.id,
+      entityLabel: data.title,
+      fromValue: previousTitle,
+      toValue: data.title,
+      metadata: {
+        type: data.type,
+        openings: data.openings,
+        title_changed: previousTitle !== nextTitle,
+      },
+    });
     updateCachedJobList((jobs) =>
       jobs.map((cachedJob) =>
         cachedJob.id === job.id
@@ -261,6 +282,14 @@ export default function JobDetail() {
         cachedJob.id === job.id ? { ...cachedJob, status } : cachedJob,
       ),
     );
+    void logActivityEvent({
+      action: "job_status_changed",
+      entityType: "job",
+      entityId: job.id,
+      entityLabel: job.title,
+      fromValue: previousJob.status ?? "active",
+      toValue: status,
+    });
   };
 
   if (isLoading) {
