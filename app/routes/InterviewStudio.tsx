@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import {
   AlertTriangle,
@@ -24,6 +25,14 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "../components/ui/command";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -33,6 +42,11 @@ import {
 } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -95,9 +109,15 @@ type TranscriptRow = {
 };
 
 const snapSize = 5;
+const gridSize = 15;
 const nodeWidth = 260;
 const nodeCenterX = nodeWidth / 2;
 const nodeCenterY = 58;
+const canvasWorldWidth = 6400;
+const canvasWorldHeight = 4200;
+const minCanvasZoom = 0.35;
+const maxCanvasZoom = 1.8;
+const defaultViewport = { x: -220, y: -110, zoom: 1 };
 const maxRecordingSeconds = 60 * 60;
 const warningSeconds = 30 * 60;
 const maxAudioBytes = 25 * 1024 * 1024;
@@ -125,6 +145,31 @@ const formatCandidateSubtitle = (candidate: Pick<StudioCandidate, "role" | "stag
   `${candidate.role} · ${stageLabels[candidate.stage]}`;
 
 const snap = (value: number) => Math.round(value / snapSize) * snapSize;
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.max(min, Math.min(max, value));
+
+const getEdgeColor = (
+  fromNode: StudioNode | undefined,
+  toNode: StudioNode | undefined,
+  selected: boolean,
+) => {
+  if (selected) return "#f59e0b";
+  if (fromNode?.type === "transcript" && toNode?.type === "transcript") return "#ec4899";
+  return "#2563eb";
+};
+
+const getEdgeMarkerId = (
+  fromNode: StudioNode | undefined,
+  toNode: StudioNode | undefined,
+  selected: boolean,
+) => {
+  if (selected) return "url(#studio-arrow-selected)";
+  if (fromNode?.type === "transcript" && toNode?.type === "transcript") {
+    return "url(#studio-arrow-transcript)";
+  }
+  return "url(#studio-arrow-candidate)";
+};
 
 const formatDuration = (seconds: number) => {
   const minutes = Math.floor(seconds / 60);
@@ -346,6 +391,14 @@ export default function InterviewStudio() {
     offsetX: number;
     offsetY: number;
   } | null>(null);
+  const [panState, setPanState] = useState<{
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const [viewport, setViewport] = useState(defaultViewport);
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -362,7 +415,8 @@ export default function InterviewStudio() {
   const [manualTranscriptName, setManualTranscriptName] = useState("");
   const [manualTranscriptText, setManualTranscriptText] = useState("");
   const [savedTranscripts, setSavedTranscripts] = useState<SavedTranscript[]>([]);
-  const [selectedCandidateId, setSelectedCandidateId] = useState("");
+  const [isCandidatePickerOpen, setIsCandidatePickerOpen] = useState(false);
+  const [isTranscriptPickerOpen, setIsTranscriptPickerOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingBlobRef = useRef<Blob | null>(null);
@@ -763,6 +817,7 @@ export default function InterviewStudio() {
     ]);
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
+    setIsCandidatePickerOpen(false);
   };
 
   const createTranscriptFromRecording = async () => {
@@ -846,14 +901,11 @@ export default function InterviewStudio() {
 
         const persistedTranscript = transcriptFromRow(row as TranscriptRow);
         setSavedTranscripts((current) => [persistedTranscript, ...current]);
-        addTranscriptNode(persistedTranscript);
       } else {
         setSavedTranscripts((current) => [transcript, ...current]);
-        addTranscriptNode(transcript);
       }
     } else {
       setSavedTranscripts((current) => [transcript, ...current]);
-      addTranscriptNode(transcript);
     }
 
     setRecordingStatus("idle");
@@ -863,7 +915,7 @@ export default function InterviewStudio() {
     recordingBlobRef.current = null;
     chunksRef.current = [];
     setIsSavingRecording(false);
-    setMessage("Posnetek je shranjen kot transkript. Transkripcijo zaženite ročno.");
+    setMessage("Posnetek je shranjen kot transkript. Na mrežo ga dodajte z zgornjim gumbom.");
   };
 
   const addManualTranscript = async () => {
@@ -911,24 +963,22 @@ export default function InterviewStudio() {
         } else {
           const persistedTranscript = transcriptFromRow(row as TranscriptRow);
           setSavedTranscripts((current) => [persistedTranscript, ...current]);
-          addTranscriptNode(persistedTranscript);
           setManualTranscriptName("");
           setManualTranscriptText("");
-          setMessage("Transkript je shranjen in dodan na mrežo.");
+          setMessage("Transkript je shranjen. Na mrežo ga dodajte z zgornjim gumbom.");
           return;
         }
       }
     }
 
     setSavedTranscripts((current) => [transcript, ...current]);
-    addTranscriptNode(transcript);
     setManualTranscriptName("");
     setManualTranscriptText("");
-    setMessage("Transkript je dodan na mrežo.");
+    setMessage("Transkript je shranjen. Na mrežo ga dodajte z zgornjim gumbom.");
   };
 
-  const addCandidateNode = () => {
-    const candidate = candidates.find((item) => item.id === selectedCandidateId);
+  const addCandidateNode = (candidateId: string) => {
+    const candidate = candidates.find((item) => item.id === candidateId);
     if (!candidate) {
       setMessage("Najprej izberite kandidata iz sistema.");
       return;
@@ -949,6 +999,46 @@ export default function InterviewStudio() {
     ]);
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
+    setIsTranscriptPickerOpen(false);
+  };
+
+  const screenToWorld = (clientX: number, clientY: number) => {
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    if (!canvasRect) return null;
+
+    return {
+      x: (clientX - canvasRect.left - viewport.x) / viewport.zoom,
+      y: (clientY - canvasRect.top - viewport.y) / viewport.zoom,
+    };
+  };
+
+  const zoomCanvasAtPoint = (clientX: number, clientY: number, nextZoom: number) => {
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    if (!canvasRect) return;
+
+    setViewport((current) => {
+      const zoom = clamp(nextZoom, minCanvasZoom, maxCanvasZoom);
+      const screenX = clientX - canvasRect.left;
+      const screenY = clientY - canvasRect.top;
+      const worldX = (screenX - current.x) / current.zoom;
+      const worldY = (screenY - current.y) / current.zoom;
+
+      return {
+        x: screenX - worldX * zoom,
+        y: screenY - worldY * zoom,
+        zoom,
+      };
+    });
+  };
+
+  const zoomCanvasFromCenter = (delta: number) => {
+    const canvasRect = canvasRef.current?.getBoundingClientRect();
+    if (!canvasRect) return;
+    zoomCanvasAtPoint(
+      canvasRect.left + canvasRect.width / 2,
+      canvasRect.top + canvasRect.height / 2,
+      viewport.zoom + delta,
+    );
   };
 
   const handleNodePointerDown = (
@@ -956,31 +1046,40 @@ export default function InterviewStudio() {
     node: StudioNode,
   ) => {
     const target = event.target as HTMLElement;
-    if (target.closest("button")) return;
+    if (target.closest("button") || event.button !== 0) return;
 
     event.currentTarget.setPointerCapture(event.pointerId);
-    const canvasRect = canvasRef.current?.getBoundingClientRect();
-    if (!canvasRect) return;
+    const worldPoint = screenToWorld(event.clientX, event.clientY);
+    if (!worldPoint) return;
 
     setSelectedNodeId(node.id);
     setSelectedEdgeId(null);
     setDragState({
       nodeId: node.id,
-      offsetX: event.clientX - canvasRect.left - node.x,
-      offsetY: event.clientY - canvasRect.top - node.y,
+      offsetX: worldPoint.x - node.x,
+      offsetY: worldPoint.y - node.y,
     });
   };
 
   const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (panState) {
+      setViewport((current) => ({
+        ...current,
+        x: panState.startX + event.clientX - panState.startClientX,
+        y: panState.startY + event.clientY - panState.startClientY,
+      }));
+      return;
+    }
+
     if (!dragState) return;
 
-    const canvasRect = canvasRef.current?.getBoundingClientRect();
-    if (!canvasRect) return;
+    const worldPoint = screenToWorld(event.clientX, event.clientY);
+    if (!worldPoint) return;
 
-    const nextX = snap(event.clientX - canvasRect.left - dragState.offsetX);
-    const nextY = snap(event.clientY - canvasRect.top - dragState.offsetY);
-    const maxX = Math.max(20, canvasRect.width - nodeWidth - 20);
-    const maxY = Math.max(20, canvasRect.height - 140);
+    const nextX = snap(worldPoint.x - dragState.offsetX);
+    const nextY = snap(worldPoint.y - dragState.offsetY);
+    const maxX = canvasWorldWidth - nodeWidth - 20;
+    const maxY = canvasWorldHeight - 160;
 
     setNodes((current) =>
       current.map((node) =>
@@ -995,6 +1094,37 @@ export default function InterviewStudio() {
     );
   };
 
+  const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button === 2) {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setPanState({
+        pointerId: event.pointerId,
+        startClientX: event.clientX,
+        startClientY: event.clientY,
+        startX: viewport.x,
+        startY: viewport.y,
+      });
+      return;
+    }
+
+    if (event.button === 0 && event.target === event.currentTarget) {
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+    }
+  };
+
+  const handleCanvasPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (panState?.pointerId === event.pointerId) setPanState(null);
+    setDragState(null);
+  };
+
+  const handleCanvasWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const delta = event.deltaY < 0 ? 0.12 : -0.12;
+    zoomCanvasAtPoint(event.clientX, event.clientY, viewport.zoom + delta);
+  };
+
   const finishConnection = (targetNodeId: string) => {
     if (!connectingFromNodeId || connectingFromNodeId === targetNodeId) {
       setConnectingFromNodeId(null);
@@ -1003,14 +1133,30 @@ export default function InterviewStudio() {
 
     const sourceNode = nodes.find((node) => node.id === connectingFromNodeId);
     const targetNode = nodes.find((node) => node.id === targetNodeId);
-    if (!sourceNode || !targetNode || sourceNode.type === targetNode.type) {
+    if (!sourceNode || !targetNode) {
       setConnectingFromNodeId(null);
-      setMessage("Povezava mora biti med kandidatom in transkriptom.");
+      setMessage("Elementa za povezavo ni bilo mogoče najti.");
       return;
     }
 
-    const fromNodeId = sourceNode.type === "candidate" ? sourceNode.id : targetNode.id;
-    const toNodeId = sourceNode.type === "transcript" ? sourceNode.id : targetNode.id;
+    if (sourceNode.type === "candidate" && targetNode.type === "candidate") {
+      setConnectingFromNodeId(null);
+      setMessage("Kandidate povezujte prek transkriptov, ne neposredno med seboj.");
+      return;
+    }
+
+    const fromNodeId =
+      sourceNode.type === "candidate" && targetNode.type === "transcript"
+        ? sourceNode.id
+        : sourceNode.type === "transcript" && targetNode.type === "candidate"
+          ? targetNode.id
+          : sourceNode.id;
+    const toNodeId =
+      sourceNode.type === "candidate" && targetNode.type === "transcript"
+        ? targetNode.id
+        : sourceNode.type === "transcript" && targetNode.type === "candidate"
+          ? sourceNode.id
+          : targetNode.id;
 
     const exists = edges.some(
       (edge) =>
@@ -1356,7 +1502,7 @@ export default function InterviewStudio() {
               <div>
                 <div className="text-sm font-semibold text-foreground">Transkripti v sistemu</div>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Poiščite shranjen posnetek ali zaključen transkript in ga dodajte na mrežo.
+                  Poiščite shranjen posnetek ali zaključen transkript.
                 </p>
               </div>
               <button
@@ -1385,11 +1531,9 @@ export default function InterviewStudio() {
             {filteredTranscripts.length ? (
               <div className="grid max-h-80 gap-2 overflow-y-auto pr-1">
                 {filteredTranscripts.map((transcript) => (
-                  <button
+                  <div
                     key={transcript.id}
-                    type="button"
-                    className="rounded-md border border-border bg-muted/25 p-3 text-left transition hover:bg-muted"
-                    onClick={() => addTranscriptNode(transcript)}
+                    className="rounded-md border border-border bg-muted/25 p-3 text-left"
                   >
                     <span className="block truncate text-sm font-medium text-foreground">
                       {transcript.title}
@@ -1403,7 +1547,7 @@ export default function InterviewStudio() {
                         {transcript.transcriptText}
                       </span>
                     ) : null}
-                  </button>
+                  </div>
                 ))}
               </div>
             ) : (
@@ -1433,27 +1577,7 @@ export default function InterviewStudio() {
             />
             <Button type="button" variant="outline" onClick={addManualTranscript} className="gap-2">
               <Plus className="h-4 w-4" />
-              Ustvari in dodaj na mrežo
-            </Button>
-          </section>
-
-          <section className="grid gap-3 border-t border-border pt-5">
-            <div className="text-sm font-semibold text-foreground">Dodaj kandidata</div>
-            <Select value={selectedCandidateId} onValueChange={setSelectedCandidateId}>
-              <SelectTrigger className="min-w-0 max-w-full [&>span]:truncate">
-                <SelectValue placeholder="Izberite kandidata iz sistema" />
-              </SelectTrigger>
-              <SelectContent>
-                {candidates.map((candidate) => (
-                  <SelectItem key={candidate.id} value={candidate.id}>
-                    {candidate.name} - {candidate.role}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button type="button" variant="outline" onClick={addCandidateNode} className="gap-2">
-              <UserPlus className="h-4 w-4" />
-              Dodaj kandidata na mrežo
+              Ustvari transkript
             </Button>
           </section>
 
@@ -1466,10 +1590,83 @@ export default function InterviewStudio() {
       </aside>
 
       <main className="relative min-w-0 flex-1 overflow-hidden bg-background">
-        <div className="absolute left-4 top-4 z-20 rounded-md border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-sm">
-          5px mreža · {nodes.length} elementov · {edges.length} povezav
-          {connectingFromNodeId ? " · izberite drugi element" : ""}
-          {selectedEdge ? " · povezava izbrana" : ""}
+        <div className="absolute left-4 right-72 top-4 z-30 flex flex-wrap items-start gap-3">
+          <div className="max-w-[34rem] rounded-md border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-sm">
+            {gridSize}px mreža · 5px premik · {nodes.length} elementov · {edges.length} povezav
+            {" · "}
+            {Math.round(viewport.zoom * 100)}%
+            {" · desni klik + poteg za premik"}
+            {connectingFromNodeId ? " · izberite drugi element" : ""}
+            {selectedEdge ? " · povezava izbrana" : ""}
+          </div>
+          <Popover open={isCandidatePickerOpen} onOpenChange={setIsCandidatePickerOpen}>
+            <PopoverTrigger asChild>
+              <Button type="button" className="min-w-48 justify-start gap-2 shadow-lg">
+                <UserPlus className="h-4 w-4" />
+                Dodaj kandidata
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 p-0" align="center">
+              <Command>
+                <CommandInput placeholder="Išči kandidata..." />
+                <CommandList>
+                  <CommandEmpty>Ni kandidatov za ta iskalni niz.</CommandEmpty>
+                  <CommandGroup heading="Kandidati iz baze">
+                    {candidates.map((candidate) => (
+                      <CommandItem
+                        key={candidate.id}
+                        value={`${candidate.name} ${candidate.role} ${stageLabels[candidate.stage]}`}
+                        onSelect={() => addCandidateNode(candidate.id)}
+                      >
+                        <Users className="h-4 w-4 text-cyan-500" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{candidate.name}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {candidate.role} · {stageLabels[candidate.stage]}
+                          </span>
+                        </span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+
+          <Popover open={isTranscriptPickerOpen} onOpenChange={setIsTranscriptPickerOpen}>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" className="min-w-48 justify-start gap-2 bg-card/95 shadow-lg">
+                <FileText className="h-4 w-4" />
+                Dodaj transkript
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-96 p-0" align="center">
+              <Command>
+                <CommandInput placeholder="Išči transkript..." />
+                <CommandList>
+                  <CommandEmpty>Ni transkriptov za ta iskalni niz.</CommandEmpty>
+                  <CommandGroup heading="Transkripti iz baze">
+                    {savedTranscripts.map((transcript) => (
+                      <CommandItem
+                        key={transcript.id}
+                        value={`${transcript.title} ${transcript.status} ${transcript.transcriptText}`}
+                        onSelect={() => addTranscriptNode(transcript)}
+                      >
+                        <FileText className="h-4 w-4 text-violet-500" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{transcript.title}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {formatDuration(transcript.durationSeconds)} · {transcript.status}
+                            {transcript.audioPath ? " · posnetek" : " · brez posnetka"}
+                          </span>
+                        </span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
         </div>
 
         <div className="absolute right-4 top-4 z-30 w-60 rounded-md border border-border bg-card/95 p-3 shadow-lg backdrop-blur">
@@ -1478,6 +1675,31 @@ export default function InterviewStudio() {
             Mreža
           </div>
           <div className="grid gap-2">
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => zoomCanvasFromCenter(-0.15)}
+                disabled={viewport.zoom <= minCanvasZoom}
+              >
+                -
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setViewport(defaultViewport)}
+              >
+                {Math.round(viewport.zoom * 100)}%
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => zoomCanvasFromCenter(0.15)}
+                disabled={viewport.zoom >= maxCanvasZoom}
+              >
+                +
+              </Button>
+            </div>
             <Button
               type="button"
               onClick={saveBoard}
@@ -1551,21 +1773,15 @@ export default function InterviewStudio() {
 
         <div
           ref={canvasRef}
-          className="relative h-full w-full overflow-hidden"
-          onPointerDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setSelectedNodeId(null);
-              setSelectedEdgeId(null);
-            }
-          }}
+          className={`relative h-full w-full overflow-hidden ${
+            panState ? "cursor-grabbing" : "cursor-default"
+          }`}
+          onPointerDown={handleCanvasPointerDown}
           onPointerMove={handleCanvasPointerMove}
-          onPointerUp={() => setDragState(null)}
-          style={{
-            backgroundImage:
-              "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)",
-            backgroundSize: "25px 25px",
-            backgroundPosition: "0 0",
-          }}
+          onPointerUp={handleCanvasPointerUp}
+          onPointerCancel={handleCanvasPointerUp}
+          onContextMenu={(event) => event.preventDefault()}
+          onWheel={handleCanvasWheel}
         >
           {isLoadingBoard ? (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
@@ -1585,72 +1801,121 @@ export default function InterviewStudio() {
             </div>
           ) : null}
 
-          <svg className="pointer-events-none absolute inset-0 h-full w-full">
-            <defs>
-              <marker
-                id="studio-arrow"
-                markerWidth="10"
-                markerHeight="10"
-                refX="9"
-                refY="3"
-                orient="auto"
-                markerUnits="strokeWidth"
-              >
-                <path d="M0,0 L0,6 L9,3 z" fill="#8b5cf6" />
-              </marker>
-            </defs>
-            {edges.map((edge) => {
-              const from = nodeCenters.get(edge.fromNodeId);
-              const to = nodeCenters.get(edge.toNodeId);
-              if (!from || !to) return null;
-              const midX = (from.x + to.x) / 2;
-              const selected = edge.id === selectedEdgeId;
-              return (
-                <g key={edge.id}>
-                  <path
-                    d={`M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`}
-                    fill="none"
-                    stroke="transparent"
-                    strokeWidth="18"
-                    className="pointer-events-auto cursor-pointer"
-                    onPointerDown={(event) => {
-                      event.stopPropagation();
-                      setSelectedEdgeId(edge.id);
-                      setSelectedNodeId(null);
-                      setConnectingFromNodeId(null);
-                    }}
-                  />
-                  <path
-                    d={`M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`}
-                    fill="none"
-                    stroke={selected ? "#f59e0b" : "#8b5cf6"}
-                    strokeWidth={selected ? "3" : "2"}
-                    markerEnd="url(#studio-arrow)"
-                    opacity={selected ? "1" : "0.82"}
-                  />
-                </g>
-              );
-            })}
-          </svg>
-
-          {nodes.map((node) => (
-            <NodeCard
-              key={node.id}
-              node={node}
-              hasConnectionStart={Boolean(connectingFromNodeId)}
-              selected={selectedNodeId === node.id}
-              isConnecting={connectingFromNodeId === node.id}
-              onPointerDown={(event) => handleNodePointerDown(event, node)}
-              onConnectStart={() => setConnectingFromNodeId(node.id)}
-              onConnectEnd={() => finishConnection(node.id)}
-              onOpenDetails={() => {
-                setDetailNodeId(node.id);
-                setSelectedNodeId(node.id);
+          <div
+            className="absolute left-0 top-0"
+            onPointerDown={(event) => {
+              if (event.button === 0 && event.target === event.currentTarget) {
+                setSelectedNodeId(null);
                 setSelectedEdgeId(null);
-                setConnectingFromNodeId(null);
-              }}
-            />
-          ))}
+              }
+            }}
+            style={{
+              width: canvasWorldWidth,
+              height: canvasWorldHeight,
+              transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
+              transformOrigin: "0 0",
+              backgroundImage:
+                "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)",
+              backgroundSize: `${gridSize}px ${gridSize}px`,
+              backgroundPosition: "0 0",
+            }}
+          >
+            <svg
+              className="pointer-events-none absolute inset-0"
+              width={canvasWorldWidth}
+              height={canvasWorldHeight}
+            >
+              <defs>
+                <marker
+                  id="studio-arrow-candidate"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="9"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L0,6 L9,3 z" fill="#2563eb" />
+                </marker>
+                <marker
+                  id="studio-arrow-transcript"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="9"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L0,6 L9,3 z" fill="#ec4899" />
+                </marker>
+                <marker
+                  id="studio-arrow-selected"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="9"
+                  refY="3"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M0,0 L0,6 L9,3 z" fill="#f59e0b" />
+                </marker>
+              </defs>
+              {edges.map((edge) => {
+                const fromNode = nodes.find((node) => node.id === edge.fromNodeId);
+                const toNode = nodes.find((node) => node.id === edge.toNodeId);
+                const from = nodeCenters.get(edge.fromNodeId);
+                const to = nodeCenters.get(edge.toNodeId);
+                if (!from || !to) return null;
+                const midX = (from.x + to.x) / 2;
+                const selected = edge.id === selectedEdgeId;
+                const edgeColor = getEdgeColor(fromNode, toNode, selected);
+                return (
+                  <g key={edge.id}>
+                    <path
+                      d={`M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`}
+                      fill="none"
+                      stroke="transparent"
+                      strokeWidth="18"
+                      className="pointer-events-auto cursor-pointer"
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                        setSelectedEdgeId(edge.id);
+                        setSelectedNodeId(null);
+                        setConnectingFromNodeId(null);
+                      }}
+                    />
+                    <path
+                      d={`M ${from.x} ${from.y} C ${midX} ${from.y}, ${midX} ${to.y}, ${to.x} ${to.y}`}
+                      fill="none"
+                      stroke={edgeColor}
+                      strokeWidth={selected ? "3" : "2"}
+                      markerEnd={getEdgeMarkerId(fromNode, toNode, selected)}
+                      opacity={selected ? "1" : "0.82"}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+
+            {nodes.map((node) => (
+              <NodeCard
+                key={node.id}
+                node={node}
+                hasConnectionStart={Boolean(connectingFromNodeId)}
+                selected={selectedNodeId === node.id}
+                isConnecting={connectingFromNodeId === node.id}
+                onPointerDown={(event) => handleNodePointerDown(event, node)}
+                onConnectStart={() => setConnectingFromNodeId(node.id)}
+                onConnectEnd={() => finishConnection(node.id)}
+                onOpenDetails={() => {
+                  setDetailNodeId(node.id);
+                  setSelectedNodeId(node.id);
+                  setSelectedEdgeId(null);
+                  setConnectingFromNodeId(null);
+                }}
+              />
+            ))}
+          </div>
         </div>
       </main>
       <Dialog open={Boolean(detailNode)} onOpenChange={(open) => !open && setDetailNodeId(null)}>
