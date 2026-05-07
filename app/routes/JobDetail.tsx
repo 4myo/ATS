@@ -41,6 +41,16 @@ type JobCandidate = {
   aiScore: number;
 };
 
+const jobTypeOptions = [
+  { value: "Full-time", label: "Polni delovni čas" },
+  { value: "Part-time", label: "Krajši delovni čas" },
+  { value: "Contract", label: "Pogodbeno delo" },
+  { value: "Internship", label: "Pripravništvo" },
+];
+
+const formatJobType = (type?: string | null) =>
+  jobTypeOptions.find((option) => option.value === type)?.label ?? type ?? "";
+
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -336,7 +346,7 @@ export default function JobDetail() {
             <div>
               <h1 className="page-title">{job.title}</h1>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                {job.type ? <span>{job.type}</span> : null}
+                {job.type ? <span>{formatJobType(job.type)}</span> : null}
                 {job.location ? <span>{job.location}</span> : null}
                 <span
                   className={
@@ -438,9 +448,9 @@ export default function JobDetail() {
                   <SelectValue placeholder={t("selectType")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {["Full-time", "Part-time", "Contract", "Internship"].map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
+                  {jobTypeOptions.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {type.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -9,6 +9,11 @@ import {
   type AiAnalysisQueueItem,
 } from "../lib/aiAnalysisQueue";
 import { useI18n } from "../lib/i18n";
+import {
+  getUserPreferences,
+  userPreferencesEvent,
+  type UserPreferences,
+} from "../lib/userPreferences";
 
 const formatRemaining = (milliseconds: number) => {
   const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
@@ -21,24 +26,36 @@ export function AiAnalysisQueueBar() {
   const { t } = useI18n();
   const [queue, setQueue] = useState<AiAnalysisQueueItem[]>([]);
   const [now, setNow] = useState(Date.now());
+  const [preferences, setPreferences] =
+    useState<UserPreferences>(getUserPreferences);
 
   useEffect(() => {
     const syncQueue = () => setQueue(getAiAnalysisQueue());
+    const syncPreferences = () => setPreferences(getUserPreferences());
     syncQueue();
+    syncPreferences();
 
     window.addEventListener(aiAnalysisQueueEvent, syncQueue);
+    window.addEventListener(userPreferencesEvent, syncPreferences);
     window.addEventListener("storage", syncQueue);
+    window.addEventListener("storage", syncPreferences);
 
     const timer = window.setInterval(() => {
       setNow(Date.now());
-      void processDueAiAnalysisRetries();
+      if (getUserPreferences().autoProcessAiQueue) {
+        void processDueAiAnalysisRetries();
+      }
     }, 20 * 1000);
 
-    void processDueAiAnalysisRetries();
+    if (getUserPreferences().autoProcessAiQueue) {
+      void processDueAiAnalysisRetries();
+    }
 
     return () => {
       window.removeEventListener(aiAnalysisQueueEvent, syncQueue);
+      window.removeEventListener(userPreferencesEvent, syncPreferences);
       window.removeEventListener("storage", syncQueue);
+      window.removeEventListener("storage", syncPreferences);
       window.clearInterval(timer);
     };
   }, []);
@@ -53,7 +70,7 @@ export function AiAnalysisQueueBar() {
     [queue],
   );
 
-  if (!activeItem) return null;
+  if (!activeItem || !preferences.showAiQueueBar) return null;
 
   const isRunning = activeItem.status === "running";
   const remainingMs = Math.max(activeItem.nextAttemptAt - now, 0);

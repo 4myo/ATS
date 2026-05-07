@@ -5,10 +5,12 @@ import {
   Scripts,
   ScrollRestoration,
 } from "react-router";
+import { useEffect, type ReactNode } from "react";
 import "../styles/index.css";
 import { I18nProvider } from "./lib/i18n";
+import { applyUserPreferences } from "./lib/userPreferences";
 
-export function Layout({ children }: { children: React.ReactNode }) {
+export function Layout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
@@ -27,6 +29,10 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function Root() {
+  useEffect(() => {
+    applyUserPreferences();
+  }, []);
+
   return (
     <I18nProvider>
       <Outlet />

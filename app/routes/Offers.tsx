@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { CheckCircle2, Eye, FileText, Loader2, Send, XCircle } from "lucide-react";
+import { CheckCircle2, Eye, FileText, Loader2, Send, UserRound, XCircle } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Checkbox } from "../components/ui/checkbox";
@@ -44,6 +44,118 @@ type CandidateWithDocument = OfferCandidate & {
 const candidateSelect =
   "id, full_name, job_title, stage, email, ats_score, offer_checklist, offer_outcome, offer_sent_at, offer_summary";
 
+const getInitials = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "?";
+
+const getOfferProgressStep = (candidate: CandidateWithDocument) => {
+  if (candidate.offer_checklist?.offerSent) return 2;
+  if (candidate.latestDocument) return 1;
+  return 0;
+};
+
+const isOfferArchived = (candidate: CandidateWithDocument) =>
+  Boolean(candidate.offer_checklist?.offerArchived);
+
+const getOfferStatusLabel = (
+  candidate: CandidateWithDocument,
+  t: ReturnType<typeof useI18n>["t"],
+) => {
+  const outcome = candidate.offer_outcome ?? "pending";
+  const isSent = Boolean(candidate.offer_checklist?.offerSent);
+
+  if (outcome === "accepted") return t("offerOutcomeAccepted");
+  if (outcome === "declined") return t("offerOutcomeDeclined");
+  if (isSent) return t("offerStatusSent");
+  if (candidate.latestDocument) return t("offerDraftReady");
+  return t("offerStatusPreparing");
+};
+
+function OfferActionSlider({
+  candidate,
+  disabled,
+  t,
+  onPrepare,
+  onSend,
+}: {
+  candidate: CandidateWithDocument;
+  disabled: boolean;
+  t: ReturnType<typeof useI18n>["t"];
+  onPrepare: () => void;
+  onSend: () => void;
+}) {
+  const currentStep = getOfferProgressStep(candidate);
+  const [draftStep, setDraftStep] = useState(currentStep);
+
+  useEffect(() => {
+    setDraftStep(currentStep);
+  }, [currentStep]);
+
+  const handlePosition =
+    draftStep === 0 ? "10px" : draftStep === 2 ? "calc(100% - 10px)" : "50%";
+
+  const commitStep = (step = draftStep) => {
+    if (disabled) return;
+    if (step <= currentStep) return;
+    if (step === 1) onPrepare();
+    if (step === 2) onSend();
+  };
+
+  return (
+    <div className="relative min-h-[5.5rem] rounded-md border border-border bg-muted/25 p-3">
+      <div className="mb-2 flex items-center justify-between text-xs font-medium text-muted-foreground">
+        <span>{t("offerStatusPreparing")}</span>
+        <span>{t("offerDraftReady")}</span>
+        <span>{t("offerStatusSent")}</span>
+      </div>
+      <div className="relative h-12 overflow-hidden rounded-md border border-border bg-background shadow-inner">
+        <div
+          className="absolute inset-y-0 left-0 rounded-md bg-gradient-to-r from-fuchsia-500 to-emerald-200 transition-all duration-300"
+          style={{ width: `${(draftStep / 2) * 100}%` }}
+        />
+        <div className="pointer-events-none absolute inset-0 grid grid-cols-3 text-xs font-semibold">
+          <div className="flex items-center justify-center text-muted-foreground">
+            Priprava
+          </div>
+          <div className="flex items-center justify-center text-white/90 drop-shadow">
+            Vnesi podatke
+          </div>
+          <div className="flex items-center justify-center text-foreground/80">Poslano</div>
+        </div>
+        <div
+          className="pointer-events-none absolute top-1/2 h-10 w-5 -translate-x-1/2 -translate-y-1/2 rounded-md border border-white/70 bg-background/90 shadow-lg transition-all duration-300"
+          style={{ left: handlePosition }}
+        >
+          <span className="absolute left-1/2 top-1/2 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-b from-fuchsia-500 to-emerald-200" />
+        </div>
+        <input
+          aria-label="Status ponudbe"
+          type="range"
+          min={0}
+          max={2}
+          step={1}
+          value={draftStep}
+          disabled={disabled}
+          onChange={(event) => setDraftStep(Number(event.target.value))}
+          onMouseUp={() => commitStep()}
+          onTouchEnd={() => commitStep()}
+          onKeyUp={(event) => {
+            if (event.key === "Enter" || event.key === " ") commitStep();
+          }}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+        />
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Primite navpično ročko in povlecite na sredino za pripravo ponudbe ali do konca za poslano.
+      </p>
+    </div>
+  );
+}
+
 export default function Offers() {
   const { t } = useI18n();
   const [candidates, setCandidates] = useState<CandidateWithDocument[]>([]);
@@ -60,6 +172,7 @@ export default function Offers() {
     sent: false,
     accepted: false,
     declined: false,
+    archived: false,
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -161,7 +274,13 @@ export default function Offers() {
   };
 
   const matchesOfferStatusFilters = (candidate: CandidateWithDocument) => {
-    const hasActiveOfferFilter = Object.values(offerStatusFilters).some(Boolean);
+    const isArchived = isOfferArchived(candidate);
+    if (offerStatusFilters.archived) return isArchived;
+    if (isArchived) return false;
+
+    const hasActiveOfferFilter = Object.entries(offerStatusFilters).some(
+      ([key, value]) => key !== "archived" && value,
+    );
     if (!hasActiveOfferFilter) return true;
 
     const offerSent = Boolean(candidate.offer_checklist?.offerSent);
@@ -417,6 +536,47 @@ export default function Offers() {
     });
   };
 
+  const updateOfferArchive = async (
+    candidate: CandidateWithDocument,
+    archived: boolean,
+  ) => {
+    const nextChecklist = {
+      ...(candidate.offer_checklist ?? {}),
+      offerArchived: archived,
+    };
+
+    const { error: archiveError } = await supabase
+      .from("candidates")
+      .update({ offer_checklist: nextChecklist })
+      .eq("id", candidate.id);
+
+    if (archiveError) {
+      setError(archiveError.message || t("failedOfferUpdate"));
+      return;
+    }
+
+    setCandidates((current) =>
+      current.map((item) =>
+        item.id === candidate.id
+          ? { ...item, offer_checklist: nextChecklist }
+          : item,
+      ),
+    );
+
+    void logActivityEvent({
+      action: "offer_outcome_changed",
+      entityType: "candidate",
+      entityId: candidate.id,
+      entityLabel: candidate.full_name,
+      fromValue: archived ? "visible" : "archived",
+      toValue: archived ? "archived" : "visible",
+      metadata: {
+        job_title: candidate.job_title,
+        offer_document_id: candidate.latestDocument?.id ?? null,
+      },
+    });
+  };
+
   return (
     <div className="page-container">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -528,6 +688,19 @@ export default function Offers() {
             ) : null}
           </div>
         </div>
+        <div className="ml-auto grid min-w-[10rem] gap-1.5">
+          <Label>Prikaz</Label>
+          <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm dark:bg-muted/30">
+            <Checkbox
+              className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+              checked={offerStatusFilters.archived}
+              onCheckedChange={(checked) =>
+                toggleOfferStatusFilter("archived", checked === true)
+              }
+            />
+            Arhivirano
+          </label>
+        </div>
       </div>
 
       {isLoading ? (
@@ -549,66 +722,130 @@ export default function Offers() {
             const isSent = Boolean(candidate.offer_checklist?.offerSent);
             const outcome = candidate.offer_outcome ?? "pending";
             const isGenerating = generatingCandidateId === candidate.id;
+            const atsScore =
+              candidate.ats_score == null
+                ? null
+                : Math.round(Number(candidate.ats_score));
+            const statusLabel = getOfferStatusLabel(candidate, t);
 
             return (
               <div
                 key={candidate.id}
-                className="surface-card grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_minmax(14rem,0.45fr)_auto]"
+                className="surface-card grid gap-4 p-4 xl:grid-cols-[minmax(19rem,0.9fr)_minmax(28rem,1.25fr)_minmax(13rem,0.45fr)]"
               >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate text-base font-semibold text-foreground">
-                      {candidate.full_name}
-                    </h2>
-                    <Badge variant={outcome === "accepted" ? "secondary" : isSent ? "secondary" : "default"}>
-                      {outcome === "accepted"
-                        ? t("offerOutcomeAccepted")
-                        : outcome === "declined"
-                          ? t("offerOutcomeDeclined")
-                          : isSent
-                            ? t("offerStatusSent")
-                            : t("offerStatusPreparing")}
-                    </Badge>
-                    {candidate.latestDocument && !isSent ? (
-                      <Badge variant="outline">{t("offerDraftReady")}</Badge>
-                    ) : null}
+                <div className="flex min-w-0 items-center gap-4">
+                  <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-gradient-to-br from-cyan-500/20 via-violet-500/20 to-emerald-500/20 text-lg font-semibold text-foreground">
+                    {candidate.full_name ? getInitials(candidate.full_name) : (
+                      <UserRound className="h-8 w-8 text-muted-foreground" />
+                    )}
                   </div>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {candidate.job_title}
-                    {candidate.ats_score == null
-                      ? ""
-                      : ` · ${Math.round(Number(candidate.ats_score))}% ${t("match")}`}
-                  </p>
-                  <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
-                    {candidate.offer_summary || t("offerSummaryUnavailable")}
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-base font-semibold text-foreground">
+                        {candidate.full_name}
+                      </h2>
+                      <Badge
+                        variant={
+                          outcome === "accepted" || isSent ? "secondary" : "default"
+                        }
+                      >
+                        {statusLabel}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 truncate text-sm font-medium text-muted-foreground">
+                      {candidate.job_title}
+                    </p>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      ATS score
+                      <span className="ml-2 font-semibold text-foreground">
+                        {atsScore == null ? "-" : `${atsScore}%`}
+                      </span>
+                    </p>
+                  </div>
                 </div>
 
-                <div className="grid content-start gap-1 text-sm text-muted-foreground">
-                  <span>
-                    {t("offerSentDate")}:{" "}
-                    <span className="font-medium text-foreground">
-                      {candidate.offer_sent_at || "-"}
-                    </span>
-                  </span>
-                  <span>
-                    {t("offerLatestDocument")}:{" "}
-                    <span className="font-medium text-foreground">
-                      {candidate.latestDocument?.created_at
-                        ? new Date(candidate.latestDocument.created_at).toLocaleDateString()
-                        : "-"}
-                    </span>
-                  </span>
+                <div className="min-w-0">
+                  {outcome === "accepted" || outcome === "declined" ? (
+                    <div
+                      className={`grid min-h-[5.5rem] content-center rounded-md border p-3 transition-all duration-300 ${
+                        outcome === "accepted"
+                          ? "border-emerald-500/30 bg-emerald-500/10"
+                          : "border-red-500/30 bg-red-500/10"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        {outcome === "accepted" ? (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-red-500" />
+                        )}
+                        {statusLabel}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Končni status ponudbe je zabeležen.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => updateOfferArchive(candidate, !isOfferArchived(candidate))}
+                        className="mt-3 w-fit"
+                      >
+                        {isOfferArchived(candidate) ? "Odstrani iz arhiva" : "Arhiviraj kandidata"}
+                      </Button>
+                    </div>
+                  ) : isSent ? (
+                    <div className="grid min-h-[5.5rem] content-center gap-3 rounded-md border border-border bg-muted/25 p-3 transition-all duration-300">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <Send className="h-4 w-4 text-emerald-500" />
+                        Ponudba je označena kot poslana
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => updateOfferOutcome(candidate, "accepted")}
+                          className="gap-2 border-emerald-500/40 text-emerald-600 hover:text-emerald-700"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          {t("markOfferAccepted")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => updateOfferOutcome(candidate, "declined")}
+                          className="gap-2 border-red-500/40 text-red-600 hover:text-red-700"
+                        >
+                          <XCircle className="h-4 w-4" />
+                          {t("markOfferDeclined")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <OfferActionSlider
+                      candidate={candidate}
+                      disabled={isGenerating}
+                      t={t}
+                      onPrepare={() => setDraftCandidate(candidate)}
+                      onSend={() => {
+                        if (candidate.latestDocument) {
+                          void markOfferSent(candidate);
+                        } else {
+                          setDraftCandidate(candidate);
+                        }
+                      }}
+                    />
+                  )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                <div className="grid content-center gap-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => setDraftCandidate(candidate)}
                     disabled={isGenerating}
-                    className="gap-2"
+                    className="justify-start gap-2"
                   >
                     {isGenerating ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -618,61 +855,23 @@ export default function Offers() {
                     {candidate.latestDocument ? t("editOfferData") : t("enterOfferData")}
                   </Button>
                   {candidate.latestDocument ? (
-                    <>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setSelectedDocument({
-                            ...candidate.latestDocument!,
-                            candidateName: candidate.full_name,
-                          })
-                        }
-                        className="gap-2"
-                      >
-                        <Eye className="h-4 w-4" />
-                        {t("preview")}
-                      </Button>
-                      {!isSent ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => markOfferSent(candidate)}
-                          className="gap-2"
-                        >
-                          <Send className="h-4 w-4" />
-                          {t("markOfferSent")}
-                        </Button>
-                      ) : null}
-                      {isSent && outcome === "pending" ? (
-                        <>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateOfferOutcome(candidate, "accepted")}
-                            className="gap-2 text-emerald-600 hover:text-emerald-700"
-                          >
-                            <CheckCircle2 className="h-4 w-4" />
-                            {t("markOfferAccepted")}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => updateOfferOutcome(candidate, "declined")}
-                            className="gap-2 text-red-600 hover:text-red-700"
-                          >
-                            <XCircle className="h-4 w-4" />
-                            {t("markOfferDeclined")}
-                          </Button>
-                        </>
-                      ) : null}
-                    </>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setSelectedDocument({
+                          ...candidate.latestDocument!,
+                          candidateName: candidate.full_name,
+                        })
+                      }
+                      className="justify-start gap-2"
+                    >
+                      <Eye className="h-4 w-4" />
+                      {t("preview")}
+                    </Button>
                   ) : null}
-                  <Button asChild type="button" variant="ghost" size="sm">
+                  <Button asChild type="button" variant="ghost" size="sm" className="justify-start">
                     <Link
                       to={`/applicants/${candidate.id}?returnTo=${encodeURIComponent("/offers")}`}
                       state={{ returnTo: "/offers" }}

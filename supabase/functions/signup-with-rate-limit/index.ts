@@ -14,8 +14,10 @@ const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const MAX_EMAIL_LENGTH = 254;
+const MIN_PASSWORD_LENGTH = 10;
 const MAX_PASSWORD_LENGTH = 128;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const termsVersion = "2026-05-07";
 
 if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY env vars.");
@@ -45,7 +47,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  let payload: { email?: unknown; password?: unknown };
+  let payload: {
+    email?: unknown;
+    password?: unknown;
+    termsAccepted?: unknown;
+    termsVersion?: unknown;
+  };
   try {
     payload = await req.json();
   } catch (_error) {
@@ -58,6 +65,9 @@ Deno.serve(async (req) => {
   const email =
     typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
   const password = typeof payload.password === "string" ? payload.password : "";
+  const acceptedTerms = payload.termsAccepted === true;
+  const acceptedTermsVersion =
+    typeof payload.termsVersion === "string" ? payload.termsVersion : "";
 
   if (!email || !password) {
     return new Response("Missing email or password", {
@@ -66,11 +76,22 @@ Deno.serve(async (req) => {
     });
   }
 
+  if (!acceptedTerms || acceptedTermsVersion !== termsVersion) {
+    return new Response("Terms acceptance is required", {
+      status: 400,
+      headers: corsHeaders,
+    });
+  }
+
   if (
     email.length > MAX_EMAIL_LENGTH ||
     !emailPattern.test(email) ||
-    password.length < 8 ||
-    password.length > MAX_PASSWORD_LENGTH
+    password.length < MIN_PASSWORD_LENGTH ||
+    password.length > MAX_PASSWORD_LENGTH ||
+    !/[a-z]/.test(password) ||
+    !/[A-Z]/.test(password) ||
+    !/\d/.test(password) ||
+    !/[^A-Za-z0-9]/.test(password)
   ) {
     return new Response("Invalid email or password", {
       status: 400,
@@ -115,27 +136,9 @@ Deno.serve(async (req) => {
       .insert({ ip, attempts: 1, window_start: now.toISOString() });
   }
 
-  const { data, error } = await supabaseAdmin.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-  });
-
-  if (error) {
-    return new Response("Unable to create account", {
-      status: 400,
-      headers: corsHeaders,
-    });
-  }
-
   return new Response(
     JSON.stringify({
-      user: data.user
-        ? {
-            id: data.user.id,
-            email: data.user.email,
-          }
-        : null,
+      ok: true,
     }),
     {
       headers: { "Content-Type": "application/json", ...corsHeaders },

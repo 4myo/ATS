@@ -55,6 +55,15 @@ const iconOptions = [
 ];
 
 const jobsPerPage = 6;
+const jobTypeOptions = [
+  { value: "Full-time", label: "Polni delovni čas" },
+  { value: "Part-time", label: "Krajši delovni čas" },
+  { value: "Contract", label: "Pogodbeno delo" },
+  { value: "Internship", label: "Pripravništvo" },
+];
+
+const formatJobType = (type?: string | null) =>
+  jobTypeOptions.find((option) => option.value === type)?.label ?? type ?? "";
 
 export default function Jobs() {
   const { t } = useI18n();
@@ -80,6 +89,9 @@ export default function Jobs() {
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [jobPage, setJobPage] = useState(1);
+  const [jobSearch, setJobSearch] = useState("");
+  const [jobTypeFilter, setJobTypeFilter] = useState("all");
+  const [jobStatusFilter, setJobStatusFilter] = useState("all");
 
   const iconMap = useMemo(
     () =>
@@ -362,8 +374,26 @@ export default function Jobs() {
     });
   };
 
-  const jobPageCount = Math.max(1, Math.ceil(jobs.length / jobsPerPage));
-  const paginatedJobs = jobs.slice(
+  const filteredJobs = useMemo(() => {
+    const query = jobSearch.trim().toLowerCase();
+
+    return jobs.filter((job) => {
+      const matchesSearch =
+        !query ||
+        [job.title, job.description ?? "", formatJobType(job.type)]
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      const matchesType = jobTypeFilter === "all" || job.type === jobTypeFilter;
+      const status = job.status ?? "active";
+      const matchesStatus = jobStatusFilter === "all" || status === jobStatusFilter;
+
+      return matchesSearch && matchesType && matchesStatus;
+    });
+  }, [jobs, jobSearch, jobStatusFilter, jobTypeFilter]);
+
+  const jobPageCount = Math.max(1, Math.ceil(filteredJobs.length / jobsPerPage));
+  const paginatedJobs = filteredJobs.slice(
     (jobPage - 1) * jobsPerPage,
     jobPage * jobsPerPage,
   );
@@ -371,6 +401,10 @@ export default function Jobs() {
   useEffect(() => {
     setJobPage((page) => Math.min(page, jobPageCount));
   }, [jobPageCount]);
+
+  useEffect(() => {
+    setJobPage(1);
+  }, [jobSearch, jobStatusFilter, jobTypeFilter]);
 
   return (
     <div className="page-container">
@@ -414,9 +448,9 @@ export default function Jobs() {
                     <SelectValue placeholder={t("selectType")} />
                   </SelectTrigger>
                   <SelectContent>
-                    {["Full-time", "Part-time", "Contract", "Internship"].map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {type}
+                    {jobTypeOptions.map((type) => (
+                      <SelectItem key={type.value} value={type.value}>
+                        {type.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -526,9 +560,9 @@ export default function Jobs() {
                   <SelectValue placeholder={t("selectType")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {["Full-time", "Part-time", "Contract", "Internship"].map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type}
+                  {jobTypeOptions.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {type.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -585,6 +619,47 @@ export default function Jobs() {
         </DialogContent>
       </Dialog>
 
+      <div className="surface-card grid gap-3 p-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(12rem,0.45fr)_minmax(12rem,0.45fr)]">
+        <div className="grid gap-1.5">
+          <Label htmlFor="job-search">Išči delovna mesta</Label>
+          <Input
+            id="job-search"
+            value={jobSearch}
+            onChange={(event) => setJobSearch(event.target.value)}
+            placeholder="Naziv, opis ali tip dela..."
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Tip dela</Label>
+          <Select value={jobTypeFilter} onValueChange={setJobTypeFilter}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Vsi tipi dela</SelectItem>
+              {jobTypeOptions.map((type) => (
+                <SelectItem key={type.value} value={type.value}>
+                  {type.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="grid gap-1.5">
+          <Label>Status</Label>
+          <Select value={jobStatusFilter} onValueChange={setJobStatusFilter}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Vsi statusi</SelectItem>
+              <SelectItem value="active">{t("active")}</SelectItem>
+              <SelectItem value="inactive">{t("inactive")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
         {deleteError ? (
           <div className="surface-card border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:col-span-2 xl:col-span-3">
@@ -639,7 +714,7 @@ export default function Jobs() {
                   {job.title}
                 </h3>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
-                  {job.type ? <span>{job.type}</span> : null}
+                  {job.type ? <span>{formatJobType(job.type)}</span> : null}
                   <span>{t("jobOpenings")}: {job.openings ?? 1}</span>
                 </div>
                 {job.description && (
@@ -704,7 +779,7 @@ export default function Jobs() {
         })}
       </div>
 
-      {!isLoading && jobs.length > jobsPerPage && (
+      {!isLoading && filteredJobs.length > jobsPerPage && (
         <div className="flex justify-center">
           <div className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-card p-1 shadow-sm">
             <Button
@@ -739,6 +814,11 @@ export default function Jobs() {
       {!isLoading && jobs.length === 0 && (
         <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">
           {t("noJobs")}
+        </div>
+      )}
+      {!isLoading && jobs.length > 0 && filteredJobs.length === 0 && (
+        <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">
+          Ni delovnih mest za izbrane filtre.
         </div>
       )}
     </div>

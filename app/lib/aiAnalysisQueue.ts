@@ -91,6 +91,10 @@ export const removeAiAnalysisRetry = (candidateId: string) => {
   );
 };
 
+export const clearAiAnalysisQueue = () => {
+  setAiAnalysisQueue([]);
+};
+
 export const isCandidateQueuedForAiAnalysis = (candidateId: string) =>
   getAiAnalysisQueue().some((item) => item.candidateId === candidateId);
 

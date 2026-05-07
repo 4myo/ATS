@@ -6,17 +6,30 @@ import {
   getCandidateImportProgress,
   type CandidateImportProgress,
 } from "../lib/importProgress";
+import {
+  getUserPreferences,
+  userPreferencesEvent,
+  type UserPreferences,
+} from "../lib/userPreferences";
 
 export function CandidateImportProgressBar() {
   const [progress, setProgress] = useState<CandidateImportProgress | null>(null);
+  const [preferences, setPreferences] =
+    useState<UserPreferences>(getUserPreferences);
 
   useEffect(() => {
     const syncProgress = () => setProgress(getCandidateImportProgress());
+    const syncPreferences = () => setPreferences(getUserPreferences());
     syncProgress();
+    syncPreferences();
 
     window.addEventListener(candidateImportProgressEvent, syncProgress);
+    window.addEventListener(userPreferencesEvent, syncPreferences);
+    window.addEventListener("storage", syncPreferences);
     return () => {
       window.removeEventListener(candidateImportProgressEvent, syncProgress);
+      window.removeEventListener(userPreferencesEvent, syncPreferences);
+      window.removeEventListener("storage", syncPreferences);
     };
   }, []);
 
@@ -25,7 +38,7 @@ export function CandidateImportProgressBar() {
     return Math.min(100, Math.round((progress.completed / progress.total) * 100));
   }, [progress]);
 
-  if (!progress) return null;
+  if (!progress || !preferences.showImportProgressBar) return null;
 
   const isRunning = progress.status === "running";
   const isFailed = progress.status === "failed";

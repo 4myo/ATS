@@ -1,22 +1,48 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import {
   Bot,
   CheckCircle,
+  Database,
   KeyRound,
+  Languages,
+  LayoutDashboard,
   LogOut,
   Moon,
+  RotateCcw,
   Save,
-  Shield,
   Sliders,
   Sun,
   User,
+  X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { Switch } from "../components/ui/switch";
 import { supabase } from "../lib/supabase";
+import {
+  aiAnalysisQueueEvent,
+  clearAiAnalysisQueue,
+  getAiAnalysisQueue,
+} from "../lib/aiAnalysisQueue";
+import { clearCandidateListCache } from "../lib/candidateListCache";
+import { clearDashboardCache } from "../lib/dashboardCache";
+import { clearJobCache } from "../lib/jobCache";
+import {
+  candidateImportProgressEvent,
+  dismissCandidateImportProgress,
+  getCandidateImportProgress,
+  type CandidateImportProgress,
+} from "../lib/importProgress";
 import { useI18n } from "../lib/i18n";
+import {
+  getUserPreferences,
+  resetUserPreferences,
+  updateUserPreference,
+  userPreferencesEvent,
+  type UserPreferences,
+} from "../lib/userPreferences";
 
 type AccountSettings = {
   email: string;
@@ -27,12 +53,36 @@ type AccountSettings = {
   lastSignInAt: string | null;
 };
 
+type ToggleRowProps = {
+  checked: boolean;
+  description: string;
+  label: string;
+  onCheckedChange: (checked: boolean) => void;
+};
+
+function ToggleRow({ checked, description, label, onCheckedChange }: ToggleRowProps) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/30 p-4">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-foreground">{label}</div>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  );
+}
+
 export default function Settings() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { language, setLanguage, t } = useI18n();
   const [account, setAccount] = useState<AccountSettings | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [preferences, setPreferencesState] =
+    useState<UserPreferences>(getUserPreferences);
+  const [queueCount, setQueueCount] = useState(0);
+  const [importProgress, setImportProgress] =
+    useState<CandidateImportProgress | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -51,11 +101,7 @@ export default function Settings() {
       }
 
       const metadata = data.user.user_metadata ?? {};
-      const name =
-        metadata.full_name ||
-        metadata.name ||
-        data.user.email ||
-        "";
+      const name = metadata.full_name || metadata.name || data.user.email || "";
 
       const nextAccount = {
         email: data.user.email ?? "Email unavailable",
@@ -72,6 +118,9 @@ export default function Settings() {
       setAccount(nextAccount);
       setDisplayName(nextAccount.displayName);
       setTheme(nextTheme);
+      setPreferencesState(getUserPreferences());
+      setQueueCount(getAiAnalysisQueue().length);
+      setImportProgress(getCandidateImportProgress());
       setIsLoading(false);
     };
 
@@ -81,6 +130,26 @@ export default function Settings() {
       isMounted = false;
     };
   }, [navigate]);
+
+  useEffect(() => {
+    const syncRuntimeState = () => {
+      setPreferencesState(getUserPreferences());
+      setQueueCount(getAiAnalysisQueue().length);
+      setImportProgress(getCandidateImportProgress());
+    };
+
+    window.addEventListener(userPreferencesEvent, syncRuntimeState);
+    window.addEventListener(aiAnalysisQueueEvent, syncRuntimeState);
+    window.addEventListener(candidateImportProgressEvent, syncRuntimeState);
+    window.addEventListener("storage", syncRuntimeState);
+
+    return () => {
+      window.removeEventListener(userPreferencesEvent, syncRuntimeState);
+      window.removeEventListener(aiAnalysisQueueEvent, syncRuntimeState);
+      window.removeEventListener(candidateImportProgressEvent, syncRuntimeState);
+      window.removeEventListener("storage", syncRuntimeState);
+    };
+  }, []);
 
   const initials = useMemo(() => {
     const source = displayName || account?.email || "A";
@@ -131,7 +200,7 @@ export default function Settings() {
           }
         : current,
     );
-      setStatus(t("profileUpdated"));
+    setStatus(t("profileUpdated"));
     setIsSavingProfile(false);
   };
 
@@ -142,6 +211,20 @@ export default function Settings() {
     setStatus(t("themeSaved"));
   };
 
+  const handleLanguageChange = (nextLanguage: "en" | "sl") => {
+    setLanguage(nextLanguage);
+    setStatus(t("preferencesSaved"));
+  };
+
+  const handlePreferenceChange = <Key extends keyof UserPreferences>(
+    key: Key,
+    value: UserPreferences[Key],
+  ) => {
+    updateUserPreference(key, value);
+    setPreferencesState(getUserPreferences());
+    setStatus(t("preferencesSaved"));
+  };
+
   const handlePasswordReset = async () => {
     if (!account?.email) return;
 
@@ -149,7 +232,7 @@ export default function Settings() {
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
       account.email,
       {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth?reset=1`,
       },
     );
 
@@ -159,6 +242,31 @@ export default function Settings() {
     }
 
     setStatus(`${t("passwordResetSent")} ${account.email}.`);
+  };
+
+  const handleClearLocalCache = () => {
+    clearCandidateListCache();
+    clearDashboardCache();
+    clearJobCache();
+    setStatus(t("localCacheCleared"));
+  };
+
+  const handleClearAiQueue = () => {
+    clearAiAnalysisQueue();
+    setQueueCount(0);
+    setStatus(t("aiQueueCleared"));
+  };
+
+  const handleDismissImportProgress = () => {
+    dismissCandidateImportProgress();
+    setImportProgress(null);
+    setStatus(t("importProgressDismissed"));
+  };
+
+  const handleResetPreferences = () => {
+    resetUserPreferences();
+    setPreferencesState(getUserPreferences());
+    setStatus(t("workspacePreferencesReset"));
   };
 
   const handleSignOut = async () => {
@@ -173,6 +281,10 @@ export default function Settings() {
           timeStyle: "short",
         }).format(new Date(value))
       : t("unavailable");
+
+  const importStatusLabel = importProgress
+    ? `${t("activeImport")} · ${importProgress.completed}/${importProgress.total}`
+    : t("noActiveImport");
 
   if (isLoading) {
     return (
@@ -189,9 +301,7 @@ export default function Settings() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="page-title">{t("settings")}</h1>
-          <p className="text-sm subtle-text">
-            {t("settingsSubtitle")}
-          </p>
+          <p className="text-sm subtle-text">{t("settingsSubtitle")}</p>
         </div>
         {(message || error) && (
           <div
@@ -206,7 +316,7 @@ export default function Settings() {
         )}
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <section className="surface-card p-6">
           <div className="flex items-start gap-4">
             {account?.avatarUrl ? (
@@ -223,7 +333,9 @@ export default function Settings() {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <User className="h-5 w-5 text-muted-foreground" />
-                <h2 className="text-lg font-semibold text-foreground">{t("accountProfile")}</h2>
+                <h2 className="text-lg font-semibold text-foreground">
+                  {t("accountProfile")}
+                </h2>
               </div>
               <p className="text-sm text-muted-foreground">
                 {t("accountProfileSubtitle")}
@@ -269,29 +381,38 @@ export default function Settings() {
         <section className="surface-card p-6">
           <div className="flex items-center gap-3">
             <div className="rounded-md bg-muted p-2 text-foreground">
-              <Shield className="h-5 w-5" />
+              <KeyRound className="h-5 w-5" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">{t("security")}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t("securitySubtitle")}
-              </p>
+              <p className="text-sm text-muted-foreground">{t("securitySubtitle")}</p>
             </div>
           </div>
 
-          <div className="mt-5 space-y-4 text-sm">
+          <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
             <div className="rounded-md border border-border bg-muted/35 p-4">
               <div className="flex items-center gap-2 font-medium text-foreground">
                 <CheckCircle className="h-4 w-4 text-emerald-500" />
                 {t("activeSession")}
               </div>
-              <p className="mt-1 text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {t("accountCreated")} {formatDate(account?.createdAt ?? null)}.
               </p>
             </div>
+            <div className="rounded-md border border-border bg-muted/35 p-4">
+              <div className="font-medium text-foreground">{t("aiQueueItems")}</div>
+              <p className="mt-1 text-2xl font-semibold text-foreground">{queueCount}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
             <Button variant="outline" onClick={handlePasswordReset}>
               <KeyRound className="h-4 w-4" />
               {t("sendPasswordReset")}
+            </Button>
+            <Button variant="outline" onClick={handleClearAiQueue}>
+              <X className="h-4 w-4" />
+              {t("clearAiQueue")}
             </Button>
           </div>
         </section>
@@ -299,12 +420,14 @@ export default function Settings() {
         <section className="surface-card p-6">
           <div className="flex items-center gap-3">
             <div className="rounded-md bg-muted p-2 text-foreground">
-              <Sliders className="h-5 w-5" />
+              <Languages className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-foreground">{t("workspace")}</h2>
+              <h2 className="text-lg font-semibold text-foreground">
+                {t("appearanceAndLanguage")}
+              </h2>
               <p className="text-sm text-muted-foreground">
-                {t("workspaceSubtitle")}
+                {t("appearanceAndLanguageSubtitle")}
               </p>
             </div>
           </div>
@@ -319,7 +442,9 @@ export default function Settings() {
             >
               <Sun className="h-5 w-5 text-foreground" />
               <div className="mt-3 font-medium text-foreground">{t("lightMode")}</div>
-              <div className="text-sm text-muted-foreground">{t("lightModeDescription")}</div>
+              <div className="text-sm text-muted-foreground">
+                {t("lightModeDescription")}
+              </div>
             </button>
             <button
               type="button"
@@ -330,41 +455,144 @@ export default function Settings() {
             >
               <Moon className="h-5 w-5 text-foreground" />
               <div className="mt-3 font-medium text-foreground">{t("darkMode")}</div>
-              <div className="text-sm text-muted-foreground">{t("darkModeDescription")}</div>
+              <div className="text-sm text-muted-foreground">
+                {t("darkModeDescription")}
+              </div>
             </button>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => handleLanguageChange("sl")}
+              className={`rounded-md border p-4 text-left transition hover:bg-muted ${
+                language === "sl" ? "border-ring bg-muted" : "border-border"
+              }`}
+            >
+              <div className="font-medium text-foreground">{t("slovenianLanguage")}</div>
+              <div className="text-sm text-muted-foreground">{t("languagePreference")}</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleLanguageChange("en")}
+              className={`rounded-md border p-4 text-left transition hover:bg-muted ${
+                language === "en" ? "border-ring bg-muted" : "border-border"
+              }`}
+            >
+              <div className="font-medium text-foreground">{t("englishLanguage")}</div>
+              <div className="text-sm text-muted-foreground">{t("languagePreference")}</div>
+            </button>
+          </div>
+
+          <div className="mt-5">
+            <ToggleRow
+              checked={preferences.compactMode}
+              description={t("compactModeDescription")}
+              label={t("compactMode")}
+              onCheckedChange={(checked) => handlePreferenceChange("compactMode", checked)}
+            />
           </div>
         </section>
 
         <section className="surface-card p-6">
           <div className="flex items-center gap-3">
             <div className="rounded-md bg-muted p-2 text-foreground">
-              <Bot className="h-5 w-5" />
+              <Sliders className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-foreground">{t("aiReview")}</h2>
+              <h2 className="text-lg font-semibold text-foreground">
+                {t("processControls")}
+              </h2>
               <p className="text-sm text-muted-foreground">
-                {t("aiReviewSubtitle")}
+                {t("processControlsSubtitle")}
               </p>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 text-sm">
-            {[
-              t("atsMatchScore"),
-              t("strengthsAndConcerns"),
-              t("skillProfileRadar"),
-              t("cvAiWritingSignal"),
-            ].map((item) => (
-              <div
-                key={item}
-                className="flex items-center justify-between rounded-md border border-border bg-muted/35 px-3 py-2"
-              >
-                <span className="text-muted-foreground">{item}</span>
-                <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-500">
-                  {t("enabled")}
-                </span>
+          <div className="mt-5 grid gap-3">
+            <ToggleRow
+              checked={preferences.showImportProgressBar}
+              description={t("showImportProgressDescription")}
+              label={t("showImportProgress")}
+              onCheckedChange={(checked) =>
+                handlePreferenceChange("showImportProgressBar", checked)
+              }
+            />
+            <ToggleRow
+              checked={preferences.showAiQueueBar}
+              description={t("showAiQueueBarDescription")}
+              label={t("showAiQueueBar")}
+              onCheckedChange={(checked) =>
+                handlePreferenceChange("showAiQueueBar", checked)
+              }
+            />
+            <ToggleRow
+              checked={preferences.autoProcessAiQueue}
+              description={t("autoProcessAiQueueDescription")}
+              label={t("autoProcessAiQueue")}
+              onCheckedChange={(checked) =>
+                handlePreferenceChange("autoProcessAiQueue", checked)
+              }
+            />
+          </div>
+        </section>
+
+        <section className="surface-card p-6 xl:col-span-2">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="rounded-md bg-muted p-2 text-foreground">
+                <Database className="h-5 w-5" />
               </div>
-            ))}
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">
+                  {t("dataControls")}
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {t("dataControlsSubtitle")}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-3 text-sm sm:grid-cols-2 lg:min-w-[28rem]">
+              <div className="rounded-md border border-border bg-muted/35 p-4">
+                <div className="font-medium text-foreground">
+                  {t("importProgressStatus")}
+                </div>
+                <p className="mt-1 text-muted-foreground">{importStatusLabel}</p>
+              </div>
+              <div className="rounded-md border border-border bg-muted/35 p-4">
+                <div className="font-medium text-foreground">
+                  {t("termsAndPrivacy")}
+                </div>
+                <Link
+                  className="mt-1 inline-flex text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  to="/terms"
+                >
+                  {t("openLegalDocuments")}
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Button variant="outline" onClick={handleClearLocalCache}>
+              <Database className="h-4 w-4" />
+              {t("clearLocalCache")}
+            </Button>
+            <Button variant="outline" onClick={handleDismissImportProgress}>
+              <LayoutDashboard className="h-4 w-4" />
+              {t("dismissImportProgress")}
+            </Button>
+            <Button variant="outline" onClick={handleResetPreferences}>
+              <RotateCcw className="h-4 w-4" />
+              {t("resetWorkspacePreferences")}
+            </Button>
+            <Button variant="outline" asChild>
+              <Link to="/privacy">
+                <Bot className="h-4 w-4" />
+                {t("privacyPolicy")}
+              </Link>
+            </Button>
           </div>
         </section>
       </div>
