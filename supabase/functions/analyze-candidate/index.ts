@@ -26,32 +26,10 @@ const supabaseKey =
 const openAiApiKey = Deno.env.get("OPENAI_API_KEY") || "";
 const openAiModel = Deno.env.get("OPENAI_MODEL") || "gpt-4o-mini";
 
-const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-const isOriginAllowed = (req: Request) => {
-  const origin = req.headers.get("origin");
-  return !origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin);
-};
-
-const getCorsHeaders = (req: Request) => {
-  const origin = req.headers.get("origin") || "";
-  const allowedOrigin =
-    allowedOrigins.length === 0 || allowedOrigins.includes(origin)
-      ? origin || "*"
-      : allowedOrigins[0];
-
-  return {
-    "Access-Control-Allow-Origin": allowedOrigin,
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Max-Age": "86400",
-    "Cache-Control": "no-store",
-    Vary: "Origin",
-  };
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 const maxResumePromptChars = 12000;
@@ -123,7 +101,7 @@ const labelMap: Record<string, string> = {
 
 const buildAiAgentPreferenceInstructions = (settings?: AiAgentSettings | null) => {
   if (!settings) return "";
-
+                  
   const lines = [
     "Recruiter AI Agent Configuration for this job:",
     "- These settings are active configuration, not decoration. Apply them visibly in scoring, concerns, interview questions, AI-writing signal, and wording.",
@@ -324,20 +302,9 @@ const getBearerToken = (req: Request) => {
 
 Deno.serve(async (req) => {
   let authedUserId: string | null = null;
-  const corsHeaders = getCorsHeaders(req);
 
   if (req.method === "OPTIONS") {
-    return new Response(isOriginAllowed(req) ? "ok" : "Forbidden", {
-      status: isOriginAllowed(req) ? 200 : 403,
-      headers: corsHeaders,
-    });
-  }
-
-  if (!isOriginAllowed(req)) {
-    return new Response("Forbidden origin", {
-      status: 403,
-      headers: corsHeaders,
-    });
+    return new Response("ok", { headers: corsHeaders });
   }
 
   if (req.method !== "POST") {
