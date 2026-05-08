@@ -314,6 +314,7 @@ function NodeCard({
 }) {
   return (
     <div
+      data-studio-node="true"
       onPointerDown={onPointerDown}
       onDoubleClick={(event) => {
         const target = event.target as HTMLElement;
@@ -1095,7 +1096,11 @@ export default function InterviewStudio() {
   };
 
   const handleCanvasPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button === 2) {
+    const target = event.target as HTMLElement;
+    const isTouchBlankPan =
+      event.pointerType === "touch" && !target.closest("[data-studio-node], button");
+
+    if (event.button === 2 || event.button === 1 || isTouchBlankPan) {
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
       setPanState({
@@ -1108,7 +1113,7 @@ export default function InterviewStudio() {
       return;
     }
 
-    if (event.button === 0 && event.target === event.currentTarget) {
+    if (event.button === 0 && !target.closest("[data-studio-node]")) {
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
     }
@@ -1365,7 +1370,7 @@ export default function InterviewStudio() {
 
   return (
     <div className="flex min-h-[calc(100dvh-7.5rem)] w-full max-w-full flex-col overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-sm lg:h-[calc(100vh-7.5rem)] lg:min-h-[620px] lg:flex-row">
-      <aside className="flex max-h-[46dvh] w-full shrink-0 flex-col overflow-x-hidden border-b border-border bg-card lg:max-h-none lg:w-[min(21rem,36vw)] lg:min-w-[18rem] lg:border-b-0 lg:border-r">
+      <aside className="flex max-h-[34dvh] w-full shrink-0 flex-col overflow-x-hidden border-b border-border bg-card sm:max-h-[40dvh] lg:max-h-none lg:w-[min(21rem,36vw)] lg:min-w-[18rem] lg:border-b-0 lg:border-r">
         <div className="border-b border-border p-4">
           <h1 className="text-xl font-semibold text-foreground">Studio razgovorov</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -1589,9 +1594,9 @@ export default function InterviewStudio() {
         </div>
       </aside>
 
-      <main className="relative min-h-[54dvh] min-w-0 flex-1 overflow-hidden bg-background">
-        <div className="absolute left-3 right-3 top-3 z-30 flex flex-wrap items-start gap-2 lg:left-4 lg:right-72 lg:top-4 lg:gap-3">
-          <div className="max-w-full rounded-md border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-sm lg:max-w-[34rem]">
+      <main className="relative h-[72dvh] min-h-[34rem] min-w-0 flex-1 overflow-hidden bg-background lg:h-auto lg:min-h-0">
+        <div className="pointer-events-none absolute left-3 right-3 top-3 z-30 flex flex-wrap items-start gap-2 lg:left-4 lg:right-72 lg:top-4 lg:gap-3">
+          <div className="pointer-events-auto max-w-full rounded-md border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-sm lg:max-w-[34rem]">
             {gridSize}px mreža · 5px premik · {nodes.length} elementov · {edges.length} povezav
             {" · "}
             {Math.round(viewport.zoom * 100)}%
@@ -1601,7 +1606,7 @@ export default function InterviewStudio() {
           </div>
           <Popover open={isCandidatePickerOpen} onOpenChange={setIsCandidatePickerOpen}>
             <PopoverTrigger asChild>
-              <Button type="button" className="min-w-0 flex-1 justify-start gap-2 shadow-lg sm:flex-none sm:min-w-48">
+              <Button type="button" className="pointer-events-auto min-w-0 flex-1 justify-start gap-2 shadow-lg sm:flex-none sm:min-w-48">
                 <UserPlus className="h-4 w-4" />
                 Dodaj kandidata
               </Button>
@@ -1635,7 +1640,7 @@ export default function InterviewStudio() {
 
           <Popover open={isTranscriptPickerOpen} onOpenChange={setIsTranscriptPickerOpen}>
             <PopoverTrigger asChild>
-              <Button type="button" variant="outline" className="min-w-0 flex-1 justify-start gap-2 bg-card/95 shadow-lg sm:flex-none sm:min-w-48">
+              <Button type="button" variant="outline" className="pointer-events-auto min-w-0 flex-1 justify-start gap-2 bg-card/95 shadow-lg sm:flex-none sm:min-w-48">
                 <FileText className="h-4 w-4" />
                 Dodaj transkript
               </Button>
@@ -1669,13 +1674,13 @@ export default function InterviewStudio() {
           </Popover>
         </div>
 
-        <div className="absolute bottom-3 left-3 right-3 z-30 rounded-md border border-border bg-card/95 p-3 shadow-lg backdrop-blur lg:bottom-auto lg:left-auto lg:right-4 lg:top-4 lg:w-60">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+        <div className="absolute bottom-3 left-3 right-3 z-30 rounded-md border border-border bg-card/95 p-2 shadow-lg backdrop-blur lg:bottom-auto lg:left-auto lg:right-4 lg:top-4 lg:w-60 lg:p-3">
+          <div className="mb-3 hidden items-center gap-2 text-sm font-semibold text-foreground lg:flex">
             <Database className="h-4 w-4" />
             Mreža
           </div>
-          <div className="grid gap-2">
-            <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
+            <div className="col-span-3 grid grid-cols-3 gap-2 lg:col-span-1">
               <Button
                 type="button"
                 variant="outline"
@@ -1704,14 +1709,15 @@ export default function InterviewStudio() {
               type="button"
               onClick={saveBoard}
               disabled={isSavingBoard}
-              className="justify-start gap-2"
+              className="justify-center gap-2 px-2 lg:justify-start"
             >
               {isSavingBoard ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              Shrani mrežo
+              <span className="lg:hidden">Shrani</span>
+              <span className="hidden lg:inline">Shrani mrežo</span>
             </Button>
             <Button
               type="button"
@@ -1725,41 +1731,43 @@ export default function InterviewStudio() {
                 selectedTranscript.status === "complete" ||
                 !selectedTranscript.audioPath
               }
-              className="justify-start gap-2"
+              className="justify-center gap-2 px-2 lg:justify-start"
             >
               {isTranscribing ? (
                 <LoaderCircle className="h-4 w-4 animate-spin" />
               ) : (
                 <Mic className="h-4 w-4" />
               )}
-              Zaženi transkripcijo
+              <span className="lg:hidden">AI</span>
+              <span className="hidden lg:inline">Zaženi transkripcijo</span>
             </Button>
             <Button
               type="button"
               variant="outline"
               onClick={deleteSelectedItem}
               disabled={deleteDisabled}
-              className="justify-start gap-2"
+              className="justify-center gap-2 px-2 lg:justify-start"
             >
               <Trash2 className="h-4 w-4" />
-              {deleteLabel}
+              <span className="lg:hidden">Briši</span>
+              <span className="hidden lg:inline">{deleteLabel}</span>
             </Button>
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">
+          <p className="mt-3 hidden text-xs text-muted-foreground lg:block">
             Zadnje shranjevanje: {lastSavedLabel}
           </p>
           {boardTableMissing ? (
-            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+            <p className="mt-2 hidden rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 lg:block">
               Za trajno shrambo najprej zaženite SQL za <code>interview_studio_boards</code>.
             </p>
           ) : null}
           {transcriptTableMissing ? (
-            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+            <p className="mt-2 hidden rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 lg:block">
               Za posnetke in AI transkripte zaženite SQL za <code>interview_transcripts</code>.
             </p>
           ) : null}
           {selectedTranscript ? (
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 hidden text-xs text-muted-foreground lg:block">
               Izbran transkript: {selectedTranscript.status}
             </p>
           ) : null}
@@ -1773,7 +1781,7 @@ export default function InterviewStudio() {
 
         <div
           ref={canvasRef}
-          className={`relative h-full w-full overflow-hidden ${
+          className={`absolute inset-0 touch-none overflow-hidden ${
             panState ? "cursor-grabbing" : "cursor-default"
           }`}
           onPointerDown={handleCanvasPointerDown}
@@ -1815,9 +1823,10 @@ export default function InterviewStudio() {
               transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`,
               transformOrigin: "0 0",
               backgroundImage:
-                "linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px)",
+                "linear-gradient(rgba(148, 163, 184, 0.18) 1px, transparent 1px), linear-gradient(90deg, rgba(148, 163, 184, 0.18) 1px, transparent 1px)",
               backgroundSize: `${gridSize}px ${gridSize}px`,
               backgroundPosition: "0 0",
+              willChange: "transform",
             }}
           >
             <svg
