@@ -233,8 +233,8 @@ export function Layout() {
       </div>
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 items-center justify-between border-b border-border bg-card px-4 shadow-sm sm:px-6">
-          <div className="flex items-center gap-3">
+        <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-3 py-3 shadow-sm sm:px-6 sm:py-0">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <Sheet>
               <SheetTrigger asChild>
                 <button className="inline-flex items-center justify-center rounded-md border border-border bg-card p-2 text-muted-foreground shadow-sm transition hover:bg-muted lg:hidden">
@@ -245,8 +245,8 @@ export function Layout() {
                 <Sidebar />
               </SheetContent>
             </Sheet>
-            <form className="relative" onSubmit={handleSearchSubmit}>
-              <div className="flex w-48 items-center rounded-md border border-border bg-muted/60 px-3 py-2 transition-all focus-within:bg-card focus-within:ring-2 focus-within:ring-ring sm:w-72 lg:w-96">
+            <form className="relative min-w-0 flex-1 sm:flex-none" onSubmit={handleSearchSubmit}>
+              <div className="flex w-full min-w-[9rem] items-center rounded-md border border-border bg-muted/60 px-3 py-2 transition-all focus-within:bg-card focus-within:ring-2 focus-within:ring-ring sm:w-72 lg:w-96">
                 <Search className="h-4 w-4 text-muted-foreground" />
                 <input
                   type="search"
@@ -313,7 +313,7 @@ export function Layout() {
             </form>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4">
+          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-4">
             <button
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground"

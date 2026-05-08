@@ -6,7 +6,8 @@ import { getAiWritingSignal } from "../lib/aiWritingSignal";
 import { ScoreRing } from '../components/ScoreRing';
 import { 
   ArrowLeft, ThumbsUp, ThumbsDown,
-  CheckCircle, XCircle, Clock, Bot, FileText, Eye, Loader2
+  CheckCircle, XCircle, Clock, Bot, FileText, Eye, Loader2,
+  Link as LinkIcon, Mail, MapPin, Phone
 } from 'lucide-react';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer 
@@ -100,6 +101,12 @@ const candidateSelectWithInterviewQuestions =
 
 const candidateSelectWithOfferPreparation =
   `${candidateSelectWithInterviewQuestions}, offer_summary, offer_checklist, offer_outcome, offer_sent_at, offer_response_due_at`;
+
+const extractFirstUrl = (value?: string | null) =>
+  value?.match(/https?:\/\/[^\s)]+/i)?.[0]?.replace(/[.,;]+$/, "") ?? null;
+
+const extractPhone = (value?: string | null) =>
+  value?.match(/(?:\+?\d[\d\s().-]{7,}\d)/)?.[0]?.replace(/\s+/g, " ").trim() ?? null;
 
 export default function CandidateDetail() {
   const { id } = useParams();
@@ -341,6 +348,14 @@ export default function CandidateDetail() {
       ...(candidate?.offer_checklist ?? {}),
     }),
     [candidate],
+  );
+  const candidateSourceUrl = useMemo(
+    () => extractFirstUrl(candidate?.analysis_summary),
+    [candidate?.analysis_summary],
+  );
+  const candidatePhone = useMemo(
+    () => extractPhone(candidate?.analysis_summary),
+    [candidate?.analysis_summary],
   );
   const isInterviewStage = candidate?.stage === "Interview";
   const isOfferStage = candidate?.stage === "Offer" || candidate?.stage === "Accepted";
@@ -772,23 +787,57 @@ export default function CandidateDetail() {
   }
 
    return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
+    <div className="flex min-h-full flex-col bg-background">
       {/* Header */}
-      <div className="flex-none border-b border-border bg-card px-8 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+      <div className="flex-none border-b border-border bg-card px-4 py-4 sm:px-6 lg:px-8">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 items-start gap-3 sm:gap-4">
             <Link to={candidateBackPath} className="rounded-full p-2 text-muted-foreground hover:bg-muted">
               <ArrowLeft className="h-5 w-5" />
             </Link>
-            <div>
-              <h1 className="text-xl font-bold text-foreground">{candidate.full_name}</h1>
+            <div className="min-w-0">
+              <h1 className="break-words text-xl font-bold text-foreground">{candidate.full_name}</h1>
               <p className="text-sm text-muted-foreground">{t("appliedFor")} <span className="font-medium text-foreground">{candidate.job_title}</span></p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                {candidate.email ? (
+                  <a
+                    href={`mailto:${candidate.email}`}
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-1 hover:text-foreground"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    {candidate.email}
+                  </a>
+                ) : null}
+                {candidatePhone ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-1">
+                    <Phone className="h-3.5 w-3.5" />
+                    {candidatePhone}
+                  </span>
+                ) : null}
+                {candidate.location ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-1">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {candidate.location}
+                  </span>
+                ) : null}
+                {candidateSourceUrl ? (
+                  <a
+                    href={candidateSourceUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-1 hover:text-foreground"
+                  >
+                    <LinkIcon className="h-3.5 w-3.5" />
+                    {t("profileSource")}
+                  </a>
+                ) : null}
+              </div>
               {cvError ? (
                 <p className="mt-1 text-xs text-red-500">{cvError}</p>
               ) : null}
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-3 lg:gap-4">
             <Button
               type="button"
               variant="outline"
@@ -799,7 +848,7 @@ export default function CandidateDetail() {
               <FileText className="h-4 w-4" />
               {isOpeningCv ? t("openingCv") : t("showCv")}
             </Button>
-            <div className="min-w-44">
+            <div className="min-w-[11rem] flex-1 sm:flex-none">
               <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
                 {t("currentStage")}
               </p>
@@ -833,7 +882,7 @@ export default function CandidateDetail() {
                 </p>
               ) : null}
             </div>
-            <div className="max-w-56 text-right">
+            <div className="max-w-56 text-left sm:text-right">
               <p className="text-xs uppercase tracking-wide text-muted-foreground">
                 {t("aiReviewScore")}
               </p>
@@ -846,9 +895,9 @@ export default function CandidateDetail() {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col xl:flex-row xl:overflow-hidden">
         {/* Main Content (Scrollable) */}
-        <div className="flex-1 space-y-8 overflow-y-auto p-8">
+        <div className="flex-1 space-y-6 overflow-visible p-4 sm:p-6 xl:overflow-y-auto xl:p-8">
           {isJobClosedForCandidate ? (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
               To delovno mesto je zaprto ali zapolnjeno
@@ -864,7 +913,7 @@ export default function CandidateDetail() {
           ) : null}
            
            {/* Top Stats */}
-           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-6">
               <div className="surface-card p-6 lg:col-span-2">
                  <h2 className="mb-4 flex items-center text-lg font-semibold text-foreground">
                    <div className="mr-3 rounded-md bg-muted p-1.5 text-foreground">

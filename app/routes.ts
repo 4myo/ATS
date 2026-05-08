@@ -11,6 +11,7 @@ export default [
     route("applicants/:id", "routes/CandidateDetail.tsx"),
     route("jobs", "routes/Jobs.tsx"),
     route("jobs/:id", "routes/JobDetail.tsx"),
+    route("headhunter", "routes/Headhunter.tsx"),
     route("offers", "routes/Offers.tsx"),
     route("interviews", "routes/InterviewStudio.tsx"),
     route("pipeline", "routes/PipelineActivity.tsx"),

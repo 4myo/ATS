@@ -105,7 +105,7 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed }: Applic
           <button
             type="button"
             className="rounded-full p-1 text-muted-foreground hover:bg-red-500/10 hover:text-red-600"
-            aria-label="Delete applicant"
+            aria-label={t("deleteApplicant")}
             onClick={() => onDelete?.(applicant.id)}
           >
             <Trash2 className="h-4 w-4" />
@@ -117,11 +117,11 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed }: Applic
         <div className="flex flex-col space-y-1">
           <div className="flex items-center text-xs text-muted-foreground">
             <MapPin className="mr-1 h-3 w-3" />
-            {applicant.location || "Location pending"}
+            {applicant.location || t("locationPending")}
           </div>
           <div className="flex items-center text-xs text-muted-foreground">
             <Briefcase className="mr-1 h-3 w-3" />
-            {applicant.experience ?? 0}y Experience
+            {applicant.experience ?? 0} {t("yearsExperienceLabel")}
           </div>
         </div>
         <div className="flex flex-col items-end">

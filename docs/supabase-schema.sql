@@ -227,16 +227,30 @@ create policy "interview_recordings_delete_own" on storage.objects
     and auth.uid()::text = (storage.foldername(name))[1]
   );
 
--- Storage bucket: create a private bucket named "resumes".
--- Storage RLS policies (run in Storage -> Policies):
--- Allow users to insert/select/delete only their own files.
--- Example policy for objects (adjust if needed):
--- create policy "resumes_read_own" on storage.objects
---   for select using (bucket_id = 'resumes' and auth.uid() = owner);
--- create policy "resumes_write_own" on storage.objects
---   for insert with check (bucket_id = 'resumes' and auth.uid() = owner);
--- create policy "resumes_delete_own" on storage.objects
---   for delete using (bucket_id = 'resumes' and auth.uid() = owner);
+insert into storage.buckets (id, name, public)
+values ('resumes', 'resumes', false)
+on conflict (id) do nothing;
+
+create policy "resumes_read_own" on storage.objects
+  for select using (
+    bucket_id = 'resumes'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+create policy "resumes_write_own" on storage.objects
+  for insert with check (
+    bucket_id = 'resumes'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+create policy "resumes_update_own" on storage.objects
+  for update using (
+    bucket_id = 'resumes'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+create policy "resumes_delete_own" on storage.objects
+  for delete using (
+    bucket_id = 'resumes'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
 
 -- If you already created the candidates table earlier, run this ALTER block:
 -- alter table public.candidates

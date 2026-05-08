@@ -7,6 +7,7 @@ import {
   FileText,
   GitBranch,
   Mic,
+  UserSearch,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -21,6 +22,7 @@ export function Sidebar() {
     { to: '/', icon: LayoutDashboard, label: t("dashboard") },
     { to: '/applicants', icon: Users, label: t("applicants") },
     { to: '/jobs', icon: Briefcase, label: t("jobs") },
+    { to: '/headhunter', icon: UserSearch, label: t("headhunter") },
     { to: '/interviews', icon: Mic, label: t("interviews") },
     { to: '/offers', icon: FileText, label: t("offers") },
     { to: '/ai-agent', icon: Bot, label: t("aiAgent") },

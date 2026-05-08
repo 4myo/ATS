@@ -1,15 +1,36 @@
 // @ts-nocheck
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
-
 const supabaseUrl =
   Deno.env.get("SUPABASE_URL") || Deno.env.get("VITE_SUPABASE_URL") || "";
 const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const isOriginAllowed = (req: Request) => {
+  const origin = req.headers.get("origin");
+  return !origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin);
+};
+
+const getCorsHeaders = (req: Request) => {
+  const origin = req.headers.get("origin") || "";
+  const allowedOrigin =
+    allowedOrigins.length === 0 || allowedOrigins.includes(origin)
+      ? origin || "*"
+      : allowedOrigins[0];
+
+  return {
+    "Access-Control-Allow-Origin": allowedOrigin,
+    "Access-Control-Allow-Headers":
+      "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    "Cache-Control": "no-store",
+    Vary: "Origin",
+  };
+};
 
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
@@ -36,8 +57,20 @@ const getClientIp = (req: Request) => {
 };
 
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+    return new Response(isOriginAllowed(req) ? "ok" : "Forbidden", {
+      status: isOriginAllowed(req) ? 200 : 403,
+      headers: corsHeaders,
+    });
+  }
+
+  if (!isOriginAllowed(req)) {
+    return new Response("Forbidden origin", {
+      status: 403,
+      headers: corsHeaders,
+    });
   }
 
   if (req.method !== "POST") {

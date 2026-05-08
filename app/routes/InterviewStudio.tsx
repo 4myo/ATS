@@ -1364,8 +1364,8 @@ export default function InterviewStudio() {
         : "Izbriši izbrano";
 
   return (
-    <div className="flex h-[calc(100vh-7.5rem)] min-h-[620px] w-full max-w-full overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-sm">
-      <aside className="flex w-[min(21rem,36vw)] min-w-[18rem] shrink-0 flex-col overflow-x-hidden border-r border-border bg-card">
+    <div className="flex min-h-[calc(100dvh-7.5rem)] w-full max-w-full flex-col overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-sm lg:h-[calc(100vh-7.5rem)] lg:min-h-[620px] lg:flex-row">
+      <aside className="flex max-h-[46dvh] w-full shrink-0 flex-col overflow-x-hidden border-b border-border bg-card lg:max-h-none lg:w-[min(21rem,36vw)] lg:min-w-[18rem] lg:border-b-0 lg:border-r">
         <div className="border-b border-border p-4">
           <h1 className="text-xl font-semibold text-foreground">Studio razgovorov</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -1589,9 +1589,9 @@ export default function InterviewStudio() {
         </div>
       </aside>
 
-      <main className="relative min-w-0 flex-1 overflow-hidden bg-background">
-        <div className="absolute left-4 right-72 top-4 z-30 flex flex-wrap items-start gap-3">
-          <div className="max-w-[34rem] rounded-md border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-sm">
+      <main className="relative min-h-[54dvh] min-w-0 flex-1 overflow-hidden bg-background">
+        <div className="absolute left-3 right-3 top-3 z-30 flex flex-wrap items-start gap-2 lg:left-4 lg:right-72 lg:top-4 lg:gap-3">
+          <div className="max-w-full rounded-md border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-sm lg:max-w-[34rem]">
             {gridSize}px mreža · 5px premik · {nodes.length} elementov · {edges.length} povezav
             {" · "}
             {Math.round(viewport.zoom * 100)}%
@@ -1601,12 +1601,12 @@ export default function InterviewStudio() {
           </div>
           <Popover open={isCandidatePickerOpen} onOpenChange={setIsCandidatePickerOpen}>
             <PopoverTrigger asChild>
-              <Button type="button" className="min-w-48 justify-start gap-2 shadow-lg">
+              <Button type="button" className="min-w-0 flex-1 justify-start gap-2 shadow-lg sm:flex-none sm:min-w-48">
                 <UserPlus className="h-4 w-4" />
                 Dodaj kandidata
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80 p-0" align="center">
+            <PopoverContent className="w-[calc(100vw-2rem)] p-0 sm:w-80" align="center">
               <Command>
                 <CommandInput placeholder="Išči kandidata..." />
                 <CommandList>
@@ -1635,12 +1635,12 @@ export default function InterviewStudio() {
 
           <Popover open={isTranscriptPickerOpen} onOpenChange={setIsTranscriptPickerOpen}>
             <PopoverTrigger asChild>
-              <Button type="button" variant="outline" className="min-w-48 justify-start gap-2 bg-card/95 shadow-lg">
+              <Button type="button" variant="outline" className="min-w-0 flex-1 justify-start gap-2 bg-card/95 shadow-lg sm:flex-none sm:min-w-48">
                 <FileText className="h-4 w-4" />
                 Dodaj transkript
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-96 p-0" align="center">
+            <PopoverContent className="w-[calc(100vw-2rem)] p-0 sm:w-96" align="center">
               <Command>
                 <CommandInput placeholder="Išči transkript..." />
                 <CommandList>
@@ -1669,7 +1669,7 @@ export default function InterviewStudio() {
           </Popover>
         </div>
 
-        <div className="absolute right-4 top-4 z-30 w-60 rounded-md border border-border bg-card/95 p-3 shadow-lg backdrop-blur">
+        <div className="absolute bottom-3 left-3 right-3 z-30 rounded-md border border-border bg-card/95 p-3 shadow-lg backdrop-blur lg:bottom-auto lg:left-auto lg:right-4 lg:top-4 lg:w-60">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
             <Database className="h-4 w-4" />
             Mreža
@@ -1766,7 +1766,7 @@ export default function InterviewStudio() {
         </div>
 
         {message ? (
-          <div className="absolute bottom-4 right-4 z-20 max-w-md rounded-md border border-border bg-card/95 px-3 py-2 text-sm text-muted-foreground shadow-sm">
+          <div className="absolute bottom-28 left-3 right-3 z-20 rounded-md border border-border bg-card/95 px-3 py-2 text-sm text-muted-foreground shadow-sm lg:bottom-4 lg:left-auto lg:right-4 lg:max-w-md">
             {message}
           </div>
         ) : null}

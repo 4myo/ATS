@@ -115,12 +115,14 @@ export const openPrintableOffer = (document: OfferDocument) => {
 
   const blob = new Blob([printableHtml], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
-  const printWindow = window.open(url, "_blank");
+  const printWindow = window.open(url, "_blank", "noopener,noreferrer");
 
   if (!printWindow) {
     URL.revokeObjectURL(url);
     return false;
   }
+
+  printWindow.opener = null;
 
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 

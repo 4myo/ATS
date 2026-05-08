@@ -869,7 +869,7 @@ export default function Dashboard() {
             aiScore: Number(row.ats_score ?? 0),
             skills: row.skills ?? [],
             experience: Number(row.years_experience ?? 0),
-            location: row.location ?? "Location pending",
+            location: row.location ?? "",
             avatar: row.resume_preview_url ?? "",
             email: row.email ?? "",
             phone: "",

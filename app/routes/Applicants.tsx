@@ -235,7 +235,7 @@ export default function Applicants() {
       aiScore: row.ats_score ?? 0,
       skills: row.skills ?? [],
       experience: Number(row.years_experience ?? 0),
-      location: row.location ?? "Location pending",
+      location: row.location ?? "",
       avatar: row.resume_preview_url ?? "",
       email: row.email ?? "",
       phone: "",
@@ -643,7 +643,7 @@ export default function Applicants() {
                 aiScore: 0,
                 skills: [],
                 experience: 0,
-                location: "Location pending",
+                location: "",
                 avatar: item.previewUrl ?? "",
                 email: "",
                 phone: "",
@@ -663,7 +663,7 @@ export default function Applicants() {
                 aiScore: 0,
                 skills: [],
                 experience: 0,
-                location: "Location pending",
+                location: "",
                 avatar: item.previewUrl ?? "",
                 email: "",
                 phone: "",
@@ -748,7 +748,7 @@ export default function Applicants() {
           failedImports.length > 0
             ? "Uvoz končan z napakami."
             : queuedAnalyses.length > 0
-              ? "Uvoz končan. Nekatere AI analize čakajo na retry."
+              ? "Uvoz končan. Nekatere AI analize čakajo na ponovni poskus."
               : "Uvoz kandidatov končan.",
       });
       if (failedImports.length > 0) {

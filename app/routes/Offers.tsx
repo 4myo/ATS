@@ -613,7 +613,7 @@ export default function Offers() {
       ) : null}
 
       <div className="surface-card flex flex-wrap items-end gap-3 p-3">
-        <div className="grid min-w-[220px] gap-1.5">
+        <div className="grid min-w-[min(100%,13rem)] flex-1 gap-1.5 sm:flex-none">
           <Label>{t("filterByJob")}</Label>
           <Select value={jobFilter} onValueChange={setJobFilter}>
             <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
@@ -629,7 +629,7 @@ export default function Offers() {
             </SelectContent>
           </Select>
         </div>
-        <div className="grid min-w-[520px] flex-1 gap-1.5">
+        <div className="grid min-w-0 flex-[999_1_20rem] gap-1.5">
           <Label>{t("offerStatusFilters")}</Label>
           <div className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-border bg-background px-3 py-2 shadow-sm dark:bg-muted/30">
             <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
@@ -643,7 +643,7 @@ export default function Offers() {
               Ponudba
             </label>
             {offerStatusFilters.offer ? (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-l border-border pl-4">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-2 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
                   <Checkbox
                     className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
@@ -688,7 +688,7 @@ export default function Offers() {
             ) : null}
           </div>
         </div>
-        <div className="ml-auto grid min-w-[10rem] gap-1.5">
+        <div className="grid min-w-[min(100%,10rem)] flex-1 gap-1.5 sm:ml-auto sm:flex-none">
           <Label>Prikaz</Label>
           <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm dark:bg-muted/30">
             <Checkbox
@@ -731,7 +731,7 @@ export default function Offers() {
             return (
               <div
                 key={candidate.id}
-                className="surface-card grid gap-4 p-4 xl:grid-cols-[minmax(19rem,0.9fr)_minmax(28rem,1.25fr)_minmax(13rem,0.45fr)]"
+                className="surface-card grid gap-4 overflow-hidden p-4 xl:grid-cols-[minmax(19rem,0.9fr)_minmax(28rem,1.25fr)_minmax(13rem,0.45fr)]"
               >
                 <div className="flex min-w-0 items-center gap-4">
                   <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-gradient-to-br from-cyan-500/20 via-violet-500/20 to-emerald-500/20 text-lg font-semibold text-foreground">
