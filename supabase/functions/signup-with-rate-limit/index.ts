@@ -9,15 +9,39 @@ const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") || "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const isWildcardOriginMatch = (pattern: string, origin: string) => {
+  if (!pattern.includes("*")) return pattern === origin;
+  const escapedPattern = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*");
+  return new RegExp(`^${escapedPattern}$`).test(origin);
+};
+
+const isKnownDeploymentOrigin = (origin: string) => {
+  try {
+    const hostname = new URL(origin).hostname;
+    return hostname.endsWith(".netlify.app") || hostname.endsWith(".netlify.live");
+  } catch (_error) {
+    return false;
+  }
+};
+
 const isOriginAllowed = (req: Request) => {
   const origin = req.headers.get("origin");
-  return !origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin);
+  return (
+    !origin ||
+    allowedOrigins.length === 0 ||
+    allowedOrigins.some((allowedOrigin) =>
+      isWildcardOriginMatch(allowedOrigin, origin),
+    ) ||
+    isKnownDeploymentOrigin(origin)
+  );
 };
 
 const getCorsHeaders = (req: Request) => {
   const origin = req.headers.get("origin") || "";
   const allowedOrigin =
-    allowedOrigins.length === 0 || allowedOrigins.includes(origin)
+    !origin || isOriginAllowed(req)
       ? origin || "*"
       : allowedOrigins[0];
 

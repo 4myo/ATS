@@ -42,7 +42,6 @@ export async function convertPdfToImage(
   file: File,
 ): Promise<PdfConversionResult> {
   try {
-    const { createWorker } = await import("tesseract.js");
     const lib = await loadPdfJs();
 
     const arrayBuffer = await file.arrayBuffer();
@@ -74,14 +73,19 @@ export async function convertPdfToImage(
 
     const dataUrl = canvas.toDataURL("image/png");
     const originalName = file.name.replace(/\.pdf$/i, "");
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((nextBlob) => {
+        if (nextBlob) resolve(nextBlob);
+        else reject(new Error("Could not create PDF preview image."));
+      }, "image/png");
+    });
     const imageFile = new File([blob], `${originalName}.png`, {
       type: "image/png",
     });
 
     let ocrText = "";
     try {
+      const { createWorker } = await import("tesseract.js");
       const worker = await createWorker("eng");
       const result = await worker.recognize(dataUrl);
       ocrText = result.data.text ?? "";

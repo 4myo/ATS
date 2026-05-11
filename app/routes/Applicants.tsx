@@ -680,24 +680,39 @@ export default function Applicants() {
             });
 
             const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`;
-            const analysisResponse = await fetch(functionUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${sessionData.session.access_token}`,
-                apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-              },
-              body: JSON.stringify({
-              candidateId: inserted.id,
-              jobId: selectedJobId,
-              jobTitle: latestJobTitle,
-              jobDescription: latestJobDescription,
-              resumeText: normalizedResumeText,
-              }),
-            });
+            let analysisMessage = "";
+            let shouldQueueAnalysis = false;
 
-            if (!analysisResponse.ok) {
-              const analysisMessage = await analysisResponse.text();
+            try {
+              const analysisResponse = await fetch(functionUrl, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${sessionData.session.access_token}`,
+                  apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+                },
+                body: JSON.stringify({
+                  candidateId: inserted.id,
+                  jobId: selectedJobId,
+                  jobTitle: latestJobTitle,
+                  jobDescription: latestJobDescription,
+                  resumeText: normalizedResumeText,
+                }),
+              });
+
+              if (!analysisResponse.ok) {
+                analysisMessage = await analysisResponse.text();
+                shouldQueueAnalysis = true;
+              }
+            } catch (analysisError) {
+              analysisMessage =
+                analysisError instanceof Error
+                  ? analysisError.message
+                  : t("analysisQueuedForRetry");
+              shouldQueueAnalysis = true;
+            }
+
+            if (shouldQueueAnalysis) {
               await supabase
                 .from("candidates")
                 .update({ analysis_status: "pending_ai" })
@@ -710,7 +725,7 @@ export default function Applicants() {
                 jobTitle: latestJobTitle,
                 jobDescription: latestJobDescription,
                 resumeText: normalizedResumeText,
-                lastError: analysisMessage || analysisResponse.statusText,
+                lastError: analysisMessage || t("analysisQueuedForRetry"),
               });
               queuedAnalyses.push(item.candidateName.trim());
               updateCandidateImportProgress({
