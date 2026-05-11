@@ -13,6 +13,12 @@ import {
   UserPlus,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "../components/ui/accordion";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import {
@@ -66,6 +72,10 @@ const sourceOptions: Array<{ value: SourcingSource; en: string; sl: string }> = 
   { value: "manual", en: "Manual note", sl: "Ročni vnos" },
 ];
 
+const manualSourceOptions = sourceOptions.filter(
+  (option) => option.value !== "csv" && option.value !== "github",
+);
+
 const statusOptions: Array<{ value: SourcingStatus; en: string; sl: string }> = [
   { value: "new", en: "Found", sl: "Najden" },
   { value: "reviewed", en: "Reviewed", sl: "Pregledan" },
@@ -94,6 +104,9 @@ const copy = {
     manualTitle: "Add lead manually",
     manualSubtitle:
       "Use this for LinkedIn, X, portfolios, referrals, and anything found outside official APIs.",
+    advancedTitle: "Advanced sourcing",
+    advancedSubtitle:
+      "Use GitHub search for developer profiles and CSV only when importing several leads at once or migrating a list.",
     name: "Name",
     namePlaceholder: "e.g. Ana Novak",
     headline: "Role / headline",
@@ -104,6 +117,8 @@ const copy = {
     skills: "Skills",
     skillsPlaceholder: "Revit, BIM, TypeScript...",
     notes: "Recruiter note",
+    leadFindings: "Talent findings",
+    leadFindingsPlaceholder: "Add new findings, response after contact, consent, or application context...",
     addLead: "Add lead",
     githubTitle: "Free GitHub search",
     githubSubtitle:
@@ -125,7 +140,9 @@ const copy = {
     candidateCreateFailed: "Candidate could not be created.",
     candidateAlreadyCreated: "Candidate already created",
     candidateJob: "Candidate job",
-    candidateJobFallback: "Use lead headline",
+    chooseCandidateJob: "Choose an existing job",
+    candidateJobRequired: "Choose the candidate job before creating a candidate.",
+    noJobsAvailable: "Create a job before converting a lead into a candidate.",
     signedInRequired: "You must be signed in to create a candidate.",
     contactExtracted: "Contact extracted",
     contactMissing: "No contact detected",
@@ -177,6 +194,9 @@ const copy = {
     manualTitle: "Ročno dodaj talent",
     manualSubtitle:
       "Uporabi za LinkedIn, X, portfolije, priporočila in vse vire zunaj uradnih API-jev.",
+    advancedTitle: "Napredne oblike dodajanja",
+    advancedSubtitle:
+      "GitHub uporabi za razvijalske profile, CSV pa predvsem za uvoz več talentov hkrati ali migracijo seznama.",
     name: "Ime",
     namePlaceholder: "npr. Ana Novak",
     headline: "Naziv / profil",
@@ -187,6 +207,8 @@ const copy = {
     skills: "Veščine",
     skillsPlaceholder: "Revit, BIM, TypeScript...",
     notes: "Opomba rekruterja",
+    leadFindings: "Ugotovitve o talentu",
+    leadFindingsPlaceholder: "Dodaj nove ugotovitve, odziv po kontaktu, soglasje ali kontekst prijave...",
     addLead: "Dodaj talent",
     githubTitle: "Brezplačno GitHub iskanje",
     githubSubtitle:
@@ -208,7 +230,9 @@ const copy = {
     candidateCreateFailed: "Kandidata ni bilo mogoče ustvariti.",
     candidateAlreadyCreated: "Kandidat je že ustvarjen",
     candidateJob: "Delovno mesto kandidata",
-    candidateJobFallback: "Uporabi naziv talenta",
+    chooseCandidateJob: "Izberi obstoječe delovno mesto",
+    candidateJobRequired: "Pred ustvarjanjem kandidata izberi delovno mesto.",
+    noJobsAvailable: "Pred pretvorbo talenta v kandidata najprej ustvari delovno mesto.",
     signedInRequired: "Za ustvarjanje kandidata moraš biti prijavljen.",
     contactExtracted: "Kontakt izluščen",
     contactMissing: "Kontakt ni zaznan",
@@ -381,7 +405,7 @@ export default function Headhunter() {
   const cachedJobOptions = getCachedJobOptions();
   const [leads, setLeads] = useState<SourcingLead[]>([]);
   const [jobs, setJobs] = useState<CachedJobOption[]>(cachedJobOptions?.jobs ?? []);
-  const [selectedJobTitle, setSelectedJobTitle] = useState<string>("__lead_headline__");
+  const [candidateJobByLeadId, setCandidateJobByLeadId] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState<ManualDraft>(emptyDraft);
   const [leadSearch, setLeadSearch] = useState("");
   const [sourceFilter, setSourceFilter] = useState<SourcingSource | "all">("all");
@@ -420,10 +444,6 @@ export default function Headhunter() {
         const nextJobs = await fetchJobOptions({ force: !cachedJobOptions });
         if (!isMounted) return;
         setJobs(nextJobs);
-        const firstActiveJob = nextJobs.find((job) => (job.status ?? "active") === "active");
-        if (firstActiveJob && selectedJobTitle === "__lead_headline__") {
-          setSelectedJobTitle(firstActiveJob.title);
-        }
       } catch (_error) {
         if (isMounted) setJobs(cachedJobOptions?.jobs ?? []);
       }
@@ -732,6 +752,10 @@ export default function Headhunter() {
     setLeads(updateSourcingLead(leadId, { status }));
   };
 
+  const handleLeadNotesChange = (leadId: string, notes: string) => {
+    setLeads(updateSourcingLead(leadId, { notes }));
+  };
+
   const handleDeleteLead = (leadId: string) => {
     setLeads(deleteSourcingLead(leadId));
   };
@@ -755,10 +779,13 @@ export default function Headhunter() {
         email: lead.email ?? extractContact(lead).email,
         phone: lead.phone ?? extractContact(lead).phone,
       };
-      const jobTitle =
-        selectedJobTitle === "__lead_headline__"
-          ? lead.headline || c.fallbackJobTitle
-          : selectedJobTitle;
+      const jobTitle = candidateJobByLeadId[lead.id] ?? "";
+      if (!jobs.length) {
+        throw new Error(c.noJobsAvailable);
+      }
+      if (!jobTitle) {
+        throw new Error(c.candidateJobRequired);
+      }
       const summary = buildSourcingSummary(lead, contact, c, language);
       const createdAt = new Date().toISOString();
 
@@ -773,7 +800,7 @@ export default function Headhunter() {
           location: lead.location || null,
           years_experience: 0,
           skills: lead.skills,
-          ats_score: 0,
+          ats_score: null,
           analysis_summary: summary,
           analysis_strengths: [
             `${c.candidateStrength} ${labelForSource(lead.source, language)}.`,
@@ -781,7 +808,7 @@ export default function Headhunter() {
           analysis_concerns: [
             c.candidateConcern,
           ],
-          analysis_status: "complete",
+          analysis_status: "pending_ai",
         })
         .select("id")
         .single();
@@ -803,7 +830,7 @@ export default function Headhunter() {
           name: lead.name,
           role: jobTitle,
           stage: "Applied",
-          analysisStatus: "complete",
+          analysisStatus: "pending_ai",
           createdAt,
           aiScore: 0,
           skills: lead.skills,
@@ -941,7 +968,7 @@ export default function Headhunter() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {sourceOptions.map((option) => (
+                      {manualSourceOptions.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option[language]}
                         </SelectItem>
@@ -1007,196 +1034,218 @@ export default function Headhunter() {
           </section>
 
           <section className="surface-card p-5">
-            <h2 className="text-lg font-semibold text-foreground">{c.csvTitle}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">{c.csvSubtitle}</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <input
-                ref={csvInputRef}
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={importCsv}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                onClick={() => csvInputRef.current?.click()}
-              >
-                <Upload className="h-4 w-4" />
-                {c.importCsv}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                disabled={leads.length === 0}
-                onClick={exportCsv}
-              >
-                <Download className="h-4 w-4" />
-                {c.exportCsv}
-              </Button>
-            </div>
+            <h2 className="text-lg font-semibold text-foreground">{c.advancedTitle}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{c.advancedSubtitle}</p>
+
+            <Accordion type="multiple" className="mt-3">
+              <AccordionItem value="github">
+                <AccordionTrigger className="hover:no-underline">
+                  <span className="inline-flex items-center gap-2">
+                    <Github className="h-4 w-4" />
+                    {c.githubTitle}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="rounded-md border border-border bg-muted/25 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <p className="text-sm text-muted-foreground">{c.githubSubtitle}</p>
+                      {githubRateInfo ? (
+                        <span className="shrink-0 rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                          {c.githubRemaining}: {githubRateInfo.remaining ?? "?"}
+                          {formattedGithubReset
+                            ? ` · ${c.githubReset} ${formattedGithubReset}`
+                            : ""}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 grid gap-3">
+                      <div className="grid gap-2">
+                        <Label htmlFor="github-query">{c.githubQuery}</Label>
+                        <Input
+                          id="github-query"
+                          value={githubQuery}
+                          placeholder={c.githubQueryPlaceholder}
+                          onChange={(event) => setGithubQuery(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") void searchGithub();
+                          }}
+                        />
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="grid gap-2">
+                          <Label htmlFor="github-skill">{c.githubSkill}</Label>
+                          <Input
+                            id="github-skill"
+                            value={githubSkill}
+                            placeholder="typescript"
+                            onChange={(event) => setGithubSkill(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") void searchGithub();
+                            }}
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="github-location">{c.githubLocation}</Label>
+                          <Input
+                            id="github-location"
+                            value={githubLocation}
+                            placeholder={c.githubLocationPlaceholder}
+                            onChange={(event) => setGithubLocation(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") void searchGithub();
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Button
+                          type="button"
+                          className="gap-2"
+                          disabled={isSearchingGithub || !hasGithubSearchInput}
+                          onClick={() => void searchGithub()}
+                        >
+                          <Search className="h-4 w-4" />
+                          {isSearchingGithub ? "..." : c.searchGithub}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="gap-2"
+                          disabled={!hasGithubSearchInput}
+                          onClick={openGithubSearch}
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          {c.openGithubSearch}
+                        </Button>
+                      </div>
+                    </div>
+
+                    {hasGithubSearchInput ? (
+                      <div className="mt-3 rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                        {c.githubQueryUsed}:{" "}
+                        <span className="font-mono text-foreground">
+                          {buildGithubSearchQuery()}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    {githubError ? <p className="mt-3 text-sm text-red-500">{githubError}</p> : null}
+
+                    <div className="mt-4 grid gap-3">
+                      {githubResults.length === 0 && !isSearchingGithub ? (
+                        <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+                          {hasSearchedGithub ? c.githubNoResults : c.githubEmpty}
+                          {githubQueryUsed ? (
+                            <span className="mt-2 block text-xs">
+                              {c.githubQueryUsed}:{" "}
+                              <span className="font-mono text-foreground">{githubQueryUsed}</span>
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {githubResults.map((result) => (
+                        <div key={result.id} className="rounded-md border border-border bg-card p-4">
+                          <div className="flex items-start gap-3">
+                            <img
+                              src={result.avatar_url}
+                              alt={result.login}
+                              className="h-11 w-11 rounded-md border border-border object-cover"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold text-foreground">
+                                    {result.login}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {labelForGithubType(result.type, c)}
+                                  </p>
+                                </div>
+                                <a
+                                  href={result.html_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                  aria-label={result.html_url}
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </a>
+                              </div>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-2"
+                                  onClick={() => importGithubLead(result)}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                  {c.importLead}
+                                </Button>
+                                <span className="text-xs text-muted-foreground">
+                                  {c.githubScore} {Math.round(result.score)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="csv">
+                <AccordionTrigger className="hover:no-underline">
+                  <span className="inline-flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    {c.csvTitle}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="rounded-md border border-border bg-muted/25 p-4">
+                    <p className="text-sm text-muted-foreground">{c.csvSubtitle}</p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <input
+                        ref={csvInputRef}
+                        type="file"
+                        accept=".csv,text/csv"
+                        className="hidden"
+                        onChange={importCsv}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => csvInputRef.current?.click()}
+                      >
+                        <Upload className="h-4 w-4" />
+                        {c.importCsv}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="gap-2"
+                        disabled={leads.length === 0}
+                        onClick={exportCsv}
+                      >
+                        <Download className="h-4 w-4" />
+                        {c.exportCsv}
+                      </Button>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </section>
         </div>
 
         <div className="space-y-5">
           <section className="surface-card p-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted text-foreground">
-                  <Github className="h-5 w-5" />
-                </span>
-                <div>
-                  <h2 className="text-lg font-semibold text-foreground">{c.githubTitle}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{c.githubSubtitle}</p>
-                </div>
-              </div>
-              {githubRateInfo ? (
-                <span className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                  {c.githubRemaining}: {githubRateInfo.remaining ?? "?"}
-                  {formattedGithubReset
-                    ? ` · ${c.githubReset} ${formattedGithubReset}`
-                    : ""}
-                </span>
-              ) : null}
-            </div>
-
-            <div className="mt-5 grid gap-3 lg:grid-cols-[minmax(12rem,1fr)_minmax(9rem,0.5fr)_minmax(9rem,0.5fr)_auto_auto]">
-              <div className="grid gap-2">
-                <Label htmlFor="github-query">{c.githubQuery}</Label>
-                <Input
-                  id="github-query"
-                  value={githubQuery}
-                  placeholder={c.githubQueryPlaceholder}
-                  onChange={(event) => setGithubQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void searchGithub();
-                  }}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="github-skill">{c.githubSkill}</Label>
-                <Input
-                  id="github-skill"
-                  value={githubSkill}
-                  placeholder="typescript"
-                  onChange={(event) => setGithubSkill(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void searchGithub();
-                  }}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="github-location">{c.githubLocation}</Label>
-                <Input
-                  id="github-location"
-                  value={githubLocation}
-                  placeholder={c.githubLocationPlaceholder}
-                  onChange={(event) => setGithubLocation(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void searchGithub();
-                  }}
-                />
-              </div>
-              <div className="flex items-end">
-                <Button
-                  type="button"
-                  className="w-full gap-2"
-                  disabled={isSearchingGithub || !hasGithubSearchInput}
-                  onClick={() => void searchGithub()}
-                >
-                  <Search className="h-4 w-4" />
-                  {isSearchingGithub ? "..." : c.searchGithub}
-                </Button>
-              </div>
-              <div className="flex items-end">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full gap-2"
-                  disabled={!hasGithubSearchInput}
-                  onClick={openGithubSearch}
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  {c.openGithubSearch}
-                </Button>
-              </div>
-            </div>
-
-            {hasGithubSearchInput ? (
-              <div className="mt-3 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                {c.githubQueryUsed}:{" "}
-                <span className="font-mono text-foreground">{buildGithubSearchQuery()}</span>
-              </div>
-            ) : null}
-
-            {githubError ? <p className="mt-3 text-sm text-red-500">{githubError}</p> : null}
-
-            <div className="mt-5 grid gap-3 md:grid-cols-2">
-              {githubResults.length === 0 && !isSearchingGithub ? (
-                <div className="rounded-md border border-dashed border-border p-6 text-sm text-muted-foreground md:col-span-2">
-                  {hasSearchedGithub ? c.githubNoResults : c.githubEmpty}
-                  {githubQueryUsed ? (
-                    <span className="mt-2 block text-xs">
-                      {c.githubQueryUsed}:{" "}
-                      <span className="font-mono text-foreground">{githubQueryUsed}</span>
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {githubResults.map((result) => (
-                <div key={result.id} className="rounded-md border border-border bg-card p-4">
-                  <div className="flex items-start gap-3">
-                    <img
-                      src={result.avatar_url}
-                      alt={result.login}
-                      className="h-11 w-11 rounded-md border border-border object-cover"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-foreground">{result.login}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {labelForGithubType(result.type, c)}
-                          </p>
-                        </div>
-                        <a
-                          href={result.html_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
-                          aria-label={result.html_url}
-                        >
-                          <ExternalLink className="h-4 w-4" />
-                        </a>
-                      </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          onClick={() => importGithubLead(result)}
-                        >
-                          <Plus className="h-4 w-4" />
-                          {c.importLead}
-                        </Button>
-                        <span className="text-xs text-muted-foreground">
-                          {c.githubScore} {Math.round(result.score)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="surface-card p-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <h2 className="text-lg font-semibold text-foreground">{c.leadsTitle}</h2>
-              <div className="grid gap-2 sm:grid-cols-2 xl:w-[48rem] xl:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-2 xl:w-[40rem] xl:grid-cols-3">
                 <Input
                   type="search"
                   value={leadSearch}
@@ -1231,24 +1280,6 @@ export default function Headhunter() {
                     {statusOptions.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option[language]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={selectedJobTitle}
-                  onValueChange={setSelectedJobTitle}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={c.candidateJob} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__lead_headline__">
-                      {c.candidateJobFallback}
-                    </SelectItem>
-                    {jobs.map((job) => (
-                      <SelectItem key={job.id} value={job.title}>
-                        {job.title}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1297,10 +1328,8 @@ export default function Headhunter() {
                         </span>
                       ))}
                     </div>
-                    {lead.location || lead.notes ? (
-                      <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
-                        {[lead.location, lead.notes].filter(Boolean).join(" · ")}
-                      </p>
+                    {lead.location ? (
+                      <p className="mt-3 text-sm text-muted-foreground">{lead.location}</p>
                     ) : null}
                     <p className="mt-2 text-xs text-muted-foreground">
                       {lead.email || lead.phone ? (
@@ -1311,6 +1340,18 @@ export default function Headhunter() {
                         c.contactMissing
                       )}
                     </p>
+                    <div className="mt-4 grid gap-2">
+                      <Label htmlFor={`lead-notes-${lead.id}`}>{c.leadFindings}</Label>
+                      <Textarea
+                        id={`lead-notes-${lead.id}`}
+                        value={lead.notes}
+                        placeholder={c.leadFindingsPlaceholder}
+                        className="min-h-24"
+                        onChange={(event) =>
+                          handleLeadNotesChange(lead.id, event.target.value)
+                        }
+                      />
+                    </div>
                   </div>
 
                   <div className="grid content-start gap-2">
@@ -1331,6 +1372,35 @@ export default function Headhunter() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {!lead.candidateId ? (
+                      <div className="grid gap-2">
+                        <Label>{c.candidateJob}</Label>
+                        <Select
+                          value={candidateJobByLeadId[lead.id]}
+                          onValueChange={(value) =>
+                            setCandidateJobByLeadId((current) => ({
+                              ...current,
+                              [lead.id]: value,
+                            }))
+                          }
+                          disabled={jobs.length === 0}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder={c.chooseCandidateJob} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {jobs.map((job) => (
+                              <SelectItem key={job.id} value={job.title}>
+                                {job.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {jobs.length === 0 ? (
+                          <p className="text-xs text-amber-600">{c.noJobsAvailable}</p>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <p className="text-xs text-muted-foreground">{lead.evidence}</p>
                   </div>
 

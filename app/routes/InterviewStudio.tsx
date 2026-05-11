@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   Database,
   FileText,
+  Info,
   Link2,
   LoaderCircle,
   Mic,
@@ -56,6 +57,7 @@ import {
 } from "../components/ui/select";
 import { Textarea } from "../components/ui/textarea";
 import { supabase } from "../lib/supabase";
+import { syncCandidateTranscriptLinks } from "../lib/interviewTranscriptLinks";
 
 type StudioCandidate = {
   id: string;
@@ -418,6 +420,7 @@ export default function InterviewStudio() {
   const [savedTranscripts, setSavedTranscripts] = useState<SavedTranscript[]>([]);
   const [isCandidatePickerOpen, setIsCandidatePickerOpen] = useState(false);
   const [isTranscriptPickerOpen, setIsTranscriptPickerOpen] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingBlobRef = useRef<Blob | null>(null);
@@ -682,6 +685,23 @@ export default function InterviewStudio() {
       return;
     }
 
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const candidateTranscriptPairs = edges
+      .map((edge) => {
+        const left = nodeById.get(edge.fromNodeId);
+        const right = nodeById.get(edge.toNodeId);
+        const candidateNode =
+          left?.type === "candidate" ? left : right?.type === "candidate" ? right : null;
+        const transcriptNode =
+          left?.type === "transcript" ? left : right?.type === "transcript" ? right : null;
+
+        return {
+          candidateId: candidateNode?.candidateId ?? "",
+          transcriptId: transcriptNode?.transcriptId ?? "",
+        };
+      })
+      .filter((pair) => pair.candidateId && pair.transcriptId);
+
     const { data, error } = await supabase
       .from("interview_studio_boards")
       .upsert(
@@ -715,7 +735,27 @@ export default function InterviewStudio() {
     setBoardTableMissing(false);
     setBoardId(data.id);
     setLastSavedAt(data.updated_at ?? new Date().toISOString());
-    setMessage("Mreža razgovorov je shranjena.");
+
+    const linkResult = await syncCandidateTranscriptLinks({
+      userId,
+      candidateTranscriptPairs,
+    });
+
+    if (linkResult.missingTable) {
+      setMessage(
+        "Mreža razgovorov je shranjena. Za samodejni prikaz transkriptov pri kandidatu zaženite še SQL za candidate_interview_transcripts.",
+      );
+      return;
+    }
+
+    if (!linkResult.ok) {
+      setMessage(
+        `Mreža je shranjena, vezava transkriptov na kandidata pa ni uspela: ${linkResult.error?.message}`,
+      );
+      return;
+    }
+
+    setMessage("Mreža razgovorov je shranjena, transkripti pa so vezani na kandidate.");
   };
 
   const startRecording = async () => {
@@ -1181,6 +1221,7 @@ export default function InterviewStudio() {
       ]);
       setSelectedEdgeId(edgeId);
       setSelectedNodeId(null);
+      setMessage("Povezava je dodana. Kliknite Shrani mrežo, da se prikaže na profilu kandidata.");
     }
 
     setConnectingFromNodeId(null);
@@ -1372,11 +1413,76 @@ export default function InterviewStudio() {
     <div className="flex min-h-[calc(100dvh-7.5rem)] w-full max-w-full flex-col overflow-hidden rounded-md border border-border bg-card text-card-foreground shadow-sm lg:h-[calc(100vh-7.5rem)] lg:min-h-[620px] lg:flex-row">
       <aside className="flex max-h-[34dvh] w-full shrink-0 flex-col overflow-x-hidden border-b border-border bg-card sm:max-h-[40dvh] lg:max-h-none lg:w-[min(21rem,36vw)] lg:min-w-[18rem] lg:border-b-0 lg:border-r">
         <div className="border-b border-border p-4">
-          <h1 className="text-xl font-semibold text-foreground">Studio razgovorov</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Posnemite razgovor, ustvarite transkript in ga ročno povežite s kandidatom.
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-semibold text-foreground">Studio razgovorov</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Posnemite razgovor, ustvarite transkript in ga ročno povežite s kandidatom.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="Prikaži vodič"
+              onClick={() => setIsGuideOpen(true)}
+            >
+              <Info className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
+
+        <Dialog open={isGuideOpen} onOpenChange={setIsGuideOpen}>
+          <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Kako uporabljati Razgovore</DialogTitle>
+              <DialogDescription>
+                Potek je ročen zato, da se transkript ne pripiše napačnemu kandidatu.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              {[
+                {
+                  title: "1. Ustvari transkript",
+                  body: "Posnemite razgovor ali prilepite ročni transkript. Pri posnetku najprej shranite posnetek, nato po potrebi zaženite transkripcijo.",
+                  visual: "Transkript",
+                },
+                {
+                  title: "2. Dodaj elemente na mrežo",
+                  body: "Z gumboma Dodaj kandidata in Dodaj transkript izberite prava elementa. Oba morata biti vidna na mreži.",
+                  visual: "Kandidat + transkript",
+                },
+                {
+                  title: "3. Poveži in shrani",
+                  body: "Kliknite Poveži na kandidatu, nato Poveži na transkriptu. Na koncu kliknite Shrani mrežo, da se povezava pokaže na profilu kandidata.",
+                  visual: "Shrani mrežo",
+                },
+              ].map((step) => (
+                <div key={step.title} className="rounded-md border border-border bg-muted/30 p-4">
+                  <div className="mb-3 flex h-24 items-center justify-center rounded-md border border-dashed border-border bg-background text-center text-sm font-semibold text-muted-foreground">
+                    {step.visual}
+                  </div>
+                  <h3 className="text-sm font-semibold text-foreground">{step.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    {step.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-md border border-cyan-200 bg-cyan-50 p-4 text-sm leading-relaxed text-cyan-950">
+              Ko je mreža shranjena, kandidatov profil prikaže povezane transkripte in primerjavo
+              <strong> samo CV</strong> proti <strong>CV + razgovor</strong>. Enak kombiniran signal se pokaže tudi na strani delovnega mesta.
+            </div>
+
+            <DialogFooter>
+              <Button type="button" onClick={() => setIsGuideOpen(false)}>
+                Razumem
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden p-4">
           <section className="grid gap-3">

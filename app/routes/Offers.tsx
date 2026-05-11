@@ -31,6 +31,8 @@ type OfferCandidate = {
   stage: string | null;
   email: string | null;
   ats_score: number | null;
+  interview_analysis_status?: string | null;
+  interview_analysis_score?: number | null;
   offer_checklist: Record<string, boolean> | null;
   offer_outcome: string | null;
   offer_sent_at: string | null;
@@ -42,6 +44,8 @@ type CandidateWithDocument = OfferCandidate & {
 };
 
 const candidateSelect =
+  "id, full_name, job_title, stage, email, ats_score, interview_analysis_status, interview_analysis_score, offer_checklist, offer_outcome, offer_sent_at, offer_summary";
+const candidateSelectWithoutInterviewAnalysis =
   "id, full_name, job_title, stage, email, ats_score, offer_checklist, offer_outcome, offer_sent_at, offer_summary";
 
 const getInitials = (name: string) =>
@@ -180,11 +184,27 @@ export default function Offers() {
     setIsLoading(true);
     setError(null);
 
-    const { data: candidateRows, error: candidateError } = await supabase
+    const candidateResult = await supabase
       .from("candidates")
       .select(candidateSelect)
       .in("stage", ["Offer", "Accepted", "Rejected"])
       .order("created_at", { ascending: false });
+    let candidateRows = candidateResult.data as Array<Record<string, unknown>> | null;
+    let candidateError = candidateResult.error;
+
+    if (
+      candidateError &&
+      (candidateError.message?.includes("interview_analysis") ||
+        candidateError.details?.includes("interview_analysis"))
+    ) {
+      const retry = await supabase
+        .from("candidates")
+        .select(candidateSelectWithoutInterviewAnalysis)
+        .in("stage", ["Offer", "Accepted", "Rejected"])
+        .order("created_at", { ascending: false });
+      candidateRows = retry.data as Array<Record<string, unknown>> | null;
+      candidateError = retry.error;
+    }
 
     if (candidateError) {
       setCandidates([]);
@@ -726,6 +746,11 @@ export default function Offers() {
               candidate.ats_score == null
                 ? null
                 : Math.round(Number(candidate.ats_score));
+            const interviewAnalysisScore =
+              candidate.interview_analysis_status === "complete" &&
+              candidate.interview_analysis_score != null
+                ? Math.round(Number(candidate.interview_analysis_score))
+                : null;
             const statusLabel = getOfferStatusLabel(candidate, t);
 
             return (
@@ -761,6 +786,14 @@ export default function Offers() {
                         {atsScore == null ? "-" : `${atsScore}%`}
                       </span>
                     </p>
+                    {interviewAnalysisScore != null ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        CV + razgovor AI
+                        <span className="ml-2 font-semibold text-cyan-600 dark:text-cyan-300">
+                          {interviewAnalysisScore}%
+                        </span>
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 

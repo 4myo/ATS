@@ -21,6 +21,9 @@ import { updateCachedApplicants } from "../lib/candidateListCache";
 import { syncJobStatusForTitle, updateCachedJobList } from "../lib/jobCache";
 import { useI18n } from "../lib/i18n";
 import { logActivityEvent } from "../lib/activityLog";
+import {
+  fetchLinkedCandidateTranscripts,
+} from "../lib/interviewTranscriptLinks";
 
 type JobDetailRecord = {
   id: string;
@@ -39,6 +42,10 @@ type JobCandidate = {
   name: string;
   stage: Stage;
   aiScore: number;
+  skills: string[];
+  interviewScore: number | null;
+  combinedScore: number | null;
+  transcriptCount: number;
 };
 
 const jobTypeOptions = [
@@ -91,22 +98,61 @@ export default function JobDetail() {
         return;
       }
 
-      const { data: candidateRows } = await supabase
+      const candidateResult = await supabase
         .from("candidates")
-        .select("id, full_name, job_title, stage, email, resume_path, ats_score, created_at")
+        .select("id, full_name, job_title, stage, email, resume_path, ats_score, skills, interview_analysis_score, interview_analysis_status, created_at")
         .eq("job_title", data.title)
         .order("created_at", { ascending: false });
+      let candidateRows = candidateResult.data as Array<Record<string, unknown>> | null;
+      let candidateError = candidateResult.error;
+
+      if (
+        candidateError &&
+        (candidateError.message?.includes("interview_analysis") ||
+          candidateError.details?.includes("interview_analysis"))
+      ) {
+        const retry = await supabase
+          .from("candidates")
+          .select("id, full_name, job_title, stage, email, resume_path, ats_score, skills, created_at")
+          .eq("job_title", data.title)
+          .order("created_at", { ascending: false });
+        candidateRows = retry.data as Array<Record<string, unknown>> | null;
+        candidateError = retry.error;
+      }
 
       if (!isMounted) return;
 
-      const nextCandidates = dedupeCandidateRows(
+      const baseCandidates = dedupeCandidateRows(
         (candidateRows ?? []) as Array<Record<string, unknown>>,
       ).map((candidate) => ({
           id: candidate.id as string,
           name: (candidate.full_name as string | null | undefined) ?? t("candidate"),
           stage: (candidate.stage as Stage) ?? "Applied",
           aiScore: Number(candidate.ats_score ?? 0),
+          skills: Array.isArray(candidate.skills)
+            ? candidate.skills.map((skill) => String(skill))
+            : [],
+          interviewScore:
+            candidate.interview_analysis_status === "complete"
+              ? Number(candidate.interview_analysis_score ?? 0)
+              : null,
+          combinedScore:
+            candidate.interview_analysis_status === "complete"
+              ? Number(candidate.interview_analysis_score ?? 0)
+              : null,
+          transcriptCount: 0,
       }));
+      const linkedByCandidate = await fetchLinkedCandidateTranscripts(
+        baseCandidates.map((candidate) => candidate.id),
+      );
+      const nextCandidates = baseCandidates.map((candidate) => {
+        const transcriptCount = linkedByCandidate[candidate.id]?.length ?? 0;
+
+        return {
+          ...candidate,
+          transcriptCount,
+        };
+      });
       const acceptedCount = nextCandidates.filter(
         (candidate) => candidate.stage === "Accepted",
       ).length;
@@ -555,7 +601,7 @@ export default function JobDetail() {
 
           {jobCandidates.length > 0 ? (
             <div className="mt-5 overflow-hidden rounded-md border border-border">
-              <div className="grid grid-cols-[minmax(0,1fr)_7.5rem] border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <div className="grid grid-cols-[minmax(0,1fr)_8rem] border-b border-border bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <span>{t("candidate")}</span>
                 <span>{t("stage")}</span>
               </div>
@@ -565,15 +611,20 @@ export default function JobDetail() {
                     key={candidate.id}
                     to={`/applicants/${candidate.id}?returnTo=${encodeURIComponent(`/jobs/${job.id}`)}`}
                     state={{ returnTo: `/jobs/${job.id}` }}
-                    className="grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/45"
+                    className="grid grid-cols-[minmax(0,1fr)_8rem] items-center gap-3 px-3 py-3 transition-colors hover:bg-muted/45"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-foreground">
                         {candidate.name}
                       </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {candidate.aiScore}% {t("match")}
-                      </p>
+                      <div className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
+                        <span>{candidate.aiScore}% CV {t("match")}</span>
+                        {candidate.combinedScore != null ? (
+                          <span>{candidate.combinedScore}% CV + razgovor AI</span>
+                        ) : candidate.transcriptCount ? (
+                          <span>{candidate.transcriptCount} transkript · brez re-analize</span>
+                        ) : null}
+                      </div>
                     </div>
                     <Badge variant="secondary" className="justify-center">
                       {stageLabel(candidate.stage)}

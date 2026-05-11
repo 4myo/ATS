@@ -346,6 +346,8 @@ export default function PipelineActivity() {
   const [isLoading, setIsLoading] = useState(true);
   const [entityFilter, setEntityFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
+  const [logPage, setLogPage] = useState(1);
+  const logsPerPage = 20;
 
   useEffect(() => {
     let isMounted = true;
@@ -481,14 +483,27 @@ export default function PipelineActivity() {
     () => [...new Set(events.map((event) => event.action))].sort(),
     [events],
   );
+  const logPageCount = Math.max(1, Math.ceil(filteredEvents.length / logsPerPage));
+  const paginatedEvents = filteredEvents.slice(
+    (logPage - 1) * logsPerPage,
+    logPage * logsPerPage,
+  );
+
+  useEffect(() => {
+    setLogPage(1);
+  }, [actionFilter, entityFilter]);
+
+  useEffect(() => {
+    setLogPage((page) => Math.min(page, logPageCount));
+  }, [logPageCount]);
 
   return (
     <div className="page-container">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <h1 className="page-title">Dnevnik aktivnosti</h1>
+          <h1 className="page-title">Zapisano</h1>
           <p className="text-sm subtle-text">
-            Pregled ustvarjanja, urejanja, brisanja, ponudb in premikov kandidatov skozi faze postopka.
+            Pregled zabeleženih sprememb, ponudb in premikov kandidatov skozi faze postopka.
           </p>
         </div>
         <div className="surface-card flex flex-wrap items-end gap-3 p-3">
@@ -528,7 +543,7 @@ export default function PipelineActivity() {
       {!logsAvailable ? (
         <div className="surface-card border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           Tabela <code>activity_logs</code> še ni ustvarjena, zato stran prikazuje posnetke trenutnega stanja iz obstoječih tabel.
-          Po zagonu SQL sheme bodo novi premiki in urejanja zapisani kot dnevniški zapisi.
+          Po zagonu SQL sheme bodo novi premiki in urejanja prikazani kot zabeleženi zapisi.
         </div>
       ) : null}
 
@@ -554,34 +569,13 @@ export default function PipelineActivity() {
         </div>
       ) : (
         <>
-          <div className="grid gap-5 xl:grid-cols-2">
-            <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Porazdelitev dogodkov</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Najpogostejše akcije v izbranem pogledu.</p>
-              <EventBars events={filteredEvents} />
-            </section>
-            <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Ura v dnevu</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Kdaj se običajno dogajajo spremembe postopka.</p>
-              <HourBars events={filteredEvents} />
-            </section>
-          </div>
-
-          <section className="surface-card p-5">
-            <h2 className="mb-1 text-base font-semibold text-foreground">Časovni raztros</h2>
-            <p className="mb-4 text-sm text-muted-foreground">
-              Čas dogodka je prikazan po osi X; višina prikazuje ATS oceno, kjer obstaja, sicer razporeditev vrst dogodkov.
-            </p>
-            <ScatterTimeline events={filteredEvents} />
-          </section>
-
           <section className="surface-card overflow-hidden">
             <div className="border-b border-border px-5 py-4">
-              <h2 className="text-base font-semibold text-foreground">Dnevniški zapisi</h2>
+              <h2 className="text-base font-semibold text-foreground">Zapisano</h2>
               <p className="text-sm text-muted-foreground">Zadnji dogodki in posnetki trenutnega stanja postopka.</p>
             </div>
             <div className="divide-y divide-border">
-              {filteredEvents.slice(0, 80).map((event) => {
+              {paginatedEvents.map((event) => {
                 const Icon = entityIcons[event.entityType as keyof typeof entityIcons] ?? Activity;
                 const detailPath =
                   event.entityType === "candidate" && event.entityId
@@ -615,7 +609,7 @@ export default function PipelineActivity() {
                     <div className="text-sm text-muted-foreground">{formatDateTime(event.createdAt)}</div>
                     <div className="flex items-center gap-2 lg:justify-end">
                       <Badge variant={event.source === "log" ? "default" : "secondary"}>
-                        {event.source === "log" ? "dnevnik" : "stanje"}
+                        {event.source === "log" ? "zapisano" : "stanje"}
                       </Badge>
                       {detailPath ? (
                         <Button asChild variant="outline" size="sm">
@@ -630,6 +624,58 @@ export default function PipelineActivity() {
                 <div className="px-5 py-10 text-center text-sm text-muted-foreground">Ni dogodkov za izbrane filtre.</div>
               ) : null}
             </div>
+            {filteredEvents.length > logsPerPage ? (
+              <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                  Prikazujem {(logPage - 1) * logsPerPage + 1}-
+                  {Math.min(logPage * logsPerPage, filteredEvents.length)} od {filteredEvents.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={logPage <= 1}
+                    onClick={() => setLogPage((page) => Math.max(1, page - 1))}
+                  >
+                    Prejšnja
+                  </Button>
+                  <span className="text-sm font-medium text-foreground">
+                    {logPage} / {logPageCount}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={logPage >= logPageCount}
+                    onClick={() => setLogPage((page) => Math.min(logPageCount, page + 1))}
+                  >
+                    Naslednja
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </section>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Porazdelitev dogodkov</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Najpogostejše akcije v izbranem pogledu.</p>
+              <EventBars events={filteredEvents} />
+            </section>
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Ura v dnevu</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Kdaj se običajno dogajajo spremembe postopka.</p>
+              <HourBars events={filteredEvents} />
+            </section>
+          </div>
+
+          <section className="surface-card p-5">
+            <h2 className="mb-1 text-base font-semibold text-foreground">Časovni raztros</h2>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Čas dogodka je prikazan po osi X; višina prikazuje ATS oceno, kjer obstaja, sicer razporeditev vrst dogodkov.
+            </p>
+            <ScatterTimeline events={filteredEvents} />
           </section>
         </>
       )}

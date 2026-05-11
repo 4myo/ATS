@@ -7,6 +7,9 @@ type AnalyzePayload = {
   resumeText?: string;
   jobTitle?: string;
   jobDescription?: string;
+  analysisMode?: "cv" | "cv_interview";
+  transcriptText?: string;
+  transcriptIds?: string[];
 };
 
 type AiAgentSettings = {
@@ -283,6 +286,38 @@ const candidateAnalysisSchema = {
   },
 };
 
+const candidateInterviewAnalysisSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "combined_score",
+    "summary",
+    "strengths",
+    "concerns",
+    "follow_up_questions",
+  ],
+  properties: {
+    combined_score: {
+      type: "number",
+      minimum: 0,
+      maximum: 100,
+    },
+    summary: { type: "string" },
+    strengths: {
+      type: "array",
+      items: { type: "string" },
+    },
+    concerns: {
+      type: "array",
+      items: { type: "string" },
+    },
+    follow_up_questions: {
+      type: "array",
+      items: { type: "string" },
+    },
+  },
+};
+
 const extractOpenAiText = (response: any) => {
   if (typeof response?.output_text === "string") return response.output_text;
 
@@ -364,7 +399,7 @@ Deno.serve(async (req) => {
 
     const { data: candidate, error: fetchError } = await supabase
       .from("candidates")
-      .select("id, user_id, full_name, job_title, email, resume_path")
+      .select("id, user_id, full_name, job_title, email, resume_path, ats_score, skills, analysis_summary, analysis_strengths, analysis_concerns")
       .eq("id", payload.candidateId)
       .eq("user_id", authedUserId)
       .single();
@@ -437,6 +472,168 @@ Deno.serve(async (req) => {
     const hasDetailedJobDescription = promptJobDescription.trim().length >= 120;
     const aiAgentPreferenceInstructions =
       buildAiAgentPreferenceInstructions(aiAgentSettings);
+
+    if (payload.analysisMode === "cv_interview") {
+      const promptTranscriptText = limitPromptText(
+        payload.transcriptText || "",
+        maxResumePromptChars,
+      );
+
+      if (!promptTranscriptText.trim()) {
+        return new Response("Missing transcriptText", {
+          status: 400,
+          headers: corsHeaders,
+        });
+      }
+
+      await supabase
+        .from("candidates")
+        .update({ interview_analysis_status: "pending" })
+        .eq("id", payload.candidateId)
+        .eq("user_id", authedUserId);
+
+      const interviewPrompt = `You are an ATS interview evidence analyzer.
+Write every human-readable field in Slovenian.
+Compare the existing CV-based candidate analysis with the interview transcript.
+Do not overwrite the CV-only result. Produce a separate CV+interview assessment for recruiter comparison.
+Score combined_score 0-100 as the candidate's role fit after considering both CV evidence and interview evidence.
+If the transcript is vague, short, or unrelated, say so and avoid inflating the score.
+Return JSON only with this shape:
+{
+  "combined_score": number,
+  "summary": string,
+  "strengths": string[],
+  "concerns": string[],
+  "follow_up_questions": string[]
+}
+
+Candidate:
+Name: ${candidate.full_name}
+Job title: ${jobTitle}
+CV-only ATS score: ${candidate.ats_score ?? "not available"}
+CV-only skills: ${(candidate.skills ?? []).join(", ") || "not available"}
+CV-only summary: ${limitPromptText(candidate.analysis_summary ?? "", 2500)}
+CV-only strengths: ${(candidate.analysis_strengths ?? []).slice(0, 8).join("; ") || "not available"}
+CV-only concerns: ${(candidate.analysis_concerns ?? []).slice(0, 8).join("; ") || "not available"}
+
+Job Description:
+${promptJobDescription || "Job description not available."}
+
+Interview Transcript:
+${redactKnownName(redactPersonalData(promptTranscriptText), candidate.full_name)}
+${aiAgentPreferenceInstructions ? `\n${aiAgentPreferenceInstructions}\n` : ""}`;
+
+      const openAiResponse = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${openAiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: openAiModel,
+          input: [
+            {
+              role: "system",
+              content:
+                "You are a careful ATS interview analysis engine. Return only the requested structured JSON.",
+            },
+            {
+              role: "user",
+              content: interviewPrompt,
+            },
+          ],
+          text: {
+            format: {
+              type: "json_schema",
+              name: "candidate_interview_analysis",
+              strict: true,
+              schema: candidateInterviewAnalysisSchema,
+            },
+          },
+          max_output_tokens: 1800,
+        }),
+      });
+
+      if (!openAiResponse.ok) {
+        const errorText = await openAiResponse.text();
+        throw new Error(
+          `OpenAI API error ${openAiResponse.status}: ${
+            errorText || openAiResponse.statusText
+          }`,
+        );
+      }
+
+      const responseJson = await openAiResponse.json();
+      const rawText = extractOpenAiText(responseJson) || "{}";
+      const cleanedText = rawText
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .trim();
+
+      let parsed: {
+        combined_score?: number;
+        summary?: string;
+        strengths?: string[];
+        concerns?: string[];
+        follow_up_questions?: string[];
+      } = {};
+
+      try {
+        parsed = JSON.parse(cleanedText);
+      } catch (_error) {
+        await supabase
+          .from("candidates")
+          .update({ interview_analysis_status: "failed" })
+          .eq("id", payload.candidateId)
+          .eq("user_id", authedUserId);
+
+        return new Response(`Failed to parse AI response: ${rawText}`, {
+          status: 422,
+          headers: corsHeaders,
+        });
+      }
+
+      const combinedScore = clampScore(parsed.combined_score);
+      const interviewUpdate = {
+        interview_analysis_status: "complete",
+        interview_analysis_score: combinedScore,
+        interview_analysis_summary: parsed.summary ?? "",
+        interview_analysis_strengths: (parsed.strengths ?? []).slice(0, 6),
+        interview_analysis_concerns: (parsed.concerns ?? []).slice(0, 6),
+        interview_analysis_questions: (parsed.follow_up_questions ?? []).slice(0, 4),
+        interview_analysis_transcript_ids: payload.transcriptIds ?? [],
+        interview_analysis_updated_at: new Date().toISOString(),
+      };
+
+      const { error: updateError } = await supabase
+        .from("candidates")
+        .update(interviewUpdate)
+        .eq("id", payload.candidateId)
+        .eq("user_id", authedUserId);
+
+      const missingInterviewColumns =
+        updateError &&
+        (updateError.message?.includes("interview_analysis") ||
+          updateError.details?.includes("interview_analysis"));
+
+      if (updateError && !missingInterviewColumns) {
+        return new Response(`Failed to update candidate: ${updateError.message}`, {
+          status: 500,
+          headers: corsHeaders,
+        });
+      }
+
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          stored: !missingInterviewColumns,
+          interviewAnalysis: interviewUpdate,
+        }),
+        {
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        },
+      );
+    }
 
     const prompt = `You are an ATS analyzer. Follow these rules:
 - Use the Job Title and Job Description as the target role requirements.
@@ -821,11 +1018,19 @@ Return JSON only.`;
       const supabase = createClient(supabaseUrl, supabaseKey, {
         auth: { persistSession: false },
       });
-      await supabase
-        .from("candidates")
-        .update({ analysis_status: "failed" })
-        .eq("id", payload.candidateId)
-        .eq("user_id", authedUserId);
+      if (payload.analysisMode === "cv_interview") {
+        await supabase
+          .from("candidates")
+          .update({ interview_analysis_status: "failed" })
+          .eq("id", payload.candidateId)
+          .eq("user_id", authedUserId);
+      } else {
+        await supabase
+          .from("candidates")
+          .update({ analysis_status: "failed" })
+          .eq("id", payload.candidateId)
+          .eq("user_id", authedUserId);
+      }
     }
 
     const message = error instanceof Error ? error.message : String(error);

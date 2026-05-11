@@ -207,14 +207,31 @@ Deno.serve(async (req) => {
     }
 
     const authedUserId = authData.user.id;
-    const { data: candidate, error: candidateError } = await supabase
+    let { data: candidate, error: candidateError } = await supabase
       .from("candidates")
       .select(
-        "id, user_id, full_name, job_title, stage, location, years_experience, skills, ats_score, analysis_summary, analysis_strengths, analysis_concerns, offer_summary",
+        "id, user_id, full_name, job_title, stage, location, years_experience, skills, ats_score, analysis_summary, analysis_strengths, analysis_concerns, offer_summary, interview_analysis_status, interview_analysis_score, interview_analysis_summary, interview_analysis_strengths, interview_analysis_concerns",
       )
       .eq("id", payload.candidateId)
       .eq("user_id", authedUserId)
       .single();
+
+    if (
+      candidateError &&
+      (candidateError.message?.includes("interview_analysis") ||
+        candidateError.details?.includes("interview_analysis"))
+    ) {
+      const retry = await supabase
+        .from("candidates")
+        .select(
+          "id, user_id, full_name, job_title, stage, location, years_experience, skills, ats_score, analysis_summary, analysis_strengths, analysis_concerns, offer_summary",
+        )
+        .eq("id", payload.candidateId)
+        .eq("user_id", authedUserId)
+        .single();
+      candidate = retry.data;
+      candidateError = retry.error;
+    }
 
     if (candidateError || !candidate) {
       return new Response("Candidate not found", {
@@ -319,11 +336,31 @@ Role: ${candidate.job_title}
 Location evidence: ${candidate.location ?? "unknown"}
 Years experience: ${candidate.years_experience ?? "unknown"}
 ATS score: ${candidate.ats_score ?? "not scored"}
+CV + interview AI score: ${
+      candidate.interview_analysis_status === "complete"
+        ? candidate.interview_analysis_score ?? "not scored"
+        : "not analyzed"
+    }
 Skills: ${(candidate.skills ?? []).join(", ") || "unknown"}
 AI summary: ${limitText(candidate.analysis_summary, 1600)}
 Strengths: ${(candidate.analysis_strengths ?? []).slice(0, 6).join("; ") || "unknown"}
 Concerns for recruiter context only, do not over-emphasize in letter: ${(candidate.analysis_concerns ?? []).slice(0, 4).join("; ") || "none"}
 Offer suitability summary: ${limitText(candidate.offer_summary, 900)}
+Interview analysis summary, use only if available: ${
+      candidate.interview_analysis_status === "complete"
+        ? limitText(candidate.interview_analysis_summary, 900)
+        : "not available"
+    }
+Interview-confirmed strengths, use only if available: ${
+      candidate.interview_analysis_status === "complete"
+        ? (candidate.interview_analysis_strengths ?? []).slice(0, 4).join("; ") || "none"
+        : "not available"
+    }
+Interview concerns for recruiter context only, do not over-emphasize in letter: ${
+      candidate.interview_analysis_status === "complete"
+        ? (candidate.interview_analysis_concerns ?? []).slice(0, 3).join("; ") || "none"
+        : "not available"
+    }
 
 Job:
 Title: ${job?.title ?? candidate.job_title}

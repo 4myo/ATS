@@ -37,6 +37,10 @@ import {
   increaseJobOpeningsForTitle,
   syncJobStatusForTitle,
 } from "../lib/jobCache";
+import {
+  fetchLinkedCandidateTranscripts,
+  type LinkedCandidateTranscript,
+} from "../lib/interviewTranscriptLinks";
 import { type OfferDocument, type OfferInputs } from "../lib/offerDocument";
 import { logActivityEvent } from "../lib/activityLog";
 
@@ -57,6 +61,7 @@ type CandidateDetailRecord = {
   location: string | null;
   years_experience: number | null;
   ats_score: number | null;
+  analysis_status: "pending_ai" | "complete" | "failed" | null;
   skills: string[] | null;
   analysis_summary: string | null;
   analysis_strengths: string[] | null;
@@ -66,6 +71,14 @@ type CandidateDetailRecord = {
   ai_writing_label: string | null;
   ai_writing_notes: string[] | null;
   interview_questions: string[] | null;
+  interview_analysis_status: "none" | "pending" | "complete" | "failed" | null;
+  interview_analysis_score: number | null;
+  interview_analysis_summary: string | null;
+  interview_analysis_strengths: string[] | null;
+  interview_analysis_concerns: string[] | null;
+  interview_analysis_questions: string[] | null;
+  interview_analysis_transcript_ids: string[] | null;
+  interview_analysis_updated_at: string | null;
   offer_summary: string | null;
   offer_checklist: Partial<OfferChecklist> | null;
   offer_outcome: string | null;
@@ -91,7 +104,7 @@ const defaultOfferChecklist: OfferChecklist = {
 };
 
 const baseCandidateSelect =
-  "id, full_name, job_title, stage, email, location, years_experience, ats_score, skills, analysis_summary, analysis_strengths, analysis_concerns, resume_path, skill_profile";
+  "id, full_name, job_title, stage, email, location, years_experience, ats_score, analysis_status, skills, analysis_summary, analysis_strengths, analysis_concerns, resume_path, skill_profile";
 
 const candidateSelectWithAiWriting =
   `${baseCandidateSelect}, ai_writing_score, ai_writing_label, ai_writing_notes`;
@@ -121,6 +134,9 @@ export default function CandidateDetail() {
   const [offerError, setOfferError] = useState<string | null>(null);
   const [offerDocument, setOfferDocument] = useState<OfferDocument | null>(null);
   const [jobCapacity, setJobCapacity] = useState<JobCapacity | null>(null);
+  const [linkedTranscripts, setLinkedTranscripts] = useState<LinkedCandidateTranscript[]>([]);
+  const [isAnalyzingInterview, setIsAnalyzingInterview] = useState(false);
+  const [interviewAnalysisError, setInterviewAnalysisError] = useState<string | null>(null);
   const [isGeneratingOffer, setIsGeneratingOffer] = useState(false);
   const [isOfferPreviewOpen, setIsOfferPreviewOpen] = useState(false);
   const [isOfferDraftOpen, setIsOfferDraftOpen] = useState(false);
@@ -198,6 +214,14 @@ export default function CandidateDetail() {
         ai_writing_label: null,
         ai_writing_notes: [],
         interview_questions: [],
+        interview_analysis_status: "none",
+        interview_analysis_score: null,
+        interview_analysis_summary: null,
+        interview_analysis_strengths: [],
+        interview_analysis_concerns: [],
+        interview_analysis_questions: [],
+        interview_analysis_transcript_ids: [],
+        interview_analysis_updated_at: null,
         offer_summary: null,
         offer_checklist: defaultOfferChecklist,
         offer_outcome: "pending",
@@ -209,6 +233,30 @@ export default function CandidateDetail() {
 
       setCandidate(nextCandidate);
       setIsLoading(false);
+
+      const { data: interviewAnalysisData, error: interviewAnalysisError } =
+        await supabase
+          .from("candidates")
+          .select(
+            "interview_analysis_status, interview_analysis_score, interview_analysis_summary, interview_analysis_strengths, interview_analysis_concerns, interview_analysis_questions, interview_analysis_transcript_ids, interview_analysis_updated_at",
+          )
+          .eq("id", id)
+          .single();
+
+      if (
+        isMounted &&
+        !interviewAnalysisError &&
+        interviewAnalysisData
+      ) {
+        setCandidate((current) =>
+          current
+            ? {
+                ...current,
+                ...interviewAnalysisData,
+              }
+            : current,
+        );
+      }
 
       const capacity = await getJobCapacityForTitle(nextCandidate.job_title);
       if (isMounted) {
@@ -264,6 +312,28 @@ export default function CandidateDetail() {
       isMounted = false;
     };
   }, [id]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadLinkedTranscripts = async () => {
+      if (!candidate?.id) {
+        setLinkedTranscripts([]);
+        return;
+      }
+
+      const linkedByCandidate = await fetchLinkedCandidateTranscripts([candidate.id]);
+      if (isMounted) {
+        setLinkedTranscripts(linkedByCandidate[candidate.id] ?? []);
+      }
+    };
+
+    void loadLinkedTranscripts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [candidate?.id]);
 
   const radarData = useMemo(() => {
     if (!candidate) {
@@ -342,6 +412,28 @@ export default function CandidateDetail() {
     () => (candidate?.interview_questions ?? []).slice(0, 3),
     [candidate],
   );
+  const hasStoredInterviewAnalysis =
+    candidate?.interview_analysis_status === "complete" &&
+    candidate.interview_analysis_score != null;
+  const hasLinkedTranscripts = linkedTranscripts.length > 0;
+  const hasCvAnalysis = candidate?.analysis_status === "complete";
+  const displayedCombinedScore = hasStoredInterviewAnalysis
+    ? candidate?.interview_analysis_score ?? null
+    : null;
+  const displayedInterviewSummary =
+    candidate?.interview_analysis_summary || "";
+  const displayedInterviewStrengths =
+    candidate?.interview_analysis_strengths?.length
+      ? candidate.interview_analysis_strengths
+      : [];
+  const displayedInterviewConcerns =
+    candidate?.interview_analysis_concerns?.length
+      ? candidate.interview_analysis_concerns
+      : [];
+  const displayedInterviewQuestions =
+    candidate?.interview_analysis_questions?.length
+      ? candidate.interview_analysis_questions
+      : [];
   const offerChecklist = useMemo(
     () => ({
       ...defaultOfferChecklist,
@@ -375,6 +467,97 @@ export default function CandidateDetail() {
     { key: "internalApproval", label: t("offerChecklistInternalApproval") },
     { key: "offerSent", label: t("offerChecklistOfferSent") },
   ];
+
+  const analyzeCvWithInterview = async () => {
+    if (!candidate) return;
+
+    const transcriptText = linkedTranscripts
+      .map((transcript) => transcript.transcriptText.trim())
+      .filter(Boolean)
+      .join("\n\n---\n\n");
+
+    if (!transcriptText) {
+      setInterviewAnalysisError("Kandidat še nima povezanega transkripta z besedilom.");
+      return;
+    }
+
+    setIsAnalyzingInterview(true);
+    setInterviewAnalysisError(null);
+
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        throw new Error(t("signedInRequiredCandidate"));
+      }
+
+      setCandidate((current) =>
+        current ? { ...current, interview_analysis_status: "pending" } : current,
+      );
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            candidateId: candidate.id,
+            jobTitle: candidate.job_title,
+            analysisMode: "cv_interview",
+            transcriptText,
+            transcriptIds: linkedTranscripts.map((transcript) => transcript.id),
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+
+      const payload = await response.json();
+      const analysis = payload?.interviewAnalysis;
+      if (!analysis) {
+        throw new Error("AI analiza razgovora ni vrnila rezultata.");
+      }
+
+      setCandidate((current) =>
+        current
+          ? {
+              ...current,
+              interview_analysis_status: "complete",
+              interview_analysis_score: analysis.interview_analysis_score ?? null,
+              interview_analysis_summary: analysis.interview_analysis_summary ?? "",
+              interview_analysis_strengths: analysis.interview_analysis_strengths ?? [],
+              interview_analysis_concerns: analysis.interview_analysis_concerns ?? [],
+              interview_analysis_questions: analysis.interview_analysis_questions ?? [],
+              interview_analysis_transcript_ids:
+                analysis.interview_analysis_transcript_ids ?? [],
+              interview_analysis_updated_at:
+                analysis.interview_analysis_updated_at ?? new Date().toISOString(),
+            }
+          : current,
+      );
+
+      if (payload?.stored === false) {
+        setInterviewAnalysisError(
+          "Analiza je izračunana za ta pogled, vendar v bazi še manjkajo interview_analysis stolpci iz docs/supabase-schema.sql.",
+        );
+      }
+    } catch (error) {
+      setCandidate((current) =>
+        current ? { ...current, interview_analysis_status: "failed" } : current,
+      );
+      setInterviewAnalysisError(
+        error instanceof Error ? error.message : "AI analiza razgovora ni uspela.",
+      );
+    } finally {
+      setIsAnalyzingInterview(false);
+    }
+  };
 
   const generateOfferDocument = async (offerInputs: OfferInputs) => {
     if (!candidate) return null;
@@ -890,7 +1073,13 @@ export default function CandidateDetail() {
                 {t("aiScoreReviewAidNote")}
               </p>
             </div>
-            <ScoreRing score={candidate.ats_score ?? 0} size="md" />
+            {candidate.analysis_status === "pending_ai" ? (
+              <span className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted text-sm font-semibold text-muted-foreground">
+                ...
+              </span>
+            ) : (
+              <ScoreRing score={candidate.ats_score ?? 0} size="md" />
+            )}
           </div>
         </div>
       </div>
@@ -971,6 +1160,144 @@ export default function CandidateDetail() {
                       </div>
                     </AccordionItem>
                   </Accordion>
+                  {hasLinkedTranscripts ? (
+                  <div className="mt-6 rounded-md border border-border bg-muted/25 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-foreground">
+                          CV + razgovor analiza
+                        </h3>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Rezultat se prikaže šele po AI re-analizi povezanega transkripta.
+                        </p>
+                      </div>
+                      <Link
+                        to="/interviews"
+                        className="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-medium text-foreground transition hover:bg-muted"
+                      >
+                        Odpri razgovore
+                      </Link>
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => void analyzeCvWithInterview()}
+                        disabled={isAnalyzingInterview || !hasLinkedTranscripts || !hasCvAnalysis}
+                      >
+                        {isAnalyzingInterview ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Bot className="mr-2 h-4 w-4" />
+                        )}
+                        Analiziraj CV + razgovor
+                      </Button>
+                    </div>
+
+                    {hasStoredInterviewAnalysis ? (
+                    <>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-md border border-border bg-background p-3">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          Samo CV
+                        </p>
+                        <p className="mt-1 text-2xl font-semibold text-foreground">
+                          {candidate.ats_score == null ? "..." : `${Math.round(candidate.ats_score)}%`}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-border bg-background p-3">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                          CV + razgovor AI
+                        </p>
+                        <p className="mt-1 text-2xl font-semibold text-foreground">
+                          {displayedCombinedScore == null
+                            ? "..."
+                            : `${displayedCombinedScore}%`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+                      {displayedInterviewSummary}
+                    </p>
+                    </>
+                    ) : (
+                      <div className="mt-4 rounded-md border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+                        Transkript je povezan, vendar CV + razgovor ocena še ni izračunana.
+                        {hasCvAnalysis
+                          ? " Klikni Analiziraj CV + razgovor za ločeno AI re-analizo."
+                          : " Najprej mora biti pripravljena CV analiza kandidata."}
+                      </div>
+                    )}
+
+                    {hasStoredInterviewAnalysis ? (
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <div className="rounded-md border border-emerald-100 bg-emerald-50 p-3">
+                          <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+                            Potrjeno z razgovorom
+                          </h4>
+                          <ul className="mt-2 space-y-1 text-sm text-emerald-700">
+                            {displayedInterviewStrengths.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="rounded-md border border-amber-100 bg-amber-50 p-3">
+                          <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+                            Odprta vprašanja
+                          </h4>
+                          <ul className="mt-2 space-y-1 text-sm text-amber-800">
+                            {displayedInterviewConcerns.map((item) => (
+                              <li key={item}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {displayedInterviewQuestions.length ? (
+                      <div className="mt-4 rounded-md border border-border bg-background p-3">
+                        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Nadaljnja vprašanja
+                        </h4>
+                        <ol className="mt-2 space-y-2 text-sm text-foreground">
+                          {displayedInterviewQuestions.map((question, index) => (
+                            <li key={question}>
+                              {index + 1}. {question}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    ) : null}
+
+                    {interviewAnalysisError ? (
+                      <p className="mt-3 text-sm text-red-500">{interviewAnalysisError}</p>
+                    ) : null}
+
+                    <div className="mt-4 space-y-3">
+                      {linkedTranscripts.length ? (
+                        linkedTranscripts.map((transcript) => (
+                          <details
+                            key={transcript.id}
+                            className="rounded-md border border-border bg-background p-3"
+                          >
+                            <summary className="cursor-pointer text-sm font-medium text-foreground">
+                              {transcript.title}
+                              <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                {transcript.status}
+                              </span>
+                            </summary>
+                            <p className="mt-3 max-h-48 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                              {transcript.transcriptText || "Transkript še nima besedila."}
+                            </p>
+                          </details>
+                        ))
+                      ) : (
+                        <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
+                          Ni povezanih transkriptov. V Razgovorih dodajte kandidata in transkript na mrežo, ju povežite ter shranite mrežo.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  ) : null}
               </div>
 
               <div className="surface-card p-6">
@@ -1002,6 +1329,45 @@ export default function CandidateDetail() {
                         {t("interviewQuestionsUnavailable")}
                       </div>
                     )}
+                    <div className="mt-5 rounded-md border border-border bg-muted/35 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-foreground">
+                            Transkripti razgovora
+                          </h3>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Povezani transkripti, ki se uporabijo za CV + razgovor analizo.
+                          </p>
+                        </div>
+                        <Link
+                          to="/interviews"
+                          className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                        >
+                          Poveži
+                        </Link>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {linkedTranscripts.length ? (
+                          linkedTranscripts.map((transcript) => (
+                            <details
+                              key={transcript.id}
+                              className="rounded-md border border-border bg-background p-3"
+                            >
+                              <summary className="cursor-pointer text-sm font-medium text-foreground">
+                                {transcript.title}
+                              </summary>
+                              <p className="mt-3 max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                                {transcript.transcriptText || "Transkript še nima besedila."}
+                              </p>
+                            </details>
+                          ))
+                        ) : (
+                          <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
+                            Ta kandidat še nima vezanega transkripta. V Razgovorih dodajte kandidata in transkript na mrežo, ju povežite ter shranite mrežo.
+                          </p>
+                        )}
+                      </div>
+                    </div>
                   </>
                 ) : isOfferStage ? (
                   <>
