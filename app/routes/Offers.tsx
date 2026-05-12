@@ -781,7 +781,7 @@ export default function Offers() {
                       {candidate.job_title}
                     </p>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      ATS score
+                      {t("atsMatchScore")}
                       <span className="ml-2 font-semibold text-foreground">
                         {atsScore == null ? "-" : `${atsScore}%`}
                       </span>

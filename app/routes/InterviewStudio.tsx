@@ -6,8 +6,11 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
+import { useSearchParams } from "react-router";
 import {
   AlertTriangle,
+  Bot,
+  Briefcase,
   Database,
   FileText,
   Info,
@@ -18,11 +21,11 @@ import {
   Play,
   Plus,
   Save,
-  Search,
   Square,
   Trash2,
   UserPlus,
   Users,
+  X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
@@ -41,7 +44,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
-import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import {
   Popover,
@@ -55,7 +57,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { Textarea } from "../components/ui/textarea";
 import { supabase } from "../lib/supabase";
 import { syncCandidateTranscriptLinks } from "../lib/interviewTranscriptLinks";
 
@@ -64,6 +65,9 @@ type StudioCandidate = {
   name: string;
   role: string;
   stage: CandidateStage;
+  interviewQuestions: string[];
+  followUpQuestions: string[];
+  interviewAnalysisStatus?: string | null;
 };
 
 type CandidateStage = "Applied" | "Screening" | "Interview" | "Offer" | "Accepted" | "Rejected";
@@ -80,6 +84,14 @@ type StudioNode = {
   candidateId?: string;
   transcriptId?: string;
   transcriptText?: string;
+  scopeCandidateId?: string;
+  scopeJobTitle?: string;
+};
+
+type StudioViewport = {
+  x: number;
+  y: number;
+  zoom: number;
 };
 
 type StudioEdge = {
@@ -110,6 +122,27 @@ type TranscriptRow = {
   created_at: string;
 };
 
+type CandidateRow = {
+  id: string;
+  full_name: string;
+  job_title: string;
+  stage: string | null;
+  interview_questions?: unknown;
+  interview_analysis_questions?: unknown;
+  interview_analysis_status?: string | null;
+};
+
+type BoardRow = {
+  id: string;
+  nodes: unknown;
+  edges: unknown;
+  transcripts: unknown;
+  viewport?: unknown;
+  updated_at: string | null;
+};
+
+type BoardViewMode = "candidate" | "job" | "all";
+
 const snapSize = 5;
 const gridSize = 15;
 const nodeWidth = 260;
@@ -119,13 +152,14 @@ const canvasWorldWidth = 6400;
 const canvasWorldHeight = 4200;
 const minCanvasZoom = 0.35;
 const maxCanvasZoom = 1.8;
-const defaultViewport = { x: -220, y: -110, zoom: 1 };
+const defaultViewport: StudioViewport = { x: -220, y: -110, zoom: 1 };
 const maxRecordingSeconds = 60 * 60;
 const warningSeconds = 30 * 60;
 const maxAudioBytes = 25 * 1024 * 1024;
 const recordingBitsPerSecond = 32_000;
 const miniTranscribePricePerMinute = 0.003;
 const defaultDeviceValue = "__default_microphone__";
+const allViewValue = "__all__";
 const candidateStages: CandidateStage[] = [
   "Applied",
   "Screening",
@@ -150,6 +184,21 @@ const snap = (value: number) => Math.round(value / snapSize) * snapSize;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
+
+const normalizeStringList = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+
+const isMissingCandidateQuestionColumnError = (error: { message?: string; details?: string } | null) => {
+  if (!error) return false;
+  return (
+    error.message?.includes("interview_questions") ||
+    error.details?.includes("interview_questions") ||
+    error.message?.includes("interview_analysis_questions") ||
+    error.details?.includes("interview_analysis_questions")
+  );
+};
 
 const getEdgeColor = (
   fromNode: StudioNode | undefined,
@@ -240,6 +289,10 @@ const normalizeNodes = (value: unknown): StudioNode[] => {
       transcriptId: typeof item.transcriptId === "string" ? item.transcriptId : undefined,
       transcriptText:
         typeof item.transcriptText === "string" ? item.transcriptText : undefined,
+      scopeCandidateId:
+        typeof item.scopeCandidateId === "string" ? item.scopeCandidateId : undefined,
+      scopeJobTitle:
+        typeof item.scopeJobTitle === "string" ? item.scopeJobTitle : undefined,
     }));
 };
 
@@ -254,6 +307,24 @@ const normalizeEdges = (value: unknown): StudioEdge[] => {
       fromNodeId: item.fromNodeId as string,
       toNodeId: item.toNodeId as string,
     }));
+};
+
+const normalizeViewport = (value: unknown): StudioViewport | null => {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const x = Number(record.x);
+  const y = Number(record.y);
+  const zoom = Number(record.zoom);
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(zoom)) {
+    return null;
+  }
+
+  return {
+    x,
+    y,
+    zoom: clamp(zoom, minCanvasZoom, maxCanvasZoom),
+  };
 };
 
 const normalizeTranscripts = (value: unknown): SavedTranscript[] => {
@@ -294,6 +365,120 @@ const transcriptFromRow = (row: TranscriptRow): SavedTranscript => ({
   audioPath: row.audio_path,
   errorMessage: row.error_message,
 });
+
+const getTranscriptStatusLabel = (transcript: Pick<SavedTranscript, "status">) =>
+  transcript.status === "complete"
+    ? "transkript zaključen"
+    : transcript.status === "recorded"
+      ? "posnetek pripravljen"
+      : transcript.status === "processing"
+        ? "transkripcija v teku"
+        : transcript.status === "failed"
+          ? "transkripcija ni uspela"
+          : "lokalni transkript";
+
+const buildCandidateNode = (
+  candidate: StudioCandidate,
+  index: number,
+  options?: { scopeJobTitle?: string; x?: number; y?: number },
+): StudioNode => ({
+  id: `candidate-${candidate.id}-${crypto.randomUUID()}`,
+  type: "candidate",
+  title: candidate.name,
+  subtitle: formatCandidateSubtitle(candidate),
+  x: snap(options?.x ?? 180),
+  y: snap(options?.y ?? 110 + index * 140),
+  candidateId: candidate.id,
+  scopeJobTitle: options?.scopeJobTitle,
+});
+
+const buildTranscriptNode = (
+  transcript: SavedTranscript,
+  index: number,
+  options?: { scopeCandidateId?: string; scopeJobTitle?: string; x?: number; y?: number },
+): StudioNode => ({
+  id: `transcript-${transcript.id}-${crypto.randomUUID()}`,
+  type: "transcript",
+  title: transcript.title,
+  subtitle: `${formatDuration(transcript.durationSeconds)} · ${getTranscriptStatusLabel(transcript)}`,
+  x: snap(options?.x ?? 540 + index * 20),
+  y: snap(options?.y ?? 170 + index * 20),
+  transcriptId: transcript.id,
+  transcriptText: transcript.transcriptText,
+  scopeCandidateId: options?.scopeCandidateId,
+  scopeJobTitle: options?.scopeJobTitle,
+});
+
+const getCandidateTranscriptPairFromEdge = (
+  edge: StudioEdge,
+  nodeById: Map<string, StudioNode>,
+) => {
+  const left = nodeById.get(edge.fromNodeId);
+  const right = nodeById.get(edge.toNodeId);
+  const candidateNode =
+    left?.type === "candidate" ? left : right?.type === "candidate" ? right : null;
+  const transcriptNode =
+    left?.type === "transcript" ? left : right?.type === "transcript" ? right : null;
+
+  if (!candidateNode?.candidateId || !transcriptNode?.transcriptId) return null;
+
+  return {
+    candidateId: candidateNode.candidateId,
+    candidateNodeId: candidateNode.id,
+    transcriptId: transcriptNode.transcriptId,
+    transcriptNodeId: transcriptNode.id,
+    transcriptTitle: transcriptNode.title,
+  };
+};
+
+const keepOneCandidatePerTranscript = (
+  inputEdges: StudioEdge[],
+  inputNodes: StudioNode[],
+) => {
+  const nodeById = new Map(inputNodes.map((node) => [node.id, node]));
+  const candidateByTranscriptId = new Map<string, string>();
+  const pairKeys = new Set<string>();
+  const keptEdges: StudioEdge[] = [];
+  const candidateTranscriptPairs: Array<{ candidateId: string; transcriptId: string }> = [];
+  const removedEdges: StudioEdge[] = [];
+  const conflicts: Array<{ transcriptId: string; transcriptTitle: string }> = [];
+
+  for (const edge of inputEdges) {
+    const pair = getCandidateTranscriptPairFromEdge(edge, nodeById);
+
+    if (!pair) {
+      keptEdges.push(edge);
+      continue;
+    }
+
+    const existingCandidateId = candidateByTranscriptId.get(pair.transcriptId);
+    const pairKey = `${pair.candidateId}:${pair.transcriptId}`;
+
+    if (existingCandidateId && existingCandidateId !== pair.candidateId) {
+      removedEdges.push(edge);
+      conflicts.push({
+        transcriptId: pair.transcriptId,
+        transcriptTitle: pair.transcriptTitle,
+      });
+      continue;
+    }
+
+    if (pairKeys.has(pairKey)) {
+      removedEdges.push(edge);
+      continue;
+    }
+
+    candidateByTranscriptId.set(pair.transcriptId, pair.candidateId);
+    pairKeys.add(pairKey);
+    candidateTranscriptPairs.push({
+      candidateId: pair.candidateId,
+      transcriptId: pair.transcriptId,
+    });
+    keptEdges.push(edge);
+  }
+
+  return { keptEdges, candidateTranscriptPairs, removedEdges, conflicts };
+};
 
 function NodeCard({
   node,
@@ -378,6 +563,10 @@ function NodeCard({
 }
 
 export default function InterviewStudio() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialCandidateId = searchParams.get("candidateId") ?? "";
+  const initialJobTitle = searchParams.get("jobTitle") ?? "";
+  const initialTranscriptId = searchParams.get("transcriptId") ?? "";
   const [candidates, setCandidates] = useState<StudioCandidate[]>([]);
   const [nodes, setNodes] = useState<StudioNode[]>([]);
   const [edges, setEdges] = useState<StudioEdge[]>([]);
@@ -406,6 +595,15 @@ export default function InterviewStudio() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<BoardViewMode>(
+    initialCandidateId ? "candidate" : initialJobTitle ? "job" : "all",
+  );
+  const [selectedCandidateId, setSelectedCandidateId] = useState(initialCandidateId);
+  const [selectedJobTitle, setSelectedJobTitle] = useState(initialJobTitle);
+  const [pendingTranscriptNodeId, setPendingTranscriptNodeId] = useState(initialTranscriptId);
+  const [isCompletionDialogOpen, setIsCompletionDialogOpen] = useState(
+    Boolean(initialCandidateId || initialJobTitle),
+  );
   const [candidateStageDraft, setCandidateStageDraft] = useState<CandidateStage>("Screening");
   const [isSavingCandidateStage, setIsSavingCandidateStage] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -413,36 +611,52 @@ export default function InterviewStudio() {
   const [recorder, setRecorder] = useState<MediaRecorder | null>(null);
   const [recordingStatus, setRecordingStatus] = useState<"idle" | "recording" | "paused" | "ready">("idle");
   const [durationSeconds, setDurationSeconds] = useState(0);
-  const [transcriptName, setTranscriptName] = useState("");
-  const [transcriptSearchQuery, setTranscriptSearchQuery] = useState("");
-  const [manualTranscriptName, setManualTranscriptName] = useState("");
-  const [manualTranscriptText, setManualTranscriptText] = useState("");
   const [savedTranscripts, setSavedTranscripts] = useState<SavedTranscript[]>([]);
   const [isCandidatePickerOpen, setIsCandidatePickerOpen] = useState(false);
   const [isTranscriptPickerOpen, setIsTranscriptPickerOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [pinnedQuestionCandidateId, setPinnedQuestionCandidateId] = useState<string | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingBlobRef = useRef<Blob | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const hasAppliedInitialViewportRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
 
     const loadInitialData = async () => {
-      const [{ data: candidateRows }, { data: userResult }] = await Promise.all([
+      const [candidateResult, { data: userResult }] = await Promise.all([
         supabase
         .from("candidates")
-        .select("id, full_name, job_title, stage")
+        .select("id, full_name, job_title, stage, interview_questions, interview_analysis_questions, interview_analysis_status")
         .order("created_at", { ascending: false })
           .limit(80),
         supabase.auth.getUser(),
       ]);
+      let candidateRows = candidateResult.data as CandidateRow[] | null;
+      let candidateError = candidateResult.error;
 
       if (!isMounted) return;
 
+      if (isMissingCandidateQuestionColumnError(candidateError)) {
+        const fallbackResult = await supabase
+          .from("candidates")
+          .select("id, full_name, job_title, stage")
+          .order("created_at", { ascending: false })
+          .limit(80);
+
+        if (!isMounted) return;
+        candidateRows = fallbackResult.data as CandidateRow[] | null;
+        candidateError = fallbackResult.error;
+      }
+
+      if (candidateError) {
+        setMessage(`Kandidatov ni bilo mogoče naložiti: ${candidateError.message}`);
+      }
+
       setCandidates(
-        ((candidateRows ?? []) as Array<{ id: string; full_name: string; job_title: string; stage: string | null }>).map(
+        ((candidateRows ?? []) as CandidateRow[]).map(
           (candidate) => ({
             id: candidate.id,
             name: candidate.full_name,
@@ -450,6 +664,9 @@ export default function InterviewStudio() {
             stage: candidateStages.includes(candidate.stage as CandidateStage)
               ? (candidate.stage as CandidateStage)
               : "Applied",
+            interviewQuestions: normalizeStringList(candidate.interview_questions),
+            followUpQuestions: normalizeStringList(candidate.interview_analysis_questions),
+            interviewAnalysisStatus: candidate.interview_analysis_status,
           }),
         ),
       );
@@ -461,11 +678,25 @@ export default function InterviewStudio() {
         return;
       }
 
-      const { data: board, error } = await supabase
+      let boardResult = await supabase
         .from("interview_studio_boards")
-        .select("id, nodes, edges, transcripts, updated_at")
+        .select("id, nodes, edges, transcripts, viewport, updated_at")
         .eq("user_id", userId)
         .maybeSingle();
+      const shouldRetryWithoutViewport =
+        boardResult.error &&
+        (boardResult.error.message?.includes("viewport") ||
+          boardResult.error.details?.includes("viewport"));
+
+      if (shouldRetryWithoutViewport) {
+        boardResult = await supabase
+          .from("interview_studio_boards")
+          .select("id, nodes, edges, transcripts, updated_at")
+          .eq("user_id", userId)
+          .maybeSingle();
+      }
+
+      const { data: board, error } = boardResult;
 
       if (!isMounted) return;
 
@@ -481,11 +712,17 @@ export default function InterviewStudio() {
       }
 
       if (board) {
+        const boardRow = board as BoardRow;
         setBoardId(board.id);
-        setNodes(normalizeNodes(board.nodes));
-        setEdges(normalizeEdges(board.edges));
-        setSavedTranscripts(normalizeTranscripts(board.transcripts));
-        setLastSavedAt(board.updated_at ?? null);
+        setNodes(normalizeNodes(boardRow.nodes));
+        setEdges(normalizeEdges(boardRow.edges));
+        setSavedTranscripts(normalizeTranscripts(boardRow.transcripts));
+        const savedViewport = normalizeViewport(boardRow.viewport);
+        if (savedViewport) {
+          setViewport(savedViewport);
+          hasAppliedInitialViewportRef.current = true;
+        }
+        setLastSavedAt(boardRow.updated_at ?? null);
       }
 
       const { data: transcriptRows, error: transcriptError } = await supabase
@@ -563,10 +800,171 @@ export default function InterviewStudio() {
     return () => window.clearInterval(timer);
   }, [recorder, recordingStatus]);
 
+  useEffect(() => {
+    const nextParams = new URLSearchParams();
+
+    if (viewMode === "candidate" && selectedCandidateId) {
+      nextParams.set("mode", "candidate");
+      nextParams.set("candidateId", selectedCandidateId);
+    } else if (viewMode === "job" && selectedJobTitle) {
+      nextParams.set("mode", "job");
+      nextParams.set("jobTitle", selectedJobTitle);
+    }
+
+    setSearchParams(nextParams, { replace: true });
+  }, [selectedCandidateId, selectedJobTitle, setSearchParams, viewMode]);
+
+  const getCenteredViewport = (zoom = 0.75): StudioViewport => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const width = rect?.width ?? 1200;
+    const height = rect?.height ?? 720;
+    const nextZoom = clamp(zoom, minCanvasZoom, maxCanvasZoom);
+
+    return {
+      x: width / 2 - (canvasWorldWidth / 2) * nextZoom,
+      y: height / 2 - (canvasWorldHeight / 2) * nextZoom,
+      zoom: nextZoom,
+    };
+  };
+
+  const getFitViewport = (items: StudioNode[], fallbackZoom = 1): StudioViewport => {
+    if (!items.length) return getCenteredViewport(fallbackZoom);
+
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const width = rect?.width ?? 1200;
+    const height = rect?.height ?? 720;
+    const minX = Math.min(...items.map((node) => node.x));
+    const minY = Math.min(...items.map((node) => node.y));
+    const maxX = Math.max(...items.map((node) => node.x + nodeWidth));
+    const maxY = Math.max(...items.map((node) => node.y + 150));
+    const boundsWidth = Math.max(1, maxX - minX);
+    const boundsHeight = Math.max(1, maxY - minY);
+    const padding = 160;
+    const fitZoom = clamp(
+      Math.min(width / (boundsWidth + padding * 2), height / (boundsHeight + padding * 2)),
+      minCanvasZoom,
+      Math.min(1.15, maxCanvasZoom),
+    );
+
+    return {
+      x: width / 2 - ((minX + maxX) / 2) * fitZoom,
+      y: height / 2 - ((minY + maxY) / 2) * fitZoom,
+      zoom: fitZoom,
+    };
+  };
+
+  const getVisibleWorldCenter = () => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return {
+        x: canvasWorldWidth / 2,
+        y: canvasWorldHeight / 2,
+      };
+    }
+
+    return {
+      x: (rect.width / 2 - viewport.x) / viewport.zoom,
+      y: (rect.height / 2 - viewport.y) / viewport.zoom,
+    };
+  };
+
+  const getNodeDropPosition = (index = 0) => {
+    const center = getVisibleWorldCenter();
+    return {
+      x: clamp(snap(center.x - nodeWidth / 2 + index * 24), 20, canvasWorldWidth - nodeWidth - 20),
+      y: clamp(snap(center.y - nodeCenterY + index * 24), 20, canvasWorldHeight - 160),
+    };
+  };
+
+  const jobTitles = useMemo(
+    () => [...new Set(candidates.map((candidate) => candidate.role).filter(Boolean))].sort(),
+    [candidates],
+  );
+
+  useEffect(() => {
+    if (!selectedJobTitle && viewMode === "job" && jobTitles.length) {
+      setSelectedJobTitle(jobTitles[0]);
+    }
+  }, [jobTitles, selectedJobTitle, viewMode]);
+
+  const visibleCandidateIds = useMemo(() => {
+    if (viewMode === "candidate") {
+      return new Set(selectedCandidateId ? [selectedCandidateId] : []);
+    }
+
+    if (viewMode === "job") {
+      return new Set(
+        candidates
+          .filter((candidate) => candidate.role === selectedJobTitle)
+          .map((candidate) => candidate.id),
+      );
+    }
+
+    return new Set(candidates.map((candidate) => candidate.id));
+  }, [candidates, selectedCandidateId, selectedJobTitle, viewMode]);
+
+  const visibleNodes = useMemo(() => {
+    if (viewMode === "all") return nodes;
+
+    const candidateNodeIds = new Set(
+      nodes
+        .filter((node) => node.type === "candidate" && node.candidateId && visibleCandidateIds.has(node.candidateId))
+        .map((node) => node.id),
+    );
+    const transcriptNodeIds = new Set<string>();
+
+    for (const edge of edges) {
+      const leftIsVisibleCandidate = candidateNodeIds.has(edge.fromNodeId);
+      const rightIsVisibleCandidate = candidateNodeIds.has(edge.toNodeId);
+      if (leftIsVisibleCandidate) transcriptNodeIds.add(edge.toNodeId);
+      if (rightIsVisibleCandidate) transcriptNodeIds.add(edge.fromNodeId);
+    }
+
+    return nodes.filter((node) => {
+      if (node.type === "candidate") {
+        return Boolean(node.candidateId && visibleCandidateIds.has(node.candidateId));
+      }
+
+      if (transcriptNodeIds.has(node.id) || selectedNodeId === node.id || detailNodeId === node.id) {
+        return true;
+      }
+
+      if (viewMode === "candidate") {
+        return Boolean(node.scopeCandidateId && node.scopeCandidateId === selectedCandidateId);
+      }
+
+      if (viewMode === "job") {
+        return Boolean(node.scopeJobTitle && node.scopeJobTitle === selectedJobTitle);
+      }
+
+      return false;
+    });
+  }, [detailNodeId, edges, nodes, selectedCandidateId, selectedJobTitle, selectedNodeId, viewMode, visibleCandidateIds]);
+
+  const visibleNodeIds = useMemo(
+    () => new Set(visibleNodes.map((node) => node.id)),
+    [visibleNodes],
+  );
+
+  const visibleEdges = useMemo(
+    () =>
+      edges.filter(
+        (edge) => visibleNodeIds.has(edge.fromNodeId) && visibleNodeIds.has(edge.toNodeId),
+      ),
+    [edges, visibleNodeIds],
+  );
+
+  useEffect(() => {
+    if (isLoadingBoard || hasAppliedInitialViewportRef.current) return;
+
+    setViewport(nodes.length ? getFitViewport(visibleNodes) : getCenteredViewport());
+    hasAppliedInitialViewportRef.current = true;
+  }, [isLoadingBoard, nodes.length, visibleNodes]);
+
   const nodeCenters = useMemo(
     () =>
       new Map(
-        nodes.map((node) => [
+        visibleNodes.map((node) => [
           node.id,
           {
             x: node.x + nodeCenterX,
@@ -574,7 +972,7 @@ export default function InterviewStudio() {
           },
         ]),
       ),
-    [nodes],
+    [visibleNodes],
   );
 
   const selectedNode = useMemo(
@@ -607,70 +1005,196 @@ export default function InterviewStudio() {
     return candidates.find((candidate) => candidate.id === detailNode.candidateId) ?? null;
   }, [candidates, detailNode]);
 
+  const pinnedQuestionCandidate = useMemo(
+    () =>
+      pinnedQuestionCandidateId
+        ? candidates.find((candidate) => candidate.id === pinnedQuestionCandidateId) ?? null
+        : null,
+    [candidates, pinnedQuestionCandidateId],
+  );
+
+  const detailCandidateQuestionCount =
+    (detailCandidate?.interviewQuestions.length ?? 0) +
+    (detailCandidate?.followUpQuestions.length ?? 0);
+
+  const pinCandidateQuestions = (candidate: StudioCandidate) => {
+    setPinnedQuestionCandidateId(candidate.id);
+    setDetailNodeId(null);
+    setMessage(`Vprašanja za ${candidate.name} so pripeta pod Mreža.`);
+  };
+
+  const activeRecordingCandidate = useMemo(() => {
+    if (viewMode === "candidate" && selectedCandidateId) {
+      return candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
+    }
+
+    if (selectedNode?.type === "candidate" && selectedNode.candidateId) {
+      return candidates.find((candidate) => candidate.id === selectedNode.candidateId) ?? null;
+    }
+
+    const visibleCandidateNodes = visibleNodes.filter((node) => node.type === "candidate");
+    if (visibleCandidateNodes.length === 1 && visibleCandidateNodes[0].candidateId) {
+      return (
+        candidates.find((candidate) => candidate.id === visibleCandidateNodes[0].candidateId) ??
+        null
+      );
+    }
+
+    return null;
+  }, [candidates, selectedCandidateId, selectedNode, viewMode, visibleNodes]);
+
+  const getCandidateInterviewCount = (candidateId: string) => {
+    const candidateNodeIds = new Set(
+      nodes
+        .filter((node) => node.type === "candidate" && node.candidateId === candidateId)
+        .map((node) => node.id),
+    );
+    const transcriptIds = new Set<string>();
+
+    for (const edge of edges) {
+      const transcriptNodeId = candidateNodeIds.has(edge.fromNodeId)
+        ? edge.toNodeId
+        : candidateNodeIds.has(edge.toNodeId)
+          ? edge.fromNodeId
+          : "";
+      if (!transcriptNodeId) continue;
+
+      const transcriptNode = nodes.find((node) => node.id === transcriptNodeId);
+      if (transcriptNode?.transcriptId) transcriptIds.add(transcriptNode.transcriptId);
+    }
+
+    nodes
+      .filter((node) => node.type === "transcript" && node.scopeCandidateId === candidateId)
+      .forEach((node) => {
+        if (node.transcriptId) transcriptIds.add(node.transcriptId);
+      });
+
+    return transcriptIds.size;
+  };
+
+  const defaultRecordingTitle = useMemo(() => {
+    if (!activeRecordingCandidate) return "Razgovor 1";
+    return `${activeRecordingCandidate.name} razgovor ${
+      getCandidateInterviewCount(activeRecordingCandidate.id) + 1
+    }`;
+  }, [activeRecordingCandidate, edges, nodes]);
+
+  useEffect(() => {
+    if (isLoadingBoard || !candidates.length) return;
+
+    if (viewMode === "candidate" && selectedCandidateId) {
+      const candidate = candidates.find((item) => item.id === selectedCandidateId);
+      if (!candidate) return;
+
+      const existingNode = nodes.find((node) => node.candidateId === candidate.id);
+      if (existingNode) return;
+
+      const position = getNodeDropPosition();
+      const candidateNode = buildCandidateNode(candidate, 0, {
+        scopeJobTitle: candidate.role,
+        ...position,
+      });
+      setNodes((current) => [candidateNode, ...current]);
+      setSelectedNodeId(candidateNode.id);
+      setMessage("Kandidat je dodan v pogled. Dodajte ali izberite transkript in ga povežite.");
+      return;
+    }
+
+    if (viewMode === "job" && selectedJobTitle) {
+      const jobCandidates = candidates.filter((candidate) => candidate.role === selectedJobTitle);
+      const existingCandidateIds = new Set(
+        nodes
+          .filter((node) => node.type === "candidate" && node.candidateId)
+          .map((node) => node.candidateId as string),
+      );
+      const missingCandidates = jobCandidates.filter(
+        (candidate) => !existingCandidateIds.has(candidate.id),
+      );
+
+      if (!missingCandidates.length) return;
+
+      const center = getVisibleWorldCenter();
+      const startY = center.y - ((missingCandidates.length - 1) * 170) / 2;
+      setNodes((current) => [
+        ...current,
+        ...missingCandidates.map((candidate, index) =>
+          buildCandidateNode(candidate, current.length + index, {
+            scopeJobTitle: selectedJobTitle,
+            x: center.x - nodeWidth / 2,
+            y: startY + index * 170,
+          }),
+        ),
+      ]);
+      setMessage("Kandidati za izbrano delovno mesto so dodani na skupno mrežo.");
+    }
+  }, [candidates, isLoadingBoard, nodes, selectedCandidateId, selectedJobTitle, viewMode]);
+
+  useEffect(() => {
+    if (isLoadingBoard || !pendingTranscriptNodeId) return;
+
+    const transcript = savedTranscripts.find((item) => item.id === pendingTranscriptNodeId);
+    if (!transcript) return;
+
+    const existingNode = nodes.find((node) => node.transcriptId === transcript.id);
+    if (existingNode) {
+      setSelectedNodeId(existingNode.id);
+      setPendingTranscriptNodeId("");
+      return;
+    }
+
+    const transcriptNode = buildTranscriptNode(transcript, visibleNodes.length + 1, {
+      scopeCandidateId: viewMode === "candidate" ? selectedCandidateId : undefined,
+      scopeJobTitle: viewMode === "job" ? selectedJobTitle : undefined,
+      ...getNodeDropPosition(1),
+    });
+    setNodes((current) => [...current, transcriptNode]);
+    setSelectedNodeId(transcriptNode.id);
+    setSelectedEdgeId(null);
+    setPendingTranscriptNodeId("");
+    setMessage("Transkript je dodan v pogled. Povežite ga s kandidatom in shranite mrežo.");
+  }, [
+    isLoadingBoard,
+    nodes,
+    pendingTranscriptNodeId,
+    savedTranscripts,
+    selectedCandidateId,
+    selectedJobTitle,
+    viewMode,
+    visibleNodes.length,
+  ]);
+
+  useEffect(() => {
+    if (selectedNodeId && !visibleNodeIds.has(selectedNodeId)) {
+      setSelectedNodeId(null);
+    }
+    if (selectedEdgeId && !visibleEdges.some((edge) => edge.id === selectedEdgeId)) {
+      setSelectedEdgeId(null);
+    }
+  }, [selectedEdgeId, selectedNodeId, visibleEdges, visibleNodeIds]);
+
   useEffect(() => {
     if (detailCandidate) {
       setCandidateStageDraft(detailCandidate.stage);
     }
   }, [detailCandidate]);
 
-  const filteredTranscripts = useMemo(() => {
-    const query = transcriptSearchQuery.trim().toLowerCase();
-    if (!query) return savedTranscripts;
+  useEffect(() => {
+    if (pinnedQuestionCandidateId && !pinnedQuestionCandidate) {
+      setPinnedQuestionCandidateId(null);
+    }
+  }, [pinnedQuestionCandidate, pinnedQuestionCandidateId]);
 
-    return savedTranscripts.filter((transcript) => {
-      const searchableText = [
-        transcript.title,
-        transcript.status,
-        transcript.transcriptText,
-        transcript.errorMessage ?? "",
-      ]
-        .join(" ")
-        .toLowerCase();
-
-      return searchableText.includes(query);
-    });
-  }, [savedTranscripts, transcriptSearchQuery]);
-
-  const refreshTranscripts = async () => {
-    const { data: userResult } = await supabase.auth.getUser();
-    const userId = userResult.user?.id;
-    if (!userId) {
-      setMessage("Za nalaganje transkriptov morate biti prijavljeni.");
-      return;
+  const candidatePickerOptions = useMemo(() => {
+    if (viewMode === "candidate" && selectedCandidateId) {
+      return candidates.filter((candidate) => candidate.id === selectedCandidateId);
     }
 
-    const { data, error } = await supabase
-      .from("interview_transcripts")
-      .select("id, title, transcript_text, duration_seconds, status, audio_path, error_message, created_at")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false })
-      .limit(200);
-
-    if (error) {
-      if (isMissingTranscriptTableError(error)) {
-        setTranscriptTableMissing(true);
-        setMessage("Tabela interview_transcripts še ni v bazi.");
-        return;
-      }
-
-      setMessage(`Transkriptov ni bilo mogoče osvežiti: ${error.message}`);
-      return;
+    if (viewMode === "job" && selectedJobTitle) {
+      return candidates.filter((candidate) => candidate.role === selectedJobTitle);
     }
 
-    const persistedTranscripts = ((data ?? []) as TranscriptRow[]).map(transcriptFromRow);
-    setTranscriptTableMissing(false);
-    setSavedTranscripts((current) => {
-      const existing = new Map(current.map((item) => [item.id, item]));
-      for (const transcript of persistedTranscripts) {
-        existing.set(transcript.id, transcript);
-      }
-      return Array.from(existing.values()).sort(
-        (first, second) =>
-          new Date(second.createdAt).getTime() - new Date(first.createdAt).getTime(),
-      );
-    });
-    setMessage(`Naloženih transkriptov: ${persistedTranscripts.length}.`);
-  };
+    return candidates;
+  }, [candidates, selectedCandidateId, selectedJobTitle, viewMode]);
 
   const saveBoard = async () => {
     setIsSavingBoard(true);
@@ -685,24 +1209,17 @@ export default function InterviewStudio() {
       return;
     }
 
-    const nodeById = new Map(nodes.map((node) => [node.id, node]));
-    const candidateTranscriptPairs = edges
-      .map((edge) => {
-        const left = nodeById.get(edge.fromNodeId);
-        const right = nodeById.get(edge.toNodeId);
-        const candidateNode =
-          left?.type === "candidate" ? left : right?.type === "candidate" ? right : null;
-        const transcriptNode =
-          left?.type === "transcript" ? left : right?.type === "transcript" ? right : null;
+    const {
+      keptEdges,
+      candidateTranscriptPairs,
+      removedEdges,
+    } = keepOneCandidatePerTranscript(edges, nodes);
 
-        return {
-          candidateId: candidateNode?.candidateId ?? "",
-          transcriptId: transcriptNode?.transcriptId ?? "",
-        };
-      })
-      .filter((pair) => pair.candidateId && pair.transcriptId);
+    if (removedEdges.length) {
+      setEdges(keptEdges);
+    }
 
-    const { data, error } = await supabase
+    let saveResult = await supabase
       .from("interview_studio_boards")
       .upsert(
         {
@@ -710,14 +1227,40 @@ export default function InterviewStudio() {
           user_id: userId,
           title: "Studio razgovorov",
           nodes,
-          edges,
+          edges: keptEdges,
           transcripts: savedTranscripts,
+          viewport,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" },
       )
       .select("id, updated_at")
       .single();
+    const shouldRetryWithoutViewport =
+      saveResult.error &&
+      (saveResult.error.message?.includes("viewport") ||
+        saveResult.error.details?.includes("viewport"));
+
+    if (shouldRetryWithoutViewport) {
+      saveResult = await supabase
+        .from("interview_studio_boards")
+        .upsert(
+          {
+            id: boardId ?? undefined,
+            user_id: userId,
+            title: "Studio razgovorov",
+            nodes,
+            edges: keptEdges,
+            transcripts: savedTranscripts,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" },
+        )
+        .select("id, updated_at")
+        .single();
+    }
+
+    const { data, error } = saveResult;
 
     setIsSavingBoard(false);
 
@@ -755,12 +1298,16 @@ export default function InterviewStudio() {
       return;
     }
 
-    setMessage("Mreža razgovorov je shranjena, transkripti pa so vezani na kandidate.");
+    setMessage(
+      removedEdges.length
+        ? `Mreža je shranjena. Odstranjenih je bilo ${removedEdges.length} podvojenih ali napačnih povezav, ker je lahko en transkript vezan samo na enega kandidata.`
+        : "Mreža razgovorov je shranjena, transkripti pa so vezani na kandidate.",
+    );
   };
 
   const startRecording = async () => {
-    if (!transcriptName.trim()) {
-      setMessage("Pred snemanjem obvezno vpišite ime transkripta.");
+    if (!activeRecordingCandidate) {
+      setMessage("Za snemanje najprej izberite kandidatni pogled ali kandidatni node, da lahko sistem sam poimenuje transkript.");
       return;
     }
 
@@ -832,38 +1379,29 @@ export default function InterviewStudio() {
   };
 
   const addTranscriptNode = (transcript: SavedTranscript) => {
-    const nodeId = `transcript-${transcript.id}-${crypto.randomUUID()}`;
-    const statusLabel =
-      transcript.status === "complete"
-        ? "transkript zaključen"
-        : transcript.status === "recorded"
-          ? "posnetek pripravljen"
-          : transcript.status === "processing"
-            ? "transkripcija v teku"
-            : transcript.status === "failed"
-              ? "transkripcija ni uspela"
-              : "lokalni transkript";
-    setNodes((current) => [
-      ...current,
-      {
-        id: nodeId,
-        type: "transcript",
-        title: transcript.title,
-        subtitle: `${formatDuration(transcript.durationSeconds)} · ${statusLabel}`,
-        x: snap(520 + current.length * 20),
-        y: snap(220 + current.length * 20),
-        transcriptId: transcript.id,
-        transcriptText: transcript.transcriptText,
-      },
-    ]);
-    setSelectedNodeId(nodeId);
+    const existingVisibleNode = visibleNodes.find((node) => node.transcriptId === transcript.id);
+    if (existingVisibleNode) {
+      setSelectedNodeId(existingVisibleNode.id);
+      setSelectedEdgeId(null);
+      setIsTranscriptPickerOpen(false);
+      setMessage("Transkript je že v tem pogledu. Lahko ga povežete s kandidatom.");
+      return;
+    }
+
+    const node = buildTranscriptNode(transcript, visibleNodes.length, {
+      scopeCandidateId: viewMode === "candidate" ? selectedCandidateId : undefined,
+      scopeJobTitle: viewMode === "job" ? selectedJobTitle : undefined,
+      ...getNodeDropPosition(),
+    });
+    setNodes((current) => [...current, node]);
+    setSelectedNodeId(node.id);
     setSelectedEdgeId(null);
-    setIsCandidatePickerOpen(false);
+    setIsTranscriptPickerOpen(false);
   };
 
   const createTranscriptFromRecording = async () => {
-    if (!transcriptName.trim()) {
-      setMessage("Ime transkripta je obvezno.");
+    if (!activeRecordingCandidate) {
+      setMessage("Za shranjevanje posnetka najprej izberite kandidata.");
       return;
     }
 
@@ -877,12 +1415,13 @@ export default function InterviewStudio() {
 
     const transcript: SavedTranscript = {
       id: crypto.randomUUID(),
-      title: transcriptName.trim(),
+      title: defaultRecordingTitle,
       durationSeconds,
-      transcriptText: recordingReadyText(transcriptName.trim(), durationSeconds),
+      transcriptText: recordingReadyText(defaultRecordingTitle, durationSeconds),
       createdAt: new Date().toISOString(),
       status: "local",
     };
+    let createdTranscript = transcript;
 
     const audioBlob = recordingBlobRef.current;
     if (audioBlob && audioBlob.size > maxAudioBytes) {
@@ -941,6 +1480,7 @@ export default function InterviewStudio() {
         }
 
         const persistedTranscript = transcriptFromRow(row as TranscriptRow);
+        createdTranscript = persistedTranscript;
         setSavedTranscripts((current) => [persistedTranscript, ...current]);
       } else {
         setSavedTranscripts((current) => [transcript, ...current]);
@@ -951,71 +1491,19 @@ export default function InterviewStudio() {
 
     setRecordingStatus("idle");
     setDurationSeconds(0);
-    setTranscriptName("");
     setRecorder(null);
     recordingBlobRef.current = null;
     chunksRef.current = [];
+    const transcriptNode = buildTranscriptNode(createdTranscript, visibleNodes.length + 1, {
+      scopeCandidateId: activeRecordingCandidate.id,
+      scopeJobTitle: viewMode === "job" ? selectedJobTitle : undefined,
+      ...getNodeDropPosition(1),
+    });
+    setNodes((current) => [...current, transcriptNode]);
+    setSelectedNodeId(transcriptNode.id);
+    setSelectedEdgeId(null);
     setIsSavingRecording(false);
-    setMessage("Posnetek je shranjen kot transkript. Na mrežo ga dodajte z zgornjim gumbom.");
-  };
-
-  const addManualTranscript = async () => {
-    if (!manualTranscriptName.trim()) {
-      setMessage("Ime transkripta je obvezno, drugače hitro nastane zmeda.");
-      return;
-    }
-
-    const transcript: SavedTranscript = {
-      id: crypto.randomUUID(),
-      title: manualTranscriptName.trim(),
-      durationSeconds: 0,
-      transcriptText:
-        manualTranscriptText.trim() ||
-        "Ročno dodan transkript. Vnesite vsebino ali ga kasneje zamenjajte s pravo transkripcijo.",
-      createdAt: new Date().toISOString(),
-      status: "complete",
-    };
-
-    if (!transcriptTableMissing) {
-      const { data: userResult } = await supabase.auth.getUser();
-      const userId = userResult.user?.id;
-      if (userId) {
-        const { data: row, error } = await supabase
-          .from("interview_transcripts")
-          .insert({
-            id: transcript.id,
-            user_id: userId,
-            title: transcript.title,
-            transcript_text: transcript.transcriptText,
-            duration_seconds: 0,
-            status: "complete",
-            source: "manual",
-          })
-          .select("id, title, transcript_text, duration_seconds, status, audio_path, error_message, created_at")
-          .single();
-
-        if (error) {
-          if (isMissingTranscriptTableError(error)) {
-            setTranscriptTableMissing(true);
-          } else {
-            setMessage(`Transkripta ni bilo mogoče shraniti: ${error.message}`);
-            return;
-          }
-        } else {
-          const persistedTranscript = transcriptFromRow(row as TranscriptRow);
-          setSavedTranscripts((current) => [persistedTranscript, ...current]);
-          setManualTranscriptName("");
-          setManualTranscriptText("");
-          setMessage("Transkript je shranjen. Na mrežo ga dodajte z zgornjim gumbom.");
-          return;
-        }
-      }
-    }
-
-    setSavedTranscripts((current) => [transcript, ...current]);
-    setManualTranscriptName("");
-    setManualTranscriptText("");
-    setMessage("Transkript je shranjen. Na mrežo ga dodajte z zgornjim gumbom.");
+    setMessage("Posnetek je shranjen kot transkript in dodan v pogled. Povežite ga s kandidatom ter shranite mrežo.");
   };
 
   const addCandidateNode = (candidateId: string) => {
@@ -1025,20 +1513,21 @@ export default function InterviewStudio() {
       return;
     }
 
-    const nodeId = `candidate-${candidate.id}-${crypto.randomUUID()}`;
-    setNodes((current) => [
-      ...current,
-      {
-        id: nodeId,
-        type: "candidate",
-        title: candidate.name,
-        subtitle: formatCandidateSubtitle(candidate),
-        x: snap(360 + current.length * 15),
-        y: snap(140 + current.length * 15),
-        candidateId: candidate.id,
-      },
-    ]);
-    setSelectedNodeId(nodeId);
+    const existingNode = nodes.find((node) => node.candidateId === candidate.id);
+    if (existingNode) {
+      setSelectedNodeId(existingNode.id);
+      setSelectedEdgeId(null);
+      setIsTranscriptPickerOpen(false);
+      setMessage("Kandidat je že na mreži.");
+      return;
+    }
+
+    const node = buildCandidateNode(candidate, visibleNodes.length, {
+      scopeJobTitle: candidate.role,
+      ...getNodeDropPosition(),
+    });
+    setNodes((current) => [...current, node]);
+    setSelectedNodeId(node.id);
     setSelectedEdgeId(null);
     setIsTranscriptPickerOpen(false);
   };
@@ -1190,18 +1679,54 @@ export default function InterviewStudio() {
       return;
     }
 
+    if (sourceNode.type === "transcript" && targetNode.type === "transcript") {
+      setConnectingFromNodeId(null);
+      setMessage("Transkripte povežite s kandidatom, ne neposredno med seboj.");
+      return;
+    }
+
     const fromNodeId =
       sourceNode.type === "candidate" && targetNode.type === "transcript"
         ? sourceNode.id
         : sourceNode.type === "transcript" && targetNode.type === "candidate"
           ? targetNode.id
-          : sourceNode.id;
+        : sourceNode.id;
     const toNodeId =
       sourceNode.type === "candidate" && targetNode.type === "transcript"
         ? targetNode.id
         : sourceNode.type === "transcript" && targetNode.type === "candidate"
           ? sourceNode.id
           : targetNode.id;
+    const candidateNode = sourceNode.type === "candidate" ? sourceNode : targetNode;
+    const transcriptNode = sourceNode.type === "transcript" ? sourceNode : targetNode;
+
+    if (!candidateNode.candidateId || !transcriptNode.transcriptId) {
+      setConnectingFromNodeId(null);
+      setMessage("Povezava mora imeti kandidata in transkript iz sistema.");
+      return;
+    }
+
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const existingTranscriptConnection = edges
+      .map((edge) => getCandidateTranscriptPairFromEdge(edge, nodeById))
+      .find((pair) => {
+        if (!pair) return false;
+        return (
+          pair.transcriptId === transcriptNode.transcriptId &&
+          pair.candidateId !== candidateNode.candidateId
+        );
+      });
+
+    if (existingTranscriptConnection) {
+      const existingCandidate = candidates.find(
+        (candidate) => candidate.id === existingTranscriptConnection.candidateId,
+      );
+      setConnectingFromNodeId(null);
+      setMessage(
+        `Ta transkript je že povezan s kandidatom ${existingCandidate?.name ?? "drug kandidat"}. En transkript je lahko vezan samo na enega kandidata.`,
+      );
+      return;
+    }
 
     const exists = edges.some(
       (edge) =>
@@ -1386,6 +1911,54 @@ export default function InterviewStudio() {
     setMessage(`Faza kandidata je posodobljena na ${stageLabels[candidateStageDraft]}.`);
   };
 
+  const arrangeCurrentView = () => {
+    const visibleCandidateNodes = visibleNodes
+      .filter((node) => node.type === "candidate")
+      .sort((first, second) => first.title.localeCompare(second.title, "sl"));
+    const visibleTranscriptNodes = visibleNodes.filter((node) => node.type === "transcript");
+    const nextPositions = new Map<string, { x: number; y: number }>();
+
+    visibleCandidateNodes.forEach((node, index) => {
+      const y = snap(120 + index * 170);
+      nextPositions.set(node.id, { x: snap(180), y });
+
+      const connectedTranscriptIds = visibleEdges
+        .filter((edge) => edge.fromNodeId === node.id || edge.toNodeId === node.id)
+        .map((edge) => (edge.fromNodeId === node.id ? edge.toNodeId : edge.fromNodeId))
+        .filter((nodeId) => visibleTranscriptNodes.some((transcriptNode) => transcriptNode.id === nodeId));
+
+      connectedTranscriptIds.forEach((transcriptNodeId, transcriptIndex) => {
+        if (nextPositions.has(transcriptNodeId)) return;
+        nextPositions.set(transcriptNodeId, {
+          x: snap(560 + transcriptIndex * 300),
+          y: snap(y + transcriptIndex * 45),
+        });
+      });
+    });
+
+    visibleTranscriptNodes
+      .filter((node) => !nextPositions.has(node.id))
+      .forEach((node, index) => {
+        nextPositions.set(node.id, {
+          x: snap(560 + (index % 2) * 300),
+          y: snap(120 + Math.floor(index / 2) * 150),
+        });
+      });
+
+    const arrangedVisibleNodes = visibleNodes.map((node) => ({
+      ...node,
+      ...(nextPositions.get(node.id) ?? {}),
+    }));
+    setNodes((current) =>
+      current.map((node) => {
+        const position = nextPositions.get(node.id);
+        return position ? { ...node, ...position } : node;
+      }),
+    );
+    setViewport(getFitViewport(arrangedVisibleNodes));
+    setMessage("Pogled je urejen brez prekrivanja.");
+  };
+
   const cost = estimateCost(durationSeconds);
   const isNearLimit = durationSeconds >= warningSeconds;
   const estimatedRecordingBytes = estimateRecordingBytes(durationSeconds);
@@ -1416,9 +1989,7 @@ export default function InterviewStudio() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold text-foreground">Studio razgovorov</h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Posnemite razgovor, ustvarite transkript in ga ročno povežite s kandidatom.
-              </p>
+              <p className="mt-1 text-sm text-muted-foreground">Mreža kandidatov in transkriptov.</p>
             </div>
             <Button
               type="button"
@@ -1437,32 +2008,39 @@ export default function InterviewStudio() {
             <DialogHeader>
               <DialogTitle>Kako uporabljati Razgovore</DialogTitle>
               <DialogDescription>
-                Potek je ročen zato, da se transkript ne pripiše napačnemu kandidatu.
+                Vsa dodatna navodila za snemanje, poimenovanje, poglede in povezovanje so zbrana tukaj.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-2">
               {[
                 {
-                  title: "1. Ustvari transkript",
-                  body: "Posnemite razgovor ali prilepite ročni transkript. Pri posnetku najprej shranite posnetek, nato po potrebi zaženite transkripcijo.",
-                  visual: "Transkript",
+                  title: "1. Izberi pogled",
+                  body: "Pogled Kandidat pokaže enega kandidata in njegove transkripte. Pogled Delovno mesto združi vse kandidate iste pozicije na isto mrežo. Celotna mreža je namenjena pregledu vseh povezav.",
+                  image: "/images/mreza.svg",
                 },
                 {
-                  title: "2. Dodaj elemente na mrežo",
-                  body: "Z gumboma Dodaj kandidata in Dodaj transkript izberite prava elementa. Oba morata biti vidna na mreži.",
-                  visual: "Kandidat + transkript",
+                  title: "2. Posnemi razgovor",
+                  body: "Pred snemanjem mora biti izbran kandidat ali kandidatni node. Ime transkripta se ustvari samodejno: ime kandidata + razgovor + zaporedna številka.",
+                  image: "/images/zagovor.svg",
                 },
                 {
-                  title: "3. Poveži in shrani",
-                  body: "Kliknite Poveži na kandidatu, nato Poveži na transkriptu. Na koncu kliknite Shrani mrežo, da se povezava pokaže na profilu kandidata.",
-                  visual: "Shrani mrežo",
+                  title: "3. Dodaj obstoječi transkript",
+                  body: "Shranjeni transkripti so na voljo prek gumba Dodaj transkript nad mrežo, kjer jih lahko tudi iščete. Levi meni zato ne podvaja seznama transkriptov.",
+                  image: "/images/zagovor-transkript.svg",
+                },
+                {
+                  title: "4. Poveži in shrani",
+                  body: "Kliknite Poveži na kandidatu, nato Poveži na transkriptu. Povezava kandidat-transkript se prikaže na profilu kandidata šele po kliku Shrani mrežo.",
+                  image: "/images/shrani.svg",
                 },
               ].map((step) => (
                 <div key={step.title} className="rounded-md border border-border bg-muted/30 p-4">
-                  <div className="mb-3 flex h-24 items-center justify-center rounded-md border border-dashed border-border bg-background text-center text-sm font-semibold text-muted-foreground">
-                    {step.visual}
-                  </div>
+                  <img
+                    src={step.image}
+                    alt={step.title}
+                    className="mb-3 aspect-video w-full rounded-md border border-border bg-background object-cover"
+                  />
                   <h3 className="text-sm font-semibold text-foreground">{step.title}</h3>
                   <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                     {step.body}
@@ -1472,8 +2050,7 @@ export default function InterviewStudio() {
             </div>
 
             <div className="rounded-md border border-cyan-200 bg-cyan-50 p-4 text-sm leading-relaxed text-cyan-950">
-              Ko je mreža shranjena, kandidatov profil prikaže povezane transkripte in primerjavo
-              <strong> samo CV</strong> proti <strong>CV + razgovor</strong>. Enak kombiniran signal se pokaže tudi na strani delovnega mesta.
+              Posnetek je omejen na 60 minut in 25 MB. Transkripcija se ne zažene samodejno; izberite transkriptni node in kliknite Zaženi transkripcijo. Če se elementi prekrivajo, uporabite Uredi pogled brez prekrivanja.
             </div>
 
             <DialogFooter>
@@ -1484,19 +2061,126 @@ export default function InterviewStudio() {
           </DialogContent>
         </Dialog>
 
+        <Dialog open={isCompletionDialogOpen} onOpenChange={setIsCompletionDialogOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Dokončaj mrežo razgovora</DialogTitle>
+              <DialogDescription>
+                Kandidat je že prikazan v pravem pogledu. Ustvarite ali izberite transkript, kliknite
+                Poveži na kandidatu in transkriptu, nato shranite mrežo.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="rounded-md border border-cyan-200 bg-cyan-50 p-4 text-sm text-cyan-950">
+              {viewMode === "candidate"
+                ? "Pogled je omejen na enega kandidata in njegove transkripte."
+                : "Pogled delovnega mesta združi vse kandidate iste pozicije na eno mrežo."}
+            </div>
+            <DialogFooter>
+              <Button type="button" onClick={() => setIsCompletionDialogOpen(false)}>
+                Nadaljuj
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-hidden p-4">
+          <section className="grid gap-3 rounded-md border border-border bg-muted/25 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              {viewMode === "candidate" ? (
+                <Users className="h-4 w-4" />
+              ) : (
+                <Briefcase className="h-4 w-4" />
+              )}
+              Pogled mreže
+            </div>
+            <div className="grid gap-2">
+              <Label>Način</Label>
+              <Select
+                value={viewMode}
+                onValueChange={(value) => {
+                  const nextMode = value as BoardViewMode;
+                  setViewMode(nextMode);
+                  setSelectedNodeId(null);
+                  setSelectedEdgeId(null);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="candidate">Kandidat</SelectItem>
+                  <SelectItem value="job">Delovno mesto</SelectItem>
+                  <SelectItem value="all">Celotna mreža</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {viewMode === "candidate" ? (
+              <div className="grid gap-2">
+                <Label>Kandidat</Label>
+                <Select
+                  value={selectedCandidateId || allViewValue}
+                  onValueChange={(value) => {
+                    setSelectedCandidateId(value === allViewValue ? "" : value);
+                    setSelectedNodeId(null);
+                    setSelectedEdgeId(null);
+                  }}
+                >
+                  <SelectTrigger className="min-w-0 max-w-full [&>span]:truncate">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={allViewValue}>Izberi kandidata</SelectItem>
+                    {candidatePickerOptions.map((candidate) => (
+                      <SelectItem key={candidate.id} value={candidate.id}>
+                        {candidate.name} · {candidate.role}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            {viewMode === "job" ? (
+              <div className="grid gap-2">
+                <Label>Delovno mesto</Label>
+                <Select
+                  value={selectedJobTitle || allViewValue}
+                  onValueChange={(value) => {
+                    setSelectedJobTitle(value === allViewValue ? "" : value);
+                    setSelectedNodeId(null);
+                    setSelectedEdgeId(null);
+                  }}
+                >
+                  <SelectTrigger className="min-w-0 max-w-full [&>span]:truncate">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={allViewValue}>Izberi delovno mesto</SelectItem>
+                    {jobTitles.map((jobTitle) => (
+                      <SelectItem key={jobTitle} value={jobTitle}>
+                        {jobTitle}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            <Button type="button" variant="outline" onClick={arrangeCurrentView}>
+              Uredi pogled brez prekrivanja
+            </Button>
+          </section>
+
           <section className="grid gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <Mic className="h-4 w-4" />
               Snemanje
             </div>
-            <div className="grid gap-2">
-              <Label>Ime transkripta</Label>
-              <Input
-                value={transcriptName}
-                onChange={(event) => setTranscriptName(event.target.value)}
-                placeholder="npr. Razgovor Luka Horvat - UX"
-              />
+            <div className="rounded-md border border-border bg-muted/25 p-3 text-sm">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Naslednji transkript
+              </div>
+              <div className="mt-1 font-medium text-foreground">
+                {activeRecordingCandidate ? defaultRecordingTitle : "Izberi kandidata za samodejno ime"}
+              </div>
             </div>
             <div className="grid gap-2">
               <Label>Mikrofon</Label>
@@ -1548,9 +2232,6 @@ export default function InterviewStudio() {
                   style={{ width: `${Math.min(100, (shownRecordingBytes / maxAudioBytes) * 100)}%` }}
                 />
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Varovalka: transkripcija se ne zažene samodejno, ime je obvezno, limit je 60 minut in 25 MB.
-              </p>
             </div>
 
             {isNearLimit ? (
@@ -1596,7 +2277,7 @@ export default function InterviewStudio() {
               type="button"
               variant="outline"
               onClick={createTranscriptFromRecording}
-              disabled={isSavingRecording || recordingStatus !== "ready" || !transcriptName.trim()}
+              disabled={isSavingRecording || recordingStatus !== "ready" || !activeRecordingCandidate}
               className="gap-2"
             >
               {isSavingRecording ? (
@@ -1607,103 +2288,13 @@ export default function InterviewStudio() {
               Shrani posnetek kot transkript
             </Button>
           </section>
-
-          <section className="grid gap-3 border-t border-border pt-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-foreground">Transkripti v sistemu</div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Poiščite shranjen posnetek ali zaključen transkript.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="shrink-0 rounded-md border border-border px-2 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                onClick={refreshTranscripts}
-              >
-                Osveži
-              </button>
-            </div>
-
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={transcriptSearchQuery}
-                onChange={(event) => setTranscriptSearchQuery(event.target.value)}
-                placeholder="Išči po imenu, statusu ali vsebini..."
-                className="pl-9"
-              />
-            </div>
-
-            <div className="text-xs text-muted-foreground">
-              Prikazujem {filteredTranscripts.length} od {savedTranscripts.length} transkriptov.
-            </div>
-
-            {filteredTranscripts.length ? (
-              <div className="grid max-h-80 gap-2 overflow-y-auto pr-1">
-                {filteredTranscripts.map((transcript) => (
-                  <div
-                    key={transcript.id}
-                    className="rounded-md border border-border bg-muted/25 p-3 text-left"
-                  >
-                    <span className="block truncate text-sm font-medium text-foreground">
-                      {transcript.title}
-                    </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {formatDuration(transcript.durationSeconds)} · {transcript.status}
-                      {transcript.audioPath ? " · posnetek" : " · brez posnetka"}
-                    </span>
-                    {transcript.transcriptText ? (
-                      <span className="mt-2 line-clamp-2 block text-xs leading-relaxed text-muted-foreground">
-                        {transcript.transcriptText}
-                      </span>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-                Ni shranjenih transkriptov za ta iskalni niz. Posnemite razgovor ali osvežite seznam.
-              </div>
-            )}
-          </section>
-
-          <section className="grid gap-3 border-t border-border pt-5">
-            <div>
-              <div className="text-sm font-semibold text-foreground">Ročno ustvari transkript</div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Samo za obstoječe zapiske ali testni vnos, ne za iskanje shranjenih transkriptov.
-              </p>
-            </div>
-            <Input
-              value={manualTranscriptName}
-              onChange={(event) => setManualTranscriptName(event.target.value)}
-              placeholder="Ime novega ročnega transkripta"
-            />
-            <Textarea
-              value={manualTranscriptText}
-              onChange={(event) => setManualTranscriptText(event.target.value)}
-              placeholder="Prilepite besedilo transkripta, če ga že imate."
-              className="min-h-24 resize-y"
-            />
-            <Button type="button" variant="outline" onClick={addManualTranscript} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Ustvari transkript
-            </Button>
-          </section>
-
-          <section className="grid gap-2 border-t border-border pt-5 text-xs text-muted-foreground">
-            <div className="font-semibold text-foreground">Povezovanje</div>
-            <p>Kliknite Poveži na prvem node-u, nato Poveži na drugem node-u.</p>
-            <p>Manager povezave potrjuje ročno, zato se razgovor ne pripiše napačnemu kandidatu.</p>
-          </section>
         </div>
       </aside>
 
       <main className="relative h-[72dvh] min-h-[34rem] min-w-0 flex-1 overflow-hidden bg-background lg:h-auto lg:min-h-0">
         <div className="pointer-events-none absolute left-3 right-3 top-3 z-30 flex flex-wrap items-start gap-2 lg:left-4 lg:right-72 lg:top-4 lg:gap-3">
           <div className="pointer-events-auto max-w-full rounded-md border border-border bg-card/95 px-3 py-2 text-xs text-muted-foreground shadow-sm lg:max-w-[34rem]">
-            {gridSize}px mreža · 5px premik · {nodes.length} elementov · {edges.length} povezav
+            {gridSize}px mreža · 5px premik · {visibleNodes.length} elementov · {visibleEdges.length} povezav
             {" · "}
             {Math.round(viewport.zoom * 100)}%
             {" · desni klik + poteg za premik"}
@@ -1798,7 +2389,9 @@ export default function InterviewStudio() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setViewport(defaultViewport)}
+                onClick={() =>
+                  setViewport(visibleNodes.length ? getFitViewport(visibleNodes) : getCenteredViewport())
+                }
               >
                 {Math.round(viewport.zoom * 100)}%
               </Button>
@@ -1862,6 +2455,79 @@ export default function InterviewStudio() {
           <p className="mt-3 hidden text-xs text-muted-foreground lg:block">
             Zadnje shranjevanje: {lastSavedLabel}
           </p>
+          {pinnedQuestionCandidate ? (
+            <section className="mt-3 max-h-[42vh] overflow-y-auto rounded-md border border-border bg-muted/20 p-3">
+              <div className="mb-3 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <Bot className="h-4 w-4 text-cyan-500" />
+                    Vprašanja
+                  </div>
+                  <p className="mt-1 truncate text-xs text-muted-foreground">
+                    {pinnedQuestionCandidate.name}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Skrij vprašanja"
+                  className="rounded-md border border-border p-1 text-muted-foreground transition hover:bg-background hover:text-foreground"
+                  onClick={() => setPinnedQuestionCandidateId(null)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <div className="space-y-3 text-sm">
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    AI vprašanja
+                  </h3>
+                  {pinnedQuestionCandidate.interviewQuestions.length ? (
+                    <ol className="mt-2 space-y-2 text-foreground">
+                      {pinnedQuestionCandidate.interviewQuestions.map((question, index) => (
+                        <li key={`${question}-${index}`} className="leading-relaxed">
+                          {index + 1}. {question}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      AI vprašanja še niso pripravljena.
+                    </p>
+                  )}
+                </div>
+
+                <div className="border-t border-border pt-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Nadaljnja vprašanja
+                  </h3>
+                  {pinnedQuestionCandidate.followUpQuestions.length ? (
+                    <ol className="mt-2 space-y-2 text-foreground">
+                      {pinnedQuestionCandidate.followUpQuestions.map((question, index) => (
+                        <li key={`${question}-${index}`} className="leading-relaxed">
+                          {index + 1}. {question}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Nadaljnja vprašanja se prikažejo po CV + razgovor re-analizi.
+                    </p>
+                  )}
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setPinnedQuestionCandidateId(null)}
+                >
+                  Skrij
+                </Button>
+              </div>
+            </section>
+          ) : null}
           {boardTableMissing ? (
             <p className="mt-2 hidden rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 lg:block">
               Za trajno shrambo najprej zaženite SQL za <code>interview_studio_boards</code>.
@@ -1904,7 +2570,7 @@ export default function InterviewStudio() {
                 Nalaganje mreže razgovorov...
               </div>
             </div>
-          ) : nodes.length === 0 ? (
+          ) : visibleNodes.length === 0 ? (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
               <div className="max-w-sm rounded-md border border-border bg-card/95 px-5 py-4 text-center shadow-sm">
                 <p className="text-sm font-semibold text-foreground">Mreža je prazna</p>
@@ -1975,9 +2641,9 @@ export default function InterviewStudio() {
                   <path d="M0,0 L0,6 L9,3 z" fill="#f59e0b" />
                 </marker>
               </defs>
-              {edges.map((edge) => {
-                const fromNode = nodes.find((node) => node.id === edge.fromNodeId);
-                const toNode = nodes.find((node) => node.id === edge.toNodeId);
+              {visibleEdges.map((edge) => {
+                const fromNode = visibleNodes.find((node) => node.id === edge.fromNodeId);
+                const toNode = visibleNodes.find((node) => node.id === edge.toNodeId);
                 const from = nodeCenters.get(edge.fromNodeId);
                 const to = nodeCenters.get(edge.toNodeId);
                 if (!from || !to) return null;
@@ -2012,7 +2678,7 @@ export default function InterviewStudio() {
               })}
             </svg>
 
-            {nodes.map((node) => (
+            {visibleNodes.map((node) => (
               <NodeCard
                 key={node.id}
                 node={node}
@@ -2110,6 +2776,69 @@ export default function InterviewStudio() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+
+                <div className="rounded-md border border-border bg-muted/20 p-4">
+                  <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <Bot className="h-4 w-4 text-cyan-500" />
+                        Vprašanja za razgovor
+                      </h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        AI vprašanja iz analize kandidata in nadaljnja vprašanja po re-analizi.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!detailCandidate || detailCandidateQuestionCount === 0}
+                      onClick={() => detailCandidate && pinCandidateQuestions(detailCandidate)}
+                    >
+                      Pripni na mrežo
+                    </Button>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        AI vprašanja
+                      </h4>
+                      {detailCandidate?.interviewQuestions.length ? (
+                        <ol className="mt-2 space-y-2 text-sm leading-relaxed text-foreground">
+                          {detailCandidate.interviewQuestions.map((question, index) => (
+                            <li key={`${question}-${index}`}>
+                              {index + 1}. {question}
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          AI vprašanja še niso pripravljena.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="rounded-md border border-border bg-background p-3">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Nadaljnja vprašanja
+                      </h4>
+                      {detailCandidate?.followUpQuestions.length ? (
+                        <ol className="mt-2 space-y-2 text-sm leading-relaxed text-foreground">
+                          {detailCandidate.followUpQuestions.map((question, index) => (
+                            <li key={`${question}-${index}`}>
+                              {index + 1}. {question}
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          Prikažejo se po CV + razgovor re-analizi.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 

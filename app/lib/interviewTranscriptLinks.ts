@@ -240,13 +240,13 @@ export const syncCandidateTranscriptLinks = async (input: {
   userId: string;
   candidateTranscriptPairs: Array<{ candidateId: string; transcriptId: string }>;
 }) => {
-  const uniquePairs = [
-    ...new Map(
-      input.candidateTranscriptPairs
-        .filter((pair) => pair.candidateId && pair.transcriptId)
-        .map((pair) => [`${pair.candidateId}:${pair.transcriptId}`, pair]),
-    ).values(),
-  ];
+  const uniquePairsByTranscript = new Map<string, { candidateId: string; transcriptId: string }>();
+  for (const pair of input.candidateTranscriptPairs) {
+    if (!pair.candidateId || !pair.transcriptId) continue;
+    if (uniquePairsByTranscript.has(pair.transcriptId)) continue;
+    uniquePairsByTranscript.set(pair.transcriptId, pair);
+  }
+  const uniquePairs = [...uniquePairsByTranscript.values()];
 
   const { error: deleteError } = await supabase
     .from("candidate_interview_transcripts")

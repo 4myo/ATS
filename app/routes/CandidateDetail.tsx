@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams, Link, useLocation } from "react-router";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useParams, Link, useLocation, useNavigate } from "react-router";
 import type { Stage } from "../store";
 import { supabase } from "../lib/supabase";
 import { getAiWritingSignal } from "../lib/aiWritingSignal";
 import { ScoreRing } from '../components/ScoreRing';
 import { 
   ArrowLeft, ThumbsUp, ThumbsDown,
-  CheckCircle, XCircle, Clock, Bot, FileText, Eye, Loader2,
+  CheckCircle, XCircle, Clock, Bot, FileText, Eye, Loader2, Upload,
   Link as LinkIcon, Mail, MapPin, Phone
 } from 'lucide-react';
 import { 
@@ -27,11 +27,22 @@ import {
 } from "../components/ui/select";
 import { Button } from "../components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
+import { Textarea } from "../components/ui/textarea";
+import {
   OfferDraftDialog,
 } from "../components/OfferDraftDialog";
 import { OfferPreviewDialog } from "../components/OfferPreviewDialog";
 import { useI18n } from "../lib/i18n";
 import { updateCachedApplicants } from "../lib/candidateListCache";
+import { enqueueAiAnalysisRetry } from "../lib/aiAnalysisQueue";
+import { convertPdfToImage, extractPdfText } from "../lib/pdf";
 import {
   getJobCapacityForTitle,
   increaseJobOpeningsForTitle,
@@ -67,6 +78,7 @@ type CandidateDetailRecord = {
   analysis_strengths: string[] | null;
   analysis_concerns: string[] | null;
   resume_path: string | null;
+  resume_preview_url: string | null;
   ai_writing_score: number | null;
   ai_writing_label: string | null;
   ai_writing_notes: string[] | null;
@@ -104,7 +116,7 @@ const defaultOfferChecklist: OfferChecklist = {
 };
 
 const baseCandidateSelect =
-  "id, full_name, job_title, stage, email, location, years_experience, ats_score, analysis_status, skills, analysis_summary, analysis_strengths, analysis_concerns, resume_path, skill_profile";
+  "id, full_name, job_title, stage, email, location, years_experience, ats_score, analysis_status, skills, analysis_summary, analysis_strengths, analysis_concerns, resume_path, resume_preview_url, skill_profile";
 
 const candidateSelectWithAiWriting =
   `${baseCandidateSelect}, ai_writing_score, ai_writing_label, ai_writing_notes`;
@@ -124,11 +136,14 @@ const extractPhone = (value?: string | null) =>
 export default function CandidateDetail() {
   const { id } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const { t, stageLabel } = useI18n();
+  const resumeInputRef = useRef<HTMLInputElement | null>(null);
   const [candidate, setCandidate] = useState<CandidateDetailRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdatingStage, setIsUpdatingStage] = useState(false);
   const [isOpeningCv, setIsOpeningCv] = useState(false);
+  const [isUploadingCv, setIsUploadingCv] = useState(false);
   const [stageError, setStageError] = useState<string | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
   const [offerError, setOfferError] = useState<string | null>(null);
@@ -140,6 +155,9 @@ export default function CandidateDetail() {
   const [isGeneratingOffer, setIsGeneratingOffer] = useState(false);
   const [isOfferPreviewOpen, setIsOfferPreviewOpen] = useState(false);
   const [isOfferDraftOpen, setIsOfferDraftOpen] = useState(false);
+  const [isInterviewStartOpen, setIsInterviewStartOpen] = useState(false);
+  const [manualInterviewText, setManualInterviewText] = useState("");
+  const [isCreatingInterviewTranscript, setIsCreatingInterviewTranscript] = useState(false);
   const [pendingOfferSentAfterDraft, setPendingOfferSentAfterDraft] = useState(false);
   const returnToFromState =
     typeof location.state?.returnTo === "string" ? location.state.returnTo : null;
@@ -451,6 +469,9 @@ export default function CandidateDetail() {
   );
   const isInterviewStage = candidate?.stage === "Interview";
   const isOfferStage = candidate?.stage === "Offer" || candidate?.stage === "Accepted";
+  const defaultInterviewTranscriptTitle = candidate
+    ? `${candidate.full_name} razgovor ${linkedTranscripts.length + 1}`
+    : "Razgovor 1";
   const isJobAtCapacity = Boolean(
     jobCapacity && jobCapacity.acceptedCount >= jobCapacity.openings,
   );
@@ -961,6 +982,208 @@ export default function CandidateDetail() {
     setIsOpeningCv(false);
   };
 
+  const handleUploadCv = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !candidate) return;
+
+    if (file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) {
+      setCvError(t("resumePdfOnly"));
+      return;
+    }
+
+    setIsUploadingCv(true);
+    setCvError(null);
+    setCandidate((current) =>
+      current ? { ...current, analysis_status: "pending_ai" } : current,
+    );
+
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        throw new Error(t("signedInRequiredCandidate"));
+      }
+
+      const [conversion, extractedText] = await Promise.all([
+        convertPdfToImage(file),
+        extractPdfText(file).catch(() => ""),
+      ]);
+      const resumeText = extractedText.trim() ? extractedText : conversion.ocrText ?? "";
+      if (!resumeText.trim()) {
+        throw new Error(t("resumeExtractFailed"));
+      }
+
+      const fileExt = file.name.split(".").pop() || "pdf";
+      const filePath = `${sessionData.session.user.id}/${crypto.randomUUID()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from("resumes")
+        .upload(filePath, file, { upsert: false });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { error: updateError } = await supabase
+        .from("candidates")
+        .update({
+          resume_path: filePath,
+          resume_preview_url: conversion.imageUrl || null,
+          analysis_status: "pending_ai",
+        })
+        .eq("id", candidate.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setCandidate((current) =>
+        current
+          ? {
+              ...current,
+              resume_path: filePath,
+              resume_preview_url: conversion.imageUrl || null,
+              analysis_status: "pending_ai",
+            }
+          : current,
+      );
+      updateCachedApplicants((applicants) =>
+        applicants.map((applicant) =>
+          applicant.id === candidate.id
+            ? {
+                ...applicant,
+                avatar: conversion.imageUrl || applicant.avatar,
+                analysisStatus: "pending_ai",
+              }
+            : applicant,
+        ),
+      );
+
+      const analysisResponse = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            candidateId: candidate.id,
+            jobTitle: candidate.job_title,
+            resumeText,
+          }),
+        },
+      );
+
+      if (!analysisResponse.ok) {
+        const message = await analysisResponse.text();
+        enqueueAiAnalysisRetry({
+          candidateId: candidate.id,
+          candidateName: candidate.full_name,
+          jobTitle: candidate.job_title,
+          jobDescription: "",
+          resumeText,
+          lastError: message || t("analysisQueuedForRetry"),
+        });
+        setCvError(t("analysisQueuedForRetry"));
+        return;
+      }
+
+      const { data: refreshed } = await supabase
+        .from("candidates")
+        .select(candidateSelectWithOfferPreparation)
+        .eq("id", candidate.id)
+        .single();
+
+      if (refreshed) {
+        setCandidate((current) =>
+          current
+            ? ({ ...current, ...refreshed } as CandidateDetailRecord)
+            : (refreshed as CandidateDetailRecord),
+        );
+        updateCachedApplicants((applicants) =>
+          applicants.map((applicant) =>
+            applicant.id === candidate.id
+              ? {
+                  ...applicant,
+                  aiScore: Number(refreshed.ats_score ?? applicant.aiScore),
+                  analysisStatus: refreshed.analysis_status ?? applicant.analysisStatus,
+                  skills: refreshed.skills ?? applicant.skills,
+                  summary: refreshed.analysis_summary ?? applicant.summary,
+                  analysisStrengths:
+                    refreshed.analysis_strengths ?? applicant.analysisStrengths,
+                  analysisConcerns:
+                    refreshed.analysis_concerns ?? applicant.analysisConcerns,
+                }
+              : applicant,
+          ),
+        );
+      }
+    } catch (error) {
+      setCvError(error instanceof Error ? error.message : t("failedCandidateSave"));
+      setCandidate((current) =>
+        current ? { ...current, analysis_status: "failed" } : current,
+      );
+    } finally {
+      setIsUploadingCv(false);
+    }
+  };
+
+  const openCandidateInterviewStudio = (transcriptId?: string) => {
+    if (!candidate) return;
+    const params = new URLSearchParams({
+      mode: "candidate",
+      candidateId: candidate.id,
+      finish: "1",
+    });
+    if (transcriptId) params.set("transcriptId", transcriptId);
+    navigate(`/interviews?${params.toString()}`);
+  };
+
+  const createManualInterviewTranscript = async () => {
+    if (!candidate) return;
+
+    setIsCreatingInterviewTranscript(true);
+    setInterviewAnalysisError(null);
+
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        throw new Error(t("signedInRequiredCandidate"));
+      }
+
+      const transcriptId = crypto.randomUUID();
+      const { error } = await supabase
+        .from("interview_transcripts")
+        .insert({
+          id: transcriptId,
+          user_id: sessionData.session.user.id,
+          title: defaultInterviewTranscriptTitle,
+          transcript_text:
+            manualInterviewText.trim() ||
+            "Ročno dodan transkript. Vsebino dopolnite v Studiu razgovorov.",
+          duration_seconds: 0,
+          status: "complete",
+          source: "manual",
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      setIsInterviewStartOpen(false);
+      openCandidateInterviewStudio(transcriptId);
+    } catch (error) {
+      setInterviewAnalysisError(
+        error instanceof Error ? error.message : "Transkripta ni bilo mogoče ustvariti.",
+      );
+    } finally {
+      setIsCreatingInterviewTranscript(false);
+    }
+  };
+
   if (isLoading) {
     return <div className="p-8 text-center text-muted-foreground">{t("loadingCandidate")}</div>;
   }
@@ -1021,6 +1244,13 @@ export default function CandidateDetail() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3 lg:gap-4">
+            <input
+              ref={resumeInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={handleUploadCv}
+            />
             <Button
               type="button"
               variant="outline"
@@ -1031,6 +1261,22 @@ export default function CandidateDetail() {
               <FileText className="h-4 w-4" />
               {isOpeningCv ? t("openingCv") : t("showCv")}
             </Button>
+            {!candidate.resume_path ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => resumeInputRef.current?.click()}
+                disabled={isUploadingCv}
+                className="gap-2"
+              >
+                {isUploadingCv ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                {isUploadingCv ? t("uploadingResume") : t("uploadResumePdf")}
+              </Button>
+            ) : null}
             <div className="min-w-[11rem] flex-1 sm:flex-none">
               <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
                 {t("currentStage")}
@@ -1098,6 +1344,13 @@ export default function CandidateDetail() {
           ) : jobCapacity && jobCapacity.acceptedCount > jobCapacity.openings ? (
             <div className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800">
               Delovno mesto presega kapaciteto: {jobCapacity.acceptedCount}/{jobCapacity.openings} sprejetih kandidatov.
+            </div>
+          ) : null}
+          {!candidate.resume_path ? (
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Ta kandidat še nima naloženega CV-ja. Analiza iz Lov na talente lahko upošteva
+              samo priložena dokazila, javno dostopne/profile podatke ali opombe s privolitvijo,
+              zato je CV + razgovor primerjava omejena, dokler ne naložite CV PDF-ja.
             </div>
           ) : null}
            
@@ -1168,7 +1421,7 @@ export default function CandidateDetail() {
                           CV + razgovor analiza
                         </h3>
                         <p className="mt-1 text-sm text-muted-foreground">
-                          Rezultat se prikaže šele po AI re-analizi povezanega transkripta.
+                          Rezultat se prikaže po AI re-analizi CV dokazil in povezanega transkripta.
                         </p>
                       </div>
                       <Link
@@ -1181,7 +1434,12 @@ export default function CandidateDetail() {
                         type="button"
                         size="sm"
                         onClick={() => void analyzeCvWithInterview()}
-                        disabled={isAnalyzingInterview || !hasLinkedTranscripts || !hasCvAnalysis}
+                        disabled={
+                          isAnalyzingInterview ||
+                          !hasLinkedTranscripts ||
+                          !hasCvAnalysis ||
+                          !candidate.resume_path
+                        }
                       >
                         {isAnalyzingInterview ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1222,7 +1480,9 @@ export default function CandidateDetail() {
                     ) : (
                       <div className="mt-4 rounded-md border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
                         Transkript je povezan, vendar CV + razgovor ocena še ni izračunana.
-                        {hasCvAnalysis
+                        {!candidate.resume_path
+                          ? " Najprej naloži CV PDF, ker primerjava brez CV dokazila ostane le delna."
+                          : hasCvAnalysis
                           ? " Klikni Analiziraj CV + razgovor za ločeno AI re-analizo."
                           : " Najprej mora biti pripravljena CV analiza kandidata."}
                       </div>
@@ -1339,12 +1599,22 @@ export default function CandidateDetail() {
                             Povezani transkripti, ki se uporabijo za CV + razgovor analizo.
                           </p>
                         </div>
-                        <Link
-                          to="/interviews"
-                          className="shrink-0 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
-                        >
-                          Poveži
-                        </Link>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setIsInterviewStartOpen(true)}
+                          >
+                            Ustvari razgovor
+                          </Button>
+                          <Link
+                            to={`/interviews?mode=candidate&candidateId=${candidate.id}&finish=1`}
+                            className="rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                          >
+                            Poveži
+                          </Link>
+                        </div>
                       </div>
                       <div className="mt-3 space-y-2">
                         {linkedTranscripts.length ? (
@@ -1649,6 +1919,55 @@ export default function CandidateDetail() {
         }}
         onGenerate={generateOfferDocument}
       />
+
+      <Dialog open={isInterviewStartOpen} onOpenChange={setIsInterviewStartOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Ustvari razgovor za kandidata</DialogTitle>
+            <DialogDescription>
+              Ustvari ročni transkript ali odpri Studio razgovorov za snemanje. Studio bo že odprt na tem kandidatu.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <div className="rounded-md border border-border bg-muted/35 p-3 text-sm">
+              <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Ime transkripta
+              </div>
+              <div className="mt-1 font-medium text-foreground">
+                {defaultInterviewTranscriptTitle}
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium text-foreground">Ročni transkript</label>
+              <Textarea
+                value={manualInterviewText}
+                onChange={(event) => setManualInterviewText(event.target.value)}
+                placeholder="Prilepite zapiske ali besedilo transkripta..."
+                className="min-h-32"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => openCandidateInterviewStudio()}
+            >
+              Snemaj v studiu
+            </Button>
+            <Button
+              type="button"
+              onClick={createManualInterviewTranscript}
+              disabled={isCreatingInterviewTranscript}
+            >
+              {isCreatingInterviewTranscript ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Ustvari in odpri studio
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <OfferPreviewDialog
         candidateName={candidate.full_name}

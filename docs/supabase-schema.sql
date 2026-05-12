@@ -118,6 +118,7 @@ create table if not exists public.interview_studio_boards (
   nodes jsonb not null default '[]'::jsonb,
   edges jsonb not null default '[]'::jsonb,
   transcripts jsonb not null default '[]'::jsonb,
+  viewport jsonb not null default '{"x":-220,"y":-110,"zoom":1}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (user_id)
@@ -147,7 +148,8 @@ create table if not exists public.candidate_interview_transcripts (
   candidate_id uuid not null references public.candidates(id) on delete cascade,
   transcript_id uuid not null references public.interview_transcripts(id) on delete cascade,
   linked_at timestamptz not null default now(),
-  unique (user_id, candidate_id, transcript_id)
+  unique (user_id, candidate_id, transcript_id),
+  unique (user_id, transcript_id)
 );
 
 alter table public.jobs enable row level security;
@@ -267,6 +269,8 @@ create policy "candidate_interview_transcripts_delete_own" on public.candidate_i
 create index if not exists candidate_interview_transcripts_candidate_idx
   on public.candidate_interview_transcripts (user_id, candidate_id, linked_at desc);
 create index if not exists candidate_interview_transcripts_transcript_idx
+  on public.candidate_interview_transcripts (user_id, transcript_id);
+create unique index if not exists candidate_interview_transcripts_one_candidate_per_transcript_idx
   on public.candidate_interview_transcripts (user_id, transcript_id);
 
 insert into storage.buckets (id, name, public)
@@ -433,6 +437,8 @@ create policy "resumes_delete_own" on storage.objects
 --   unique (user_id)
 -- );
 -- alter table public.interview_studio_boards enable row level security;
+-- alter table public.interview_studio_boards
+--   add column if not exists viewport jsonb not null default '{"x":-220,"y":-110,"zoom":1}'::jsonb;
 -- create policy "interview_studio_boards_select_own" on public.interview_studio_boards
 --   for select using (user_id = auth.uid());
 -- create policy "interview_studio_boards_insert_own" on public.interview_studio_boards

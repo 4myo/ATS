@@ -3,14 +3,18 @@ import { useNavigate } from "react-router";
 import {
   CheckCircle2,
   Download,
+  Edit3,
   ExternalLink,
+  FileText,
   Github,
   Link as LinkIcon,
   Plus,
+  Save,
   Search,
   Trash2,
   Upload,
   UserPlus,
+  X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
@@ -32,6 +36,7 @@ import { Textarea } from "../components/ui/textarea";
 import { useI18n } from "../lib/i18n";
 import { supabase } from "../lib/supabase";
 import { updateCachedApplicants } from "../lib/candidateListCache";
+import { enqueueAiAnalysisRetry } from "../lib/aiAnalysisQueue";
 import { fetchJobOptions, getCachedJobOptions, type CachedJobOption } from "../lib/jobCache";
 import { logActivityEvent } from "../lib/activityLog";
 import {
@@ -41,6 +46,7 @@ import {
   getSourcingLeads,
   setSourcingSearchState,
   updateSourcingLead,
+  type SourcingDocument,
   type GithubSourcingResult,
   type SourcingLead,
   type SourcingSource,
@@ -60,6 +66,15 @@ type ManualDraft = {
   location: string;
   skills: string;
   notes: string;
+  documentTitle: string;
+  documentContent: string;
+};
+
+type LeadEditDraft = ManualDraft & {
+  status: SourcingStatus;
+  email: string;
+  phone: string;
+  evidence: string;
 };
 
 const sourceOptions: Array<{ value: SourcingSource; en: string; sl: string }> = [
@@ -91,6 +106,7 @@ type SourcingSummaryLabels = {
   sourceSummary: string;
   profileSummary: string;
   evidenceSummary: string;
+  documents: string;
   emailSummary: string;
   phoneSummary: string;
   recruiterNoteSummary: string;
@@ -117,9 +133,24 @@ const copy = {
     skills: "Skills",
     skillsPlaceholder: "Revit, BIM, TypeScript...",
     notes: "Recruiter note",
+    status: "Status",
+    documentTitle: "Document title",
+    documentTitlePlaceholder: "e.g. CV text, LinkedIn profile notes",
+    documentContent: "Document / profile content",
+    documentContentPlaceholder:
+      "Paste CV text, public profile content, or consented notes that should travel with this lead...",
     leadFindings: "Talent findings",
     leadFindingsPlaceholder: "Add new findings, response after contact, consent, or application context...",
     addLead: "Add lead",
+    editLead: "Edit lead",
+    saveLead: "Save lead",
+    cancelEdit: "Cancel",
+    documents: "Documents",
+    documentAttached: "document attached",
+    documentsAttached: "documents attached",
+    sourceLimitTitle: "Test version limits",
+    sourceLimitText:
+      "Without paid or advanced sourcing integrations this workspace uses manually added, consented, or publicly available data only. Broader profile enrichment, consent tracking, and more source connectors belong in the future roadmap.",
     githubTitle: "Free GitHub search",
     githubSubtitle:
       "This is not Google search. It searches GitHub user profiles through the public GitHub API and imports selected profiles as leads.",
@@ -137,6 +168,12 @@ const copy = {
     importLead: "Import lead",
     createCandidate: "Create candidate",
     candidateCreated: "Candidate created.",
+    candidateCreatedFromSource:
+      "Candidate created from the sourcing profile link. AI analysis was not started because no CV or pasted source document is attached.",
+    candidateCreatedFromLinkedIn:
+      "Candidate created from a LinkedIn profile link. AI analysis was not started because no CV or pasted LinkedIn content is attached.",
+    candidateCreatedAnalysisQueued:
+      "Candidate created. AI analysis was queued from attached source documents.",
     candidateCreateFailed: "Candidate could not be created.",
     candidateAlreadyCreated: "Candidate already created",
     candidateJob: "Candidate job",
@@ -180,12 +217,16 @@ const copy = {
     recruiterNoteSummary: "Recruiter note",
     candidateStrength: "Candidate was added from sourcing source",
     candidateConcern: "Candidate has no uploaded CV yet; manual review is required before a decision.",
+    candidateDocumentConcern:
+      "Candidate has attached sourcing documents, but no uploaded CV PDF yet; verify the source material before a decision.",
     locationPending: "Location pending",
     ok: "OK",
     total: "Total leads",
     reviewed: "Reviewed",
     contacted: "Contacted",
     ready: "Candidates",
+    linkedinLeads: "LinkedIn",
+    documented: "With evidence",
   },
   sl: {
     title: "Lov na talente",
@@ -207,9 +248,24 @@ const copy = {
     skills: "Veščine",
     skillsPlaceholder: "Revit, BIM, TypeScript...",
     notes: "Opomba rekruterja",
+    status: "Status",
+    documentTitle: "Naslov dokumenta",
+    documentTitlePlaceholder: "npr. CV besedilo, opombe LinkedIn profila",
+    documentContent: "Dokument / vsebina profila",
+    documentContentPlaceholder:
+      "Prilepi CV besedilo, javno dostopno vsebino profila ali zapiske s privolitvijo, ki naj ostanejo pri talentu...",
     leadFindings: "Ugotovitve o talentu",
     leadFindingsPlaceholder: "Dodaj nove ugotovitve, odziv po kontaktu, soglasje ali kontekst prijave...",
     addLead: "Dodaj talent",
+    editLead: "Uredi talent",
+    saveLead: "Shrani talent",
+    cancelEdit: "Prekliči",
+    documents: "Dokumenti",
+    documentAttached: "dokument dodan",
+    documentsAttached: "dokumenti dodani",
+    sourceLimitTitle: "Omejitve testne verzije",
+    sourceLimitText:
+      "Brez plačljivih ali naprednih sourcing integracij ta prostor uporablja samo ročno dodane podatke, podatke s privolitvijo ali javno dostopne vire. Širša obogatitev profilov, sledenje privolitvam in dodatni konektorji sodijo v načrt za naprej.",
     githubTitle: "Brezplačno GitHub iskanje",
     githubSubtitle:
       "To ni Google iskanje. Išče GitHub uporabniške profile prek javnega GitHub API-ja in izbrane profile uvozi kot talente.",
@@ -227,6 +283,12 @@ const copy = {
     importLead: "Uvozi talent",
     createCandidate: "Ustvari kandidata",
     candidateCreated: "Kandidat je ustvarjen.",
+    candidateCreatedFromSource:
+      "Kandidat je ustvarjen iz povezave vira. AI analiza ni zagnana, ker ni dodanega CV-ja ali prilepljenega dokazila.",
+    candidateCreatedFromLinkedIn:
+      "Kandidat je ustvarjen iz LinkedIn povezave. AI analiza ni zagnana, ker ni dodanega CV-ja ali prilepljene LinkedIn vsebine.",
+    candidateCreatedAnalysisQueued:
+      "Kandidat je ustvarjen. AI analiza iz dodanih dokazil je dodana v čakalno vrsto.",
     candidateCreateFailed: "Kandidata ni bilo mogoče ustvariti.",
     candidateAlreadyCreated: "Kandidat je že ustvarjen",
     candidateJob: "Delovno mesto kandidata",
@@ -270,12 +332,16 @@ const copy = {
     recruiterNoteSummary: "Opomba rekruterja",
     candidateStrength: "Kandidat je bil dodan prek vira za iskanje talentov",
     candidateConcern: "Kandidat še nima naloženega CV-ja; pred odločitvijo je potreben ročni pregled.",
+    candidateDocumentConcern:
+      "Kandidat ima dodana sourcing dokazila, vendar še nima naloženega CV PDF-ja; pred odločitvijo preveri vir dokazil.",
     locationPending: "Lokacija ni znana",
     ok: "V redu",
     total: "Vsi talenti",
     reviewed: "Pregledani",
     contacted: "Kontaktirani",
     ready: "Kandidati",
+    linkedinLeads: "LinkedIn",
+    documented: "Z dokazili",
   },
 } as const;
 
@@ -287,6 +353,8 @@ const emptyDraft: ManualDraft = {
   location: "",
   skills: "",
   notes: "",
+  documentTitle: "",
+  documentContent: "",
 };
 
 const labelForSource = (source: SourcingSource, language: "en" | "sl") =>
@@ -319,6 +387,25 @@ const parseSkills = (value: string) =>
     .map((skill) => skill.trim())
     .filter(Boolean)
     .slice(0, 12);
+
+const buildDocuments = (title: string, content: string): SourcingDocument[] => {
+  const normalizedContent = content.trim();
+  if (!normalizedContent) return [];
+
+  return [
+    {
+      id: crypto.randomUUID(),
+      title: title.trim() || "Dokument",
+      content: normalizedContent,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+};
+
+const documentsToDraft = (documents: SourcingDocument[]) => ({
+  documentTitle: documents[0]?.title ?? "",
+  documentContent: documents.map((document) => document.content).join("\n\n---\n\n"),
+});
 
 const normalizeSourceValue = (value: string): SourcingSource => {
   const normalized = value.trim().toLowerCase();
@@ -390,6 +477,11 @@ const buildSourcingSummary = (
     `${labels.sourceSummary}: ${labelForSource(lead.source, language)}.`,
     lead.profileUrl ? `${labels.profileSummary}: ${lead.profileUrl}` : "",
     lead.evidence ? `${labels.evidenceSummary}: ${lead.evidence}` : "",
+    lead.documents.length
+      ? `${labels.documents}: ${lead.documents
+          .map((document) => `${document.title}\n${document.content}`)
+          .join("\n\n")}`
+      : "",
     contact.email ? `${labels.emailSummary}: ${contact.email}` : "",
     contact.phone ? `${labels.phoneSummary}: ${contact.phone}` : "",
     lead.notes ? `${labels.recruiterNoteSummary}: ${lead.notes}` : "",
@@ -421,6 +513,8 @@ export default function Headhunter() {
   const [hasSearchedGithub, setHasSearchedGithub] = useState(false);
   const [githubQueryUsed, setGithubQueryUsed] = useState("");
   const [creatingCandidateId, setCreatingCandidateId] = useState<string | null>(null);
+  const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<LeadEditDraft | null>(null);
 
   useEffect(() => {
     setLeads(getSourcingLeads());
@@ -479,8 +573,17 @@ export default function Headhunter() {
   const stats = useMemo(
     () => ({
       total: leads.length,
-      reviewed: leads.filter((lead) => lead.status === "reviewed").length,
-      contacted: leads.filter((lead) => lead.status === "contacted").length,
+      linkedin: leads.filter(
+        (lead) =>
+          lead.source === "linkedin" ||
+          lead.profileUrl.toLowerCase().includes("linkedin.com"),
+      ).length,
+      documented: leads.filter(
+        (lead) =>
+          lead.documents.length > 0 ||
+          Boolean(lead.evidence.trim()) ||
+          Boolean(lead.notes.trim()),
+      ).length,
       ready: leads.filter((lead) => Boolean(lead.candidateId)).length,
     }),
     [leads],
@@ -540,6 +643,7 @@ export default function Headhunter() {
       notes: draft.notes.trim(),
       email: contact.email || undefined,
       phone: contact.phone || undefined,
+      documents: buildDocuments(draft.documentTitle, draft.documentContent),
       evidence:
         draft.source === "linkedin"
           ? c.manualLinkedInEvidence
@@ -645,6 +749,7 @@ export default function Headhunter() {
       location: "",
       skills: parseSkills(githubSkill),
       notes: "",
+      documents: [],
       evidence: `${c.githubEvidencePrefix}: ${githubQueryUsed || buildGithubSearchQuery()}`,
       status: "new",
     });
@@ -696,6 +801,10 @@ export default function Headhunter() {
         notes: row.notes || "",
         email: row.email || contact.email || undefined,
         phone: row.phone || contact.phone || undefined,
+        documents: buildDocuments(
+          row.document_title || row.documenttitle || row.document_name || "",
+          row.document_content || row.documentcontent || row.document || row.profile_content || "",
+        ),
         evidence: c.csvEvidence,
         status: "new",
       });
@@ -716,6 +825,7 @@ export default function Headhunter() {
       lead.skills.join(", "),
       lead.email ?? "",
       lead.phone ?? "",
+      lead.documents.map((document) => `${document.title}: ${document.content}`).join("\n\n"),
       lead.notes,
       lead.candidateId ?? "",
       lead.createdAt,
@@ -731,6 +841,7 @@ export default function Headhunter() {
         "skills",
         "email",
         "phone",
+        "document",
         "notes",
         "candidate_id",
         "created_at",
@@ -756,7 +867,76 @@ export default function Headhunter() {
     setLeads(updateSourcingLead(leadId, { notes }));
   };
 
+  const startEditingLead = (lead: SourcingLead) => {
+    const documentDraft = documentsToDraft(lead.documents);
+    setEditingLeadId(lead.id);
+    setEditDraft({
+      name: lead.name,
+      headline: lead.headline,
+      source: lead.source,
+      profileUrl: lead.profileUrl,
+      location: lead.location,
+      skills: lead.skills.join(", "),
+      notes: lead.notes,
+      status: lead.status,
+      email: lead.email ?? "",
+      phone: lead.phone ?? "",
+      evidence: lead.evidence,
+      ...documentDraft,
+    });
+  };
+
+  const cancelEditingLead = () => {
+    setEditingLeadId(null);
+    setEditDraft(null);
+  };
+
+  const saveLeadEdit = () => {
+    if (!editingLeadId || !editDraft) return;
+
+    const existingLead = leads.find((lead) => lead.id === editingLeadId);
+    const previousUrl = existingLead?.profileUrl ?? "";
+    const nextUrl = editDraft.profileUrl.trim();
+    const normalizedNextUrl = normalizeUrl(nextUrl);
+    const hasDuplicateUrl = Boolean(
+      normalizedNextUrl &&
+        normalizeUrl(previousUrl) !== normalizedNextUrl &&
+        leads.some((lead) => lead.id !== editingLeadId && normalizeUrl(lead.profileUrl) === normalizedNextUrl),
+    );
+
+    if (hasDuplicateUrl) {
+      setMessage(c.duplicate);
+      return;
+    }
+
+    const contact = extractContact({
+      notes: editDraft.notes,
+      profileUrl: nextUrl,
+      evidence: editDraft.evidence,
+    });
+
+    setLeads(
+      updateSourcingLead(editingLeadId, {
+        name: editDraft.name.trim() || inferNameFromUrl(nextUrl) || c.defaultLeadName,
+        headline: editDraft.headline.trim(),
+        source: editDraft.source,
+        profileUrl: nextUrl,
+        location: editDraft.location.trim(),
+        skills: parseSkills(editDraft.skills),
+        notes: editDraft.notes.trim(),
+        email: editDraft.email.trim() || contact.email || undefined,
+        phone: editDraft.phone.trim() || contact.phone || undefined,
+        evidence: editDraft.evidence.trim() || c.manualEvidence,
+        documents: buildDocuments(editDraft.documentTitle, editDraft.documentContent),
+        status: editDraft.status,
+      }),
+    );
+    cancelEditingLead();
+    setMessage(c.added);
+  };
+
   const handleDeleteLead = (leadId: string) => {
+    if (editingLeadId === leadId) cancelEditingLead();
     setLeads(deleteSourcingLead(leadId));
   };
 
@@ -786,8 +966,17 @@ export default function Headhunter() {
       if (!jobTitle) {
         throw new Error(c.candidateJobRequired);
       }
+      const selectedJob = jobs.find((job) => job.title === jobTitle);
       const summary = buildSourcingSummary(lead, contact, c, language);
+      const sourceDocumentText = lead.documents
+        .map((document) => `${document.title}\n${document.content}`)
+        .join("\n\n");
+      const hasSourceDocuments = Boolean(sourceDocumentText.trim());
       const createdAt = new Date().toISOString();
+      const analysisConcerns = [
+        lead.documents.length ? c.candidateDocumentConcern : c.candidateConcern,
+      ];
+      const initialAnalysisStatus = hasSourceDocuments ? "pending_ai" : "complete";
 
       const { data: inserted, error } = await supabase
         .from("candidates")
@@ -805,10 +994,8 @@ export default function Headhunter() {
           analysis_strengths: [
             `${c.candidateStrength} ${labelForSource(lead.source, language)}.`,
           ],
-          analysis_concerns: [
-            c.candidateConcern,
-          ],
-          analysis_status: "pending_ai",
+          analysis_concerns: analysisConcerns,
+          analysis_status: initialAnalysisStatus,
         })
         .select("id")
         .single();
@@ -830,7 +1017,7 @@ export default function Headhunter() {
           name: lead.name,
           role: jobTitle,
           stage: "Applied",
-          analysisStatus: "pending_ai",
+          analysisStatus: initialAnalysisStatus,
           createdAt,
           aiScore: 0,
           skills: lead.skills,
@@ -843,9 +1030,7 @@ export default function Headhunter() {
           analysisStrengths: [
             `${c.candidateStrength} ${labelForSource(lead.source, language)}.`,
           ],
-          analysisConcerns: [
-            c.candidateConcern,
-          ],
+          analysisConcerns,
           matchAnalysis: { pros: [], cons: [] },
         },
         ...applicants,
@@ -863,9 +1048,70 @@ export default function Headhunter() {
           job_title: jobTitle,
           email_extracted: Boolean(contact.email),
           phone_extracted: Boolean(contact.phone),
+          source_documents_count: lead.documents.length,
         },
       });
-      setMessage(c.candidateCreated);
+
+      let analysisQueued = false;
+      if (hasSourceDocuments) {
+        try {
+          const analysisResponse = await fetch(
+            `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${sessionData.session.access_token}`,
+                apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+              },
+              body: JSON.stringify({
+                candidateId: inserted.id,
+                jobId: selectedJob?.id,
+                jobTitle,
+                jobDescription: selectedJob?.description ?? "",
+                resumeText: sourceDocumentText,
+              }),
+            },
+          );
+
+          if (!analysisResponse.ok) {
+            analysisQueued = true;
+            enqueueAiAnalysisRetry({
+              candidateId: inserted.id,
+              candidateName: lead.name,
+              jobId: selectedJob?.id,
+              jobTitle,
+              jobDescription: selectedJob?.description ?? "",
+              resumeText: sourceDocumentText,
+              lastError: await analysisResponse.text(),
+            });
+          }
+        } catch (analysisError) {
+          analysisQueued = true;
+          enqueueAiAnalysisRetry({
+            candidateId: inserted.id,
+            candidateName: lead.name,
+            jobId: selectedJob?.id,
+            jobTitle,
+            jobDescription: selectedJob?.description ?? "",
+            resumeText: sourceDocumentText,
+            lastError:
+              analysisError instanceof Error
+                ? analysisError.message
+                : c.candidateCreateFailed,
+          });
+        }
+      }
+
+      setMessage(
+        analysisQueued
+          ? c.candidateCreatedAnalysisQueued
+          : hasSourceDocuments
+            ? c.candidateCreated
+            : lead.source === "linkedin"
+              ? c.candidateCreatedFromLinkedIn
+              : c.candidateCreatedFromSource,
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : c.candidateCreateFailed);
     } finally {
@@ -893,8 +1139,8 @@ export default function Headhunter() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[34rem]">
           {[
             { label: c.total, value: stats.total },
-            { label: c.reviewed, value: stats.reviewed },
-            { label: c.contacted, value: stats.contacted },
+            { label: c.linkedinLeads, value: stats.linkedin },
+            { label: c.documented, value: stats.documented },
             { label: c.ready, value: stats.ready },
           ].map((item) => (
             <div key={item.label} className="surface-card px-4 py-3">
@@ -1018,6 +1264,28 @@ export default function Headhunter() {
                   className="min-h-28"
                   onChange={(event) =>
                     setDraft((current) => ({ ...current, notes: event.target.value }))
+                  }
+                />
+              </div>
+              <div className="grid gap-3 rounded-md border border-border bg-muted/25 p-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <Label htmlFor="sourcing-document-content">{c.documentContent}</Label>
+                </div>
+                <Input
+                  value={draft.documentTitle}
+                  placeholder={c.documentTitlePlaceholder}
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, documentTitle: event.target.value }))
+                  }
+                />
+                <Textarea
+                  id="sourcing-document-content"
+                  value={draft.documentContent}
+                  placeholder={c.documentContentPlaceholder}
+                  className="min-h-32"
+                  onChange={(event) =>
+                    setDraft((current) => ({ ...current, documentContent: event.target.value }))
                   }
                 />
               </div>
@@ -1294,66 +1562,275 @@ export default function Headhunter() {
                 </div>
               ) : null}
 
-              {filteredLeads.map((lead) => (
+              {filteredLeads.map((lead) => {
+                const isEditingLead = editingLeadId === lead.id && editDraft;
+
+                return (
                 <div
                   key={lead.id}
-                  className="grid gap-4 rounded-md border border-border bg-card p-4 xl:grid-cols-[minmax(0,1fr)_13rem_auto]"
+                  className={`grid gap-4 rounded-md border border-border bg-card p-4 ${
+                    isEditingLead
+                      ? "xl:grid-cols-1"
+                      : "xl:grid-cols-[minmax(0,1fr)_13rem_auto]"
+                  }`}
                 >
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="truncate font-semibold text-foreground">{lead.name}</h3>
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                        {labelForSource(lead.source, language)}
-                      </span>
-                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
-                        {labelForStatus(lead.status, language)}
-                      </span>
-                      {lead.candidateId ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-500">
-                          <CheckCircle2 className="h-3 w-3" />
-                          {c.candidateAlreadyCreated}
-                        </span>
-                      ) : null}
-                    </div>
-                    {lead.headline ? (
-                      <p className="mt-1 text-sm text-muted-foreground">{lead.headline}</p>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {lead.skills.map((skill) => (
-                        <span
-                          key={skill}
-                          className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                    </div>
-                    {lead.location ? (
-                      <p className="mt-3 text-sm text-muted-foreground">{lead.location}</p>
-                    ) : null}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {lead.email || lead.phone ? (
-                        <>
-                          {c.contactExtracted}: {[lead.email, lead.phone].filter(Boolean).join(" · ")}
-                        </>
-                      ) : (
-                        c.contactMissing
-                      )}
-                    </p>
-                    <div className="mt-4 grid gap-2">
-                      <Label htmlFor={`lead-notes-${lead.id}`}>{c.leadFindings}</Label>
-                      <Textarea
-                        id={`lead-notes-${lead.id}`}
-                        value={lead.notes}
-                        placeholder={c.leadFindingsPlaceholder}
-                        className="min-h-24"
-                        onChange={(event) =>
-                          handleLeadNotesChange(lead.id, event.target.value)
-                        }
-                      />
-                    </div>
+                    {isEditingLead ? (
+                      <div className="grid gap-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="grid gap-2">
+                            <Label>{c.name}</Label>
+                            <Input
+                              value={editDraft.name}
+                              onChange={(event) =>
+                                setEditDraft((current) =>
+                                  current ? { ...current, name: event.target.value } : current,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label>{c.headline}</Label>
+                            <Input
+                              value={editDraft.headline}
+                              onChange={(event) =>
+                                setEditDraft((current) =>
+                                  current ? { ...current, headline: event.target.value } : current,
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="grid gap-2">
+                            <Label>{c.source}</Label>
+                            <Select
+                              value={editDraft.source}
+                              onValueChange={(value) =>
+                                setEditDraft((current) =>
+                                  current
+                                    ? { ...current, source: value as SourcingSource }
+                                    : current,
+                                )
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {sourceOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option[language]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label>{c.location}</Label>
+                            <Input
+                              value={editDraft.location}
+                              onChange={(event) =>
+                                setEditDraft((current) =>
+                                  current ? { ...current, location: event.target.value } : current,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label>{c.status}</Label>
+                            <Select
+                              value={editDraft.status}
+                              onValueChange={(value) =>
+                                setEditDraft((current) =>
+                                  current
+                                    ? { ...current, status: value as SourcingStatus }
+                                    : current,
+                                )
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {statusOptions.map((option) => (
+                                  <SelectItem key={option.value} value={option.value}>
+                                    {option[language]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>{c.profileUrl}</Label>
+                          <Input
+                            value={editDraft.profileUrl}
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current ? { ...current, profileUrl: event.target.value } : current,
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-3">
+                          <div className="grid gap-2">
+                            <Label>{c.skills}</Label>
+                            <Input
+                              value={editDraft.skills}
+                              onChange={(event) =>
+                                setEditDraft((current) =>
+                                  current ? { ...current, skills: event.target.value } : current,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label>{c.emailSummary}</Label>
+                            <Input
+                              value={editDraft.email}
+                              onChange={(event) =>
+                                setEditDraft((current) =>
+                                  current ? { ...current, email: event.target.value } : current,
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label>{c.phoneSummary}</Label>
+                            <Input
+                              value={editDraft.phone}
+                              onChange={(event) =>
+                                setEditDraft((current) =>
+                                  current ? { ...current, phone: event.target.value } : current,
+                                )
+                              }
+                            />
+                          </div>
+                        </div>
+                        <div className="grid gap-2">
+                          <Label>{c.leadFindings}</Label>
+                          <Textarea
+                            value={editDraft.notes}
+                            placeholder={c.leadFindingsPlaceholder}
+                            className="min-h-24"
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current ? { ...current, notes: event.target.value } : current,
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2 rounded-md border border-border bg-muted/25 p-3">
+                          <Label>{c.documentContent}</Label>
+                          <Input
+                            value={editDraft.documentTitle}
+                            placeholder={c.documentTitlePlaceholder}
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current
+                                  ? { ...current, documentTitle: event.target.value }
+                                  : current,
+                              )
+                            }
+                          />
+                          <Textarea
+                            value={editDraft.documentContent}
+                            placeholder={c.documentContentPlaceholder}
+                            className="min-h-32"
+                            onChange={(event) =>
+                              setEditDraft((current) =>
+                                current
+                                  ? { ...current, documentContent: event.target.value }
+                                  : current,
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate font-semibold text-foreground">{lead.name}</h3>
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                            {labelForSource(lead.source, language)}
+                          </span>
+                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
+                            {labelForStatus(lead.status, language)}
+                          </span>
+                          {lead.documents.length ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600">
+                              <FileText className="h-3 w-3" />
+                              {lead.documents.length}{" "}
+                              {lead.documents.length === 1
+                                ? c.documentAttached
+                                : c.documentsAttached}
+                            </span>
+                          ) : null}
+                          {lead.candidateId ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-500">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {c.candidateAlreadyCreated}
+                            </span>
+                          ) : null}
+                        </div>
+                        {lead.headline ? (
+                          <p className="mt-1 text-sm text-muted-foreground">{lead.headline}</p>
+                        ) : null}
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {lead.skills.map((skill) => (
+                            <span
+                              key={skill}
+                              className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                            >
+                              {skill}
+                            </span>
+                          ))}
+                        </div>
+                        {lead.location ? (
+                          <p className="mt-3 text-sm text-muted-foreground">{lead.location}</p>
+                        ) : null}
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {lead.email || lead.phone ? (
+                            <>
+                              {c.contactExtracted}: {[lead.email, lead.phone].filter(Boolean).join(" · ")}
+                            </>
+                          ) : (
+                            c.contactMissing
+                          )}
+                        </p>
+                        {lead.documents.length ? (
+                          <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/25 p-3">
+                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              {c.documents}
+                            </p>
+                            {lead.documents.map((document) => (
+                              <div key={document.id} className="text-sm">
+                                <p className="font-medium text-foreground">{document.title}</p>
+                                <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-muted-foreground">
+                                  {document.content}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="mt-4 grid gap-2">
+                          <Label htmlFor={`lead-notes-${lead.id}`}>{c.leadFindings}</Label>
+                          <Textarea
+                            id={`lead-notes-${lead.id}`}
+                            value={lead.notes}
+                            placeholder={c.leadFindingsPlaceholder}
+                            className="min-h-24"
+                            onChange={(event) =>
+                              handleLeadNotesChange(lead.id, event.target.value)
+                            }
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
 
+                  {!isEditingLead ? (
                   <div className="grid content-start gap-2">
                     <Select
                       value={lead.status}
@@ -1399,13 +1876,52 @@ export default function Headhunter() {
                         {jobs.length === 0 ? (
                           <p className="text-xs text-amber-600">{c.noJobsAvailable}</p>
                         ) : null}
-                      </div>
-                    ) : null}
-                    <p className="text-xs text-muted-foreground">{lead.evidence}</p>
+                    </div>
+                  ) : null}
+                  <p className="text-xs text-muted-foreground">{lead.evidence}</p>
                   </div>
+                  ) : null}
 
-                  <div className="flex flex-wrap items-start gap-2 xl:justify-end">
-                    {lead.profileUrl ? (
+                  <div
+                    className={`flex flex-wrap items-start gap-2 ${
+                      isEditingLead
+                        ? "justify-end border-t border-border pt-3"
+                        : "xl:justify-end"
+                    }`}
+                  >
+                    {editingLeadId === lead.id ? (
+                      <>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="gap-2"
+                          onClick={saveLeadEdit}
+                        >
+                          <Save className="h-4 w-4" />
+                          {c.saveLead}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={cancelEditingLead}
+                          aria-label={c.cancelEdit}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => startEditingLead(lead)}
+                        aria-label={c.editLead}
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {!isEditingLead && lead.profileUrl ? (
                       <a
                         href={lead.profileUrl}
                         target="_blank"
@@ -1416,37 +1932,42 @@ export default function Headhunter() {
                         <LinkIcon className="h-4 w-4" />
                       </a>
                     ) : null}
-                    <Button
-                      type="button"
-                      variant={lead.candidateId ? "outline" : "default"}
-                      size="sm"
-                      className="gap-2"
-                      disabled={creatingCandidateId === lead.id}
-                      onClick={() => void createCandidateFromLead(lead)}
-                    >
-                      {lead.candidateId ? (
-                        <ExternalLink className="h-4 w-4" />
-                      ) : (
-                        <UserPlus className="h-4 w-4" />
-                      )}
-                      {creatingCandidateId === lead.id
-                        ? "..."
-                        : lead.candidateId
-                          ? c.candidateAlreadyCreated
-                          : c.createCandidate}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="text-red-600 hover:text-red-700"
-                      onClick={() => handleDeleteLead(lead.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {!isEditingLead ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant={lead.candidateId ? "outline" : "default"}
+                          size="sm"
+                          className="gap-2"
+                          disabled={creatingCandidateId === lead.id}
+                          onClick={() => void createCandidateFromLead(lead)}
+                        >
+                          {lead.candidateId ? (
+                            <ExternalLink className="h-4 w-4" />
+                          ) : (
+                            <UserPlus className="h-4 w-4" />
+                          )}
+                          {creatingCandidateId === lead.id
+                            ? "..."
+                            : lead.candidateId
+                              ? c.candidateAlreadyCreated
+                              : c.createCandidate}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="text-red-600 hover:text-red-700"
+                          onClick={() => handleDeleteLead(lead.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </section>
         </div>

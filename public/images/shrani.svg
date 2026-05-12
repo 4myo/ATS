@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="Shrani mrežo">
+  <rect width="640" height="360" rx="16" fill="#101010"/>
+  <rect x="96" y="32" width="448" height="296" rx="10" fill="#171717" stroke="#2b2b2b"/>
+  <text x="160" y="82" font-family="Arial, sans-serif" font-size="24" font-weight="800" fill="#f4f4f5">Mreža</text>
+  <rect x="144" y="118" width="116" height="64" rx="8" fill="#151515" stroke="#262626"/>
+  <text x="196" y="158" font-family="Arial, sans-serif" font-size="22" font-weight="800" fill="#bdbdbd">-</text>
+  <rect x="276" y="118" width="116" height="64" rx="8" fill="#151515" stroke="#262626"/>
+  <text x="310" y="158" font-family="Arial, sans-serif" font-size="22" font-weight="800" fill="#f4f4f5">100%</text>
+  <rect x="408" y="118" width="116" height="64" rx="8" fill="#151515" stroke="#262626"/>
+  <text x="460" y="158" font-family="Arial, sans-serif" font-size="22" font-weight="800" fill="#f4f4f5">+</text>
+  <rect x="144" y="208" width="380" height="76" rx="8" fill="#eeeeee"/>
+  <text x="208" y="256" font-family="Arial, sans-serif" font-size="24" font-weight="800" fill="#111">Shrani mrežo</text>
+  <path d="M470 86c-52 22-78 62-90 118" fill="none" stroke="#8a2cff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M380 204l-20-28" fill="none" stroke="#8a2cff" stroke-width="5" stroke-linecap="round"/>
+</svg>

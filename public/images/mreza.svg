@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-label="Pogled mreže">
+  <rect width="640" height="360" rx="16" fill="#101010"/>
+  <rect x="38" y="32" width="564" height="296" rx="10" fill="#171717" stroke="#2b2b2b"/>
+  <g font-family="Arial, sans-serif" fill="#f4f4f5">
+    <text x="72" y="80" font-size="24" font-weight="700">Pogled mreže</text>
+    <text x="72" y="128" font-size="18" font-weight="700">Način</text>
+  </g>
+  <rect x="72" y="148" width="496" height="64" rx="8" fill="#1f1f1f" stroke="#303030"/>
+  <text x="100" y="188" font-family="Arial, sans-serif" font-size="20" font-weight="700" fill="#f4f4f5">Delovno mesto</text>
+  <path d="M530 175l10 10 10-10" fill="none" stroke="#777" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="72" y="216" width="496" height="82" rx="8" fill="#262626" stroke="#3a3a3a"/>
+  <text x="100" y="250" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#f4f4f5">Kandidat</text>
+  <text x="100" y="282" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#f4f4f5">Delovno mesto</text>
+  <path d="M360 198c32-58 84-99 144-107" fill="none" stroke="#8a2cff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M360 198h40" fill="none" stroke="#8a2cff" stroke-width="5" stroke-linecap="round"/>
+</svg>

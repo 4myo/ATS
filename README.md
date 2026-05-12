@@ -21,6 +21,7 @@ The AI score is designed as a review aid, not an automated hiring decision. The 
   - AI writing signal as a review cue
 - Dashboard charts for pipeline, stage distribution, and candidate metrics
 - Candidate search and filtering by job position
+- Headhunter workspace for public/manual sourcing, lead editing, attached source notes, GitHub public profile search, CSV import/export, and conversion into candidates
 - Light/dark theme support
 - Slovenian and English UI strings
 - Netlify-friendly SPA redirects
@@ -93,3 +94,9 @@ The AI analyzer is calibrated to avoid overly generous scores and uses stricter 
 The analyzer is instructed not to infer or use protected characteristics such as age, gender, race, nationality, ethnicity, religion, disability, marital status, pregnancy, sexual orientation, or family status. It also avoids using names, pronouns, graduation years, dates of birth, photos, nationality, address, or career gaps as negative signals.
 
 Scores and AI-generated notes are intended to help recruiters review candidates. They should not be treated as final hiring decisions.
+
+## Current Sourcing Limits and Roadmap
+
+The Headhunter workspace intentionally works with manually added data, consented information, CSV imports, and publicly available GitHub profile search. The test version does not include paid enrichment, private social-network scraping, automated consent management, or broad web search connectors, mainly to keep the implementation within cost and API-access limits.
+
+Planned next steps include richer document handling for sourced talent, explicit consent tracking, additional official source connectors, and more complete profile enrichment where the legal basis and integration costs are clear.

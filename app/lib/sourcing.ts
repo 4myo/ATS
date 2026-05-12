@@ -12,6 +12,13 @@ export type SourcingStatus =
   | "reviewed"
   | "contacted";
 
+export type SourcingDocument = {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+};
+
 export type SourcingLead = {
   id: string;
   name: string;
@@ -22,6 +29,7 @@ export type SourcingLead = {
   skills: string[];
   notes: string;
   evidence: string;
+  documents: SourcingDocument[];
   status: SourcingStatus;
   email?: string;
   phone?: string;
@@ -87,6 +95,21 @@ const normalizeSource = (value: unknown): SourcingSource =>
 const normalizeStatus = (value: unknown): SourcingStatus =>
   statuses.includes(value as SourcingStatus) ? (value as SourcingStatus) : "new";
 
+const normalizeDocument = (value: unknown): SourcingDocument | null => {
+  if (!isRecord(value)) return null;
+
+  const content = String(value.content ?? "").trim();
+  if (!content) return null;
+
+  const now = new Date().toISOString();
+  return {
+    id: String(value.id ?? crypto.randomUUID()),
+    title: String(value.title ?? "").trim() || "Dokument",
+    content,
+    createdAt: String(value.createdAt ?? now),
+  };
+};
+
 const normalizeLead = (value: unknown): SourcingLead | null => {
   if (!isRecord(value)) return null;
 
@@ -100,6 +123,9 @@ const normalizeLead = (value: unknown): SourcingLead | null => {
   const skills = Array.isArray(value.skills)
     ? value.skills.map((skill) => String(skill).trim()).filter(Boolean)
     : [];
+  const documents = Array.isArray(value.documents)
+    ? (value.documents.map(normalizeDocument).filter(Boolean) as SourcingDocument[])
+    : [];
 
   return {
     id,
@@ -111,6 +137,7 @@ const normalizeLead = (value: unknown): SourcingLead | null => {
     skills,
     notes: String(value.notes ?? "").trim(),
     evidence: String(value.evidence ?? "").trim(),
+    documents,
     status: normalizeStatus(value.status),
     email: String(value.email ?? "").trim() || undefined,
     phone: String(value.phone ?? "").trim() || undefined,
