@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Briefcase,
   ChevronLeft,
@@ -65,18 +65,59 @@ const jobTypeOptions = [
 const formatJobType = (type?: string | null) =>
   jobTypeOptions.find((option) => option.value === type)?.label ?? type ?? "";
 
+const jobsViewStorageKey = "smart-ats-jobs-view-state";
+const jobsDraftStorageKey = "smart-ats-jobs-draft-state";
+
+type JobsViewState = {
+  jobPage: number;
+  jobSearch: string;
+  jobTypeFilter: string;
+  jobStatusFilter: string;
+};
+
+type JobsDraftState = {
+  isAddOpen: boolean;
+  jobTitle: string;
+  jobType: string;
+  jobOpenings: string;
+  jobDescription: string;
+  jobIcon: string;
+};
+
+const readSessionJson = <T,>(key: string): Partial<T> | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function Jobs() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const restoredViewState = useMemo(
+    () => readSessionJson<JobsViewState>(jobsViewStorageKey),
+    [],
+  );
+  const restoredDraftState = useMemo(
+    () => readSessionJson<JobsDraftState>(jobsDraftStorageKey),
+    [],
+  );
+  const didMountFilterResetRef = useRef(false);
   const cachedJobList = getCachedJobList();
   const [jobs, setJobs] = useState<JobRow[]>(cachedJobList?.jobs ?? []);
   const [isLoading, setIsLoading] = useState(!cachedJobList);
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [jobTitle, setJobTitle] = useState("");
-  const [jobType, setJobType] = useState("");
-  const [jobOpenings, setJobOpenings] = useState("1");
-  const [jobDescription, setJobDescription] = useState("");
-  const [jobIcon, setJobIcon] = useState("briefcase");
+  const [isAddOpen, setIsAddOpen] = useState(restoredDraftState?.isAddOpen ?? false);
+  const [jobTitle, setJobTitle] = useState(restoredDraftState?.jobTitle ?? "");
+  const [jobType, setJobType] = useState(restoredDraftState?.jobType ?? "");
+  const [jobOpenings, setJobOpenings] = useState(restoredDraftState?.jobOpenings ?? "1");
+  const [jobDescription, setJobDescription] = useState(
+    restoredDraftState?.jobDescription ?? "",
+  );
+  const [jobIcon, setJobIcon] = useState(restoredDraftState?.jobIcon ?? "briefcase");
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editingJob, setEditingJob] = useState<JobRow | null>(null);
@@ -88,10 +129,14 @@ export default function Jobs() {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [jobPage, setJobPage] = useState(1);
-  const [jobSearch, setJobSearch] = useState("");
-  const [jobTypeFilter, setJobTypeFilter] = useState("all");
-  const [jobStatusFilter, setJobStatusFilter] = useState("all");
+  const [jobPage, setJobPage] = useState(restoredViewState?.jobPage ?? 1);
+  const [jobSearch, setJobSearch] = useState(restoredViewState?.jobSearch ?? "");
+  const [jobTypeFilter, setJobTypeFilter] = useState(
+    restoredViewState?.jobTypeFilter ?? "all",
+  );
+  const [jobStatusFilter, setJobStatusFilter] = useState(
+    restoredViewState?.jobStatusFilter ?? "all",
+  );
 
   const iconMap = useMemo(
     () =>
@@ -140,6 +185,43 @@ export default function Jobs() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    window.sessionStorage.setItem(
+      jobsViewStorageKey,
+      JSON.stringify({ jobPage, jobSearch, jobTypeFilter, jobStatusFilter }),
+    );
+  }, [jobPage, jobSearch, jobStatusFilter, jobTypeFilter]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (
+      !isAddOpen &&
+      !jobTitle &&
+      !jobType &&
+      jobOpenings === "1" &&
+      !jobDescription &&
+      jobIcon === "briefcase"
+    ) {
+      window.sessionStorage.removeItem(jobsDraftStorageKey);
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      jobsDraftStorageKey,
+      JSON.stringify({
+        isAddOpen,
+        jobTitle,
+        jobType,
+        jobOpenings,
+        jobDescription,
+        jobIcon,
+      }),
+    );
+  }, [isAddOpen, jobDescription, jobIcon, jobOpenings, jobTitle, jobType]);
 
   const resetForm = () => {
     setJobTitle("");
@@ -403,6 +485,11 @@ export default function Jobs() {
   }, [jobPageCount]);
 
   useEffect(() => {
+    if (!didMountFilterResetRef.current) {
+      didMountFilterResetRef.current = true;
+      return;
+    }
+
     setJobPage(1);
   }, [jobSearch, jobStatusFilter, jobTypeFilter]);
 

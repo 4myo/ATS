@@ -2,12 +2,11 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useParams, Link, useLocation, useNavigate } from "react-router";
 import type { Stage } from "../store";
 import { supabase } from "../lib/supabase";
-import { getAiWritingSignal } from "../lib/aiWritingSignal";
 import { ScoreRing } from '../components/ScoreRing';
 import { 
   ArrowLeft, ThumbsUp, ThumbsDown,
   CheckCircle, XCircle, Clock, Bot, FileText, Eye, Loader2, Upload,
-  Link as LinkIcon, Mail, MapPin, Phone
+  Link as LinkIcon, Mail, MapPin, Phone, Wrench
 } from 'lucide-react';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer 
@@ -54,6 +53,10 @@ import {
 } from "../lib/interviewTranscriptLinks";
 import { type OfferDocument, type OfferInputs } from "../lib/offerDocument";
 import { logActivityEvent } from "../lib/activityLog";
+import {
+  getLocationPath,
+  getPreviousAppNavigationPath,
+} from "../lib/appNavigationHistory";
 
 type OfferChecklist = {
   interviewCompleted: boolean;
@@ -72,7 +75,7 @@ type CandidateDetailRecord = {
   location: string | null;
   years_experience: number | null;
   ats_score: number | null;
-  analysis_status: "pending_ai" | "complete" | "failed" | null;
+  analysis_status: "not_analyzed" | "pending_ai" | "complete" | "failed" | null;
   skills: string[] | null;
   analysis_summary: string | null;
   analysis_strengths: string[] | null;
@@ -159,12 +162,31 @@ export default function CandidateDetail() {
   const [manualInterviewText, setManualInterviewText] = useState("");
   const [isCreatingInterviewTranscript, setIsCreatingInterviewTranscript] = useState(false);
   const [pendingOfferSentAfterDraft, setPendingOfferSentAfterDraft] = useState(false);
+  const [canRenderDesktopAside, setCanRenderDesktopAside] = useState(false);
+  const [isReanalyzingCandidate, setIsReanalyzingCandidate] = useState(false);
   const returnToFromState =
     typeof location.state?.returnTo === "string" ? location.state.returnTo : null;
   const returnToFromQuery = new URLSearchParams(location.search).get("returnTo");
   const candidateBackPath = [returnToFromState, returnToFromQuery].find(
     (path) => path?.startsWith("/") && !path.startsWith("//"),
   ) ?? "/applicants";
+  const goBackToPreviousAppLocation = () => {
+    navigate(
+      getPreviousAppNavigationPath(getLocationPath(location), candidateBackPath),
+    );
+  };
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 1280px)");
+    const syncDesktopAside = () => setCanRenderDesktopAside(mediaQuery.matches);
+
+    syncDesktopAside();
+    mediaQuery.addEventListener("change", syncDesktopAside);
+
+    return () => {
+      mediaQuery.removeEventListener("change", syncDesktopAside);
+    };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -399,32 +421,34 @@ export default function CandidateDetail() {
   }, [candidate, t]);
 
   const aiWritingSignal = useMemo(() => {
-    const fallbackSignal = getAiWritingSignal({
-        name: candidate?.full_name,
-        role: candidate?.job_title,
-        analysisSummary: candidate?.analysis_summary,
-        strengths: candidate?.analysis_strengths,
-        concerns: candidate?.analysis_concerns,
-        skills: candidate?.skills,
-        yearsExperience: candidate?.years_experience,
-        atsScore: candidate?.ats_score,
-    });
+    const hasAnalyzedCv =
+      Boolean(candidate?.resume_path) && candidate?.analysis_status === "complete";
+
+    if (!hasAnalyzedCv || typeof candidate?.ai_writing_score !== "number") {
+      return null;
+    }
+
+    const score = Math.max(
+      0,
+      Math.min(100, Math.round(Number(candidate.ai_writing_score))),
+    );
 
     return {
-      score: Math.round(Number(candidate?.ai_writing_score ?? fallbackSignal.score)),
-      label: candidate?.ai_writing_label ?? fallbackSignal.label,
-      tone:
-        (candidate?.ai_writing_score ?? fallbackSignal.score) >= 68
-          ? "high"
-          : (candidate?.ai_writing_score ?? fallbackSignal.score) >= 38
-            ? "medium"
-            : "low",
+      score,
+      label:
+        candidate.ai_writing_label ??
+        (score >= 68
+          ? t("highAiWritingSignal")
+          : score >= 38
+            ? t("mixedAuthorshipSignal")
+            : t("lowAiWritingSignal")),
+      tone: score >= 68 ? "high" : score >= 38 ? "medium" : "low",
       notes:
         candidate?.ai_writing_notes?.length
           ? candidate.ai_writing_notes
-          : fallbackSignal.notes,
+          : [t("aiWritingSignalNoNotes")],
     };
-  }, [candidate]);
+  }, [candidate, t]);
 
   const interviewQuestions = useMemo(
     () => (candidate?.interview_questions ?? []).slice(0, 3),
@@ -435,6 +459,11 @@ export default function CandidateDetail() {
     candidate.interview_analysis_score != null;
   const hasLinkedTranscripts = linkedTranscripts.length > 0;
   const hasCvAnalysis = candidate?.analysis_status === "complete";
+  const hasCandidateAiScore =
+    candidate?.analysis_status === "complete" && typeof candidate.ats_score === "number";
+  const canReanalyzeCandidate =
+    Boolean(candidate?.resume_path) &&
+    (candidate?.analysis_status === "complete" || candidate?.analysis_status === "failed");
   const displayedCombinedScore = hasStoredInterviewAnalysis
     ? candidate?.interview_analysis_score ?? null
     : null;
@@ -577,6 +606,148 @@ export default function CandidateDetail() {
       );
     } finally {
       setIsAnalyzingInterview(false);
+    }
+  };
+
+  const reanalyzeCandidate = async () => {
+    if (!candidate) return;
+    if (!candidate.resume_path) {
+      setCvError(t("reanalyzeNeedsCv"));
+      return;
+    }
+
+    setIsReanalyzingCandidate(true);
+    setCvError(null);
+    setCandidate((current) =>
+      current ? { ...current, analysis_status: "pending_ai" } : current,
+    );
+    updateCachedApplicants((applicants) =>
+      applicants.map((applicant) =>
+        applicant.id === candidate.id
+          ? { ...applicant, analysisStatus: "pending_ai" }
+          : applicant,
+      ),
+    );
+
+    try {
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+      if (sessionError || !sessionData.session) {
+        throw new Error(t("signedInRequiredCandidate"));
+      }
+
+      const { error: statusError } = await supabase
+        .from("candidates")
+        .update({ analysis_status: "pending_ai" })
+        .eq("id", candidate.id);
+
+      if (statusError) {
+        throw statusError;
+      }
+
+      const { data: signedResume, error: signedResumeError } =
+        await supabase.storage
+          .from("resumes")
+          .createSignedUrl(candidate.resume_path, 60 * 10);
+
+      if (signedResumeError || !signedResume?.signedUrl) {
+        throw signedResumeError ?? new Error(t("failedCvOpen"));
+      }
+
+      const resumeResponse = await fetch(signedResume.signedUrl);
+      if (!resumeResponse.ok) {
+        throw new Error(t("failedCvOpen"));
+      }
+
+      const resumeBlob = await resumeResponse.blob();
+      const resumeFile = new File([resumeBlob], "candidate-resume.pdf", {
+        type: resumeBlob.type || "application/pdf",
+      });
+      const resumeText = (await extractPdfText(resumeFile)).trim();
+      if (!resumeText) {
+        throw new Error(t("resumeExtractFailed"));
+      }
+
+      const analysisResponse = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-candidate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            candidateId: candidate.id,
+            jobTitle: candidate.job_title,
+            resumeText,
+          }),
+        },
+      );
+
+      if (!analysisResponse.ok) {
+        const message = await analysisResponse.text();
+        enqueueAiAnalysisRetry({
+          candidateId: candidate.id,
+          candidateName: candidate.full_name,
+          jobTitle: candidate.job_title,
+          jobDescription: "",
+          resumeText,
+          lastError: message || t("analysisQueuedForRetry"),
+        });
+        setCvError(t("analysisQueuedForRetry"));
+        return;
+      }
+
+      const { data: refreshed } = await supabase
+        .from("candidates")
+        .select(candidateSelectWithOfferPreparation)
+        .eq("id", candidate.id)
+        .single();
+
+      if (refreshed) {
+        setCandidate((current) =>
+          current
+            ? ({ ...current, ...refreshed } as CandidateDetailRecord)
+            : (refreshed as CandidateDetailRecord),
+        );
+        updateCachedApplicants((applicants) =>
+          applicants.map((applicant) =>
+            applicant.id === candidate.id
+              ? {
+                  ...applicant,
+                  aiScore:
+                    typeof refreshed.ats_score === "number"
+                      ? refreshed.ats_score
+                      : applicant.aiScore,
+                  analysisStatus: refreshed.analysis_status ?? applicant.analysisStatus,
+                  skills: refreshed.skills ?? applicant.skills,
+                  summary: refreshed.analysis_summary ?? applicant.summary,
+                  analysisStrengths:
+                    refreshed.analysis_strengths ?? applicant.analysisStrengths,
+                  analysisConcerns:
+                    refreshed.analysis_concerns ?? applicant.analysisConcerns,
+                }
+              : applicant,
+          ),
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t("failedCandidateSave");
+      setCvError(message);
+      setCandidate((current) =>
+        current ? { ...current, analysis_status: "failed" } : current,
+      );
+      updateCachedApplicants((applicants) =>
+        applicants.map((applicant) =>
+          applicant.id === candidate.id
+            ? { ...applicant, analysisStatus: "failed" }
+            : applicant,
+        ),
+      );
+    } finally {
+      setIsReanalyzingCandidate(false);
     }
   };
 
@@ -1107,7 +1278,10 @@ export default function CandidateDetail() {
             applicant.id === candidate.id
               ? {
                   ...applicant,
-                  aiScore: Number(refreshed.ats_score ?? applicant.aiScore),
+                  aiScore:
+                    typeof refreshed.ats_score === "number"
+                      ? refreshed.ats_score
+                      : applicant.aiScore,
                   analysisStatus: refreshed.analysis_status ?? applicant.analysisStatus,
                   skills: refreshed.skills ?? applicant.skills,
                   summary: refreshed.analysis_summary ?? applicant.summary,
@@ -1198,9 +1372,14 @@ export default function CandidateDetail() {
       <div className="flex-none border-b border-border bg-card px-4 py-4 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 items-start gap-3 sm:gap-4">
-            <Link to={candidateBackPath} className="rounded-full p-2 text-muted-foreground hover:bg-muted">
+            <button
+              type="button"
+              onClick={goBackToPreviousAppLocation}
+              className="rounded-full p-2 text-muted-foreground hover:bg-muted"
+              aria-label={t("back")}
+            >
               <ArrowLeft className="h-5 w-5" />
-            </Link>
+            </button>
             <div className="min-w-0">
               <h1 className="break-words text-xl font-bold text-foreground">{candidate.full_name}</h1>
               <p className="text-sm text-muted-foreground">{t("appliedFor")} <span className="font-medium text-foreground">{candidate.job_title}</span></p>
@@ -1311,20 +1490,47 @@ export default function CandidateDetail() {
                 </p>
               ) : null}
             </div>
-            <div className="max-w-56 text-left sm:text-right">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                {t("aiReviewScore")}
-              </p>
-              <p className="mt-1 text-xs leading-snug text-muted-foreground">
-                {t("aiScoreReviewAidNote")}
-              </p>
+            <div className="max-w-64 text-left sm:text-right">
+              <div className="flex flex-col gap-2 sm:items-end">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {t("aiReviewScore")}
+                  </p>
+                  <p className="mt-1 text-xs leading-snug text-muted-foreground">
+                    {t("aiScoreReviewAidNote")}
+                  </p>
+                </div>
+                {canReanalyzeCandidate ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="relative z-10 gap-2"
+                    onClick={() => void reanalyzeCandidate()}
+                    disabled={isReanalyzingCandidate}
+                  >
+                    <Wrench
+                      className={`h-4 w-4 ${isReanalyzingCandidate ? "animate-spin" : ""}`}
+                    />
+                    {isReanalyzingCandidate ? t("reanalyzingCandidate") : t("reanalyzeCandidate")}
+                  </Button>
+                ) : null}
+              </div>
             </div>
-            {candidate.analysis_status === "pending_ai" ? (
+            {isReanalyzingCandidate || candidate.analysis_status === "pending_ai" ? (
               <span className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted text-sm font-semibold text-muted-foreground">
-                ...
+                {isReanalyzingCandidate ? (
+                  <Wrench className="h-5 w-5 animate-spin" />
+                ) : (
+                  "..."
+                )}
               </span>
-            ) : (
+            ) : hasCandidateAiScore ? (
               <ScoreRing score={candidate.ats_score ?? 0} size="md" />
+            ) : (
+              <span className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted px-2 text-center text-[10px] font-semibold text-muted-foreground">
+                {t("notScored")}
+              </span>
             )}
           </div>
         </div>
@@ -1841,8 +2047,8 @@ export default function CandidateDetail() {
 
         </div>
 
-        {!isInterviewStage && !isOfferStage ? (
-        <aside className="hidden w-[22rem] overflow-y-auto border-l border-border bg-card p-6 xl:block">
+        {canRenderDesktopAside && !isInterviewStage && !isOfferStage ? (
+        <aside className="w-[22rem] overflow-y-auto border-l border-border bg-card p-6">
           <div className="surface-card bg-background/45 p-6">
             <>
               <div className="mb-5 flex items-start justify-between gap-4">
@@ -1855,53 +2061,68 @@ export default function CandidateDetail() {
                     {t("aiWritingSignalDescription")}
                   </p>
                 </div>
-                <div className="text-right">
-                  <div className="text-4xl font-semibold leading-none text-foreground">
-                    {aiWritingSignal.score}
+                {aiWritingSignal ? (
+                  <div className="text-right">
+                    <div className="text-4xl font-semibold leading-none text-foreground">
+                      {aiWritingSignal.score}
+                    </div>
+                    <div className="text-xs text-muted-foreground">/100</div>
                   </div>
-                  <div className="text-xs text-muted-foreground">/100</div>
+                ) : null}
+              </div>
+
+              {aiWritingSignal ? (
+                <>
+                  <div className="h-3 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500"
+                      style={{ width: `${aiWritingSignal.score}%` }}
+                    />
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+                    <span
+                      className={
+                        aiWritingSignal.tone === "high"
+                          ? "font-medium text-pink-500"
+                          : aiWritingSignal.tone === "medium"
+                            ? "font-medium text-purple-500"
+                            : "font-medium text-green-500"
+                      }
+                    >
+                      {aiWritingSignal.label}
+                    </span>
+                    <span className="text-muted-foreground">{t("reviewCue")}</span>
+                  </div>
+
+                  <div className="mt-5 border-t border-border pt-5">
+                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {t("signalNotes")}
+                    </h3>
+                    <ul className="space-y-3 text-sm text-muted-foreground">
+                      {aiWritingSignal.notes.map((note) => (
+                        <li key={note} className="flex gap-2">
+                          <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-cyan-400" />
+                          <span>{note}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="mt-5 rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
+                    {t("aiWritingProofNote")}
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-md border border-dashed border-border bg-muted/30 p-4">
+                  <p className="text-sm font-semibold text-foreground">
+                    {t("aiWritingSignalUnavailable")}
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                    {t("aiWritingSignalUnavailableDescription")}
+                  </p>
                 </div>
-              </div>
-
-              <div className="h-3 overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500"
-                  style={{ width: `${aiWritingSignal.score}%` }}
-                />
-              </div>
-
-              <div className="mt-4 flex items-center justify-between gap-3 text-sm">
-                <span
-                  className={
-                    aiWritingSignal.tone === "high"
-                      ? "font-medium text-pink-500"
-                      : aiWritingSignal.tone === "medium"
-                        ? "font-medium text-purple-500"
-                        : "font-medium text-green-500"
-                  }
-                >
-                  {aiWritingSignal.label}
-                </span>
-                <span className="text-muted-foreground">{t("reviewCue")}</span>
-              </div>
-
-              <div className="mt-5 border-t border-border pt-5">
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {t("signalNotes")}
-                </h3>
-                <ul className="space-y-3 text-sm text-muted-foreground">
-                  {aiWritingSignal.notes.map((note) => (
-                    <li key={note} className="flex gap-2">
-                      <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-cyan-400" />
-                      <span>{note}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="mt-5 rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
-                {t("aiWritingProofNote")}
-              </div>
+              )}
             </>
           </div>
         </aside>
@@ -1909,6 +2130,7 @@ export default function CandidateDetail() {
       </div>
       <OfferDraftDialog
         candidateName={candidate.full_name}
+        draftKey={`smart-ats-offer-draft-${candidate.id}`}
         error={offerError}
         initialInputs={offerDocument?.inputs}
         isGenerating={isGeneratingOffer}

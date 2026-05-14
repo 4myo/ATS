@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet, useNavigate } from "react-router";
+import { Outlet, useLocation, useNavigate } from "react-router";
 import { Sidebar } from "../components/Sidebar";
 import { AiAnalysisQueueBar } from "../components/AiAnalysisQueueBar";
 import { CandidateImportProgressBar } from "../components/CandidateImportProgressBar";
@@ -11,6 +11,7 @@ import { clearDashboardCache } from "../lib/dashboardCache";
 import { clearJobCache, prefetchJobList } from "../lib/jobCache";
 import { Sheet, SheetContent, SheetTrigger } from "../components/ui/sheet";
 import { useI18n } from "../lib/i18n";
+import { getLocationPath, recordAppNavigationPath } from "../lib/appNavigationHistory";
 
 type UserProfile = {
   name: string;
@@ -35,6 +36,7 @@ const normalizeSearchForIlike = (value: string) =>
 
 export function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [checkingSession, setCheckingSession] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -43,6 +45,10 @@ export function Layout() {
   const [isSearching, setIsSearching] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const { language, setLanguage, t } = useI18n();
+
+  useEffect(() => {
+    recordAppNavigationPath(getLocationPath(location));
+  }, [location]);
 
   useEffect(() => {
     let isMounted = true;
@@ -200,7 +206,13 @@ export function Layout() {
     setSearchQuery("");
     setSearchResults([]);
     setIsSearchOpen(false);
-    navigate(result.path);
+    const returnTo = `${location.pathname}${location.search}`;
+    navigate(
+      result.type === "candidate"
+        ? `${result.path}?returnTo=${encodeURIComponent(returnTo)}`
+        : result.path,
+      result.type === "candidate" ? { state: { returnTo } } : undefined,
+    );
   };
 
   const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -233,7 +245,7 @@ export function Layout() {
       </div>
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-3 py-3 shadow-sm sm:px-6 sm:py-0">
+        <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-3 py-3 shadow-sm dark:bg-sidebar dark:shadow-none sm:px-6 sm:py-0">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <Sheet>
               <SheetTrigger asChild>
@@ -265,7 +277,7 @@ export function Layout() {
               </div>
 
               {isSearchOpen ? (
-                <div className="absolute left-0 top-12 z-50 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-md border border-border bg-card shadow-xl">
+                <div className="absolute left-0 top-12 z-50 w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-xl dark:shadow-none">
                   {isSearching ? (
                     <div className="px-3 py-3 text-sm text-muted-foreground">
                       {t("searching")}
@@ -283,7 +295,7 @@ export function Layout() {
                           <button
                             key={`${result.type}-${result.id}`}
                             type="button"
-                            className="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-muted"
+                            className="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-accent"
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => navigateToResult(result)}
                           >
@@ -316,7 +328,7 @@ export function Layout() {
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-4">
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground dark:bg-background dark:hover:bg-accent"
               onClick={toggleTheme}
               aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
               title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
@@ -325,7 +337,7 @@ export function Layout() {
             </button>
             <button
               type="button"
-              className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground dark:bg-background dark:hover:bg-accent"
               onClick={() => setLanguage(language === "en" ? "sl" : "en")}
               title={language === "en" ? t("switchToSlovenian") : t("switchToEnglish")}
             >
@@ -333,7 +345,7 @@ export function Layout() {
             </button>
             <button
               type="button"
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-card px-3 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground dark:bg-background dark:hover:bg-accent"
               onClick={handleSignOut}
             >
               <LogOut className="h-4 w-4" />

@@ -976,7 +976,7 @@ export default function Headhunter() {
       const analysisConcerns = [
         lead.documents.length ? c.candidateDocumentConcern : c.candidateConcern,
       ];
-      const initialAnalysisStatus = hasSourceDocuments ? "pending_ai" : "complete";
+      const initialAnalysisStatus = hasSourceDocuments ? "pending_ai" : "not_analyzed";
 
       const { data: inserted, error } = await supabase
         .from("candidates")
@@ -1019,7 +1019,7 @@ export default function Headhunter() {
           stage: "Applied",
           analysisStatus: initialAnalysisStatus,
           createdAt,
-          aiScore: 0,
+          aiScore: null,
           skills: lead.skills,
           experience: 0,
           location: lead.location || c.locationPending,

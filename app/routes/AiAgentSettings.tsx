@@ -15,6 +15,10 @@ import { Textarea } from "../components/ui/textarea";
 import { supabase } from "../lib/supabase";
 import { useI18n } from "../lib/i18n";
 import { fetchJobOptions, getCachedJobOptions, setCachedJobOptions } from "../lib/jobCache";
+import {
+  getLocationPath,
+  getPreviousAppNavigationPath,
+} from "../lib/appNavigationHistory";
 
 type JobOption = {
   id: string;
@@ -115,12 +119,7 @@ export default function AiAgentSettings() {
   );
 
   const goBack = () => {
-    if (window.history.length > 1) {
-      navigate(-1);
-      return;
-    }
-
-    navigate("/applicants");
+    navigate(getPreviousAppNavigationPath(getLocationPath(location), "/applicants"));
   };
 
   useEffect(() => {

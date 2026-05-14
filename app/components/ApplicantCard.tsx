@@ -14,9 +14,10 @@ interface ApplicantCardProps {
   applicant: Applicant;
   onDelete?: (id: string) => void;
   onMarkNewReviewed?: (id: string) => void;
+  returnTo?: string;
 }
 
-export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed }: ApplicantCardProps) {
+export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed, returnTo }: ApplicantCardProps) {
   const { stageLabel, t } = useI18n();
   const [isQueuedForAi, setIsQueuedForAi] = useState(false);
   const isNewApplicant = applicant.stage === "Applied";
@@ -24,6 +25,11 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed }: Applic
     isQueuedForAi && applicant.analysisStatus === "failed"
       ? "pending_ai"
       : applicant.analysisStatus;
+  const hasAiScore =
+    effectiveAnalysisStatus === "complete" && typeof applicant.aiScore === "number";
+  const candidatePath = returnTo
+    ? `/applicants/${applicant.id}?returnTo=${encodeURIComponent(returnTo)}`
+    : `/applicants/${applicant.id}`;
 
   useEffect(() => {
     const syncQueuedState = () => {
@@ -84,7 +90,7 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed }: Applic
           </div>
           <div>
             <h3 className="text-base font-semibold text-foreground transition-colors">
-              <Link to={`/applicants/${applicant.id}`}>
+              <Link to={candidatePath} state={returnTo ? { returnTo } : undefined}>
                 <span className="absolute inset-0" />
                 {applicant.name}
               </Link>
@@ -130,8 +136,12 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed }: Applic
              <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-border bg-muted text-[10px] font-semibold text-muted-foreground">
                ...
              </span>
-           ) : (
+           ) : hasAiScore ? (
              <ScoreRing score={applicant.aiScore ?? 0} size="sm" />
+           ) : (
+             <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-border bg-muted text-[10px] font-semibold text-muted-foreground">
+               {t("notScored")}
+             </span>
            )}
         </div>
       </div>

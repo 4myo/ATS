@@ -27,6 +27,7 @@ import {
 
 type OfferDraftDialogProps = {
   candidateName?: string;
+  draftKey?: string;
   error?: string | null;
   initialInputs?: OfferInputs | null;
   isGenerating: boolean;
@@ -37,6 +38,7 @@ type OfferDraftDialogProps = {
 
 export function OfferDraftDialog({
   candidateName,
+  draftKey,
   error,
   initialInputs,
   isGenerating,
@@ -46,12 +48,40 @@ export function OfferDraftDialog({
 }: OfferDraftDialogProps) {
   const { t } = useI18n();
   const [inputs, setInputs] = useState<OfferInputs>(emptyOfferInputs);
+  const [loadedDraftKey, setLoadedDraftKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
-      setInputs({ ...emptyOfferInputs, ...(initialInputs ?? {}) });
+      const storedDraft = (() => {
+        if (!draftKey || typeof window === "undefined") return null;
+
+        try {
+          const raw = window.sessionStorage.getItem(draftKey);
+          return raw ? (JSON.parse(raw) as Partial<OfferInputs>) : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      setInputs({ ...emptyOfferInputs, ...(initialInputs ?? {}), ...(storedDraft ?? {}) });
+      setLoadedDraftKey(draftKey ?? null);
+    } else {
+      setLoadedDraftKey(null);
     }
-  }, [initialInputs, open]);
+  }, [draftKey, initialInputs, open]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      !draftKey ||
+      loadedDraftKey !== draftKey ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+
+    window.sessionStorage.setItem(draftKey, JSON.stringify(inputs));
+  }, [draftKey, inputs, loadedDraftKey, open]);
 
   const todayIso = new Date().toISOString().slice(0, 10);
 
@@ -62,8 +92,18 @@ export function OfferDraftDialog({
   const handleGenerate = async () => {
     const document = await onGenerate(inputs);
     if (document) {
+      if (draftKey && typeof window !== "undefined") {
+        window.sessionStorage.removeItem(draftKey);
+      }
       onOpenChange(false);
     }
+  };
+
+  const handleCancel = () => {
+    if (draftKey && typeof window !== "undefined") {
+      window.sessionStorage.removeItem(draftKey);
+    }
+    onOpenChange(false);
   };
 
   return (
@@ -204,7 +244,7 @@ export function OfferDraftDialog({
           <Button
             type="button"
             variant="outline"
-            onClick={() => onOpenChange(false)}
+            onClick={handleCancel}
             disabled={isGenerating}
           >
             {t("cancel")}

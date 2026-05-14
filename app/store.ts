@@ -7,9 +7,9 @@ export interface Applicant {
   name: string;
   role: string;
   stage: Stage;
-  analysisStatus?: "pending_ai" | "complete" | "failed";
+  analysisStatus?: "not_analyzed" | "pending_ai" | "complete" | "failed" | null;
   createdAt?: string;
-  aiScore: number;
+  aiScore: number | null;
   skills: string[];
   experience: number;
   location: string;

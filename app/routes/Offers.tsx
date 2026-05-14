@@ -33,7 +33,7 @@ type OfferCandidate = {
   ats_score: number | null;
   interview_analysis_status?: string | null;
   interview_analysis_score?: number | null;
-  offer_checklist: Record<string, boolean> | null;
+  offer_checklist: Record<string, unknown> | null;
   offer_outcome: string | null;
   offer_sent_at: string | null;
   offer_summary: string | null;
@@ -64,6 +64,65 @@ const getOfferProgressStep = (candidate: CandidateWithDocument) => {
 
 const isOfferArchived = (candidate: CandidateWithDocument) =>
   Boolean(candidate.offer_checklist?.offerArchived);
+
+const getNumberChecklistValue = (
+  checklist: CandidateWithDocument["offer_checklist"],
+  key: string,
+) => {
+  const value = checklist?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+};
+
+const formatGrossAmount = (value: number | null) =>
+  typeof value === "number"
+    ? new Intl.NumberFormat("sl-SI", {
+        maximumFractionDigits: 0,
+      }).format(value)
+    : null;
+
+const getNegotiationLabel = (candidate: CandidateWithDocument) => {
+  const status = candidate.offer_checklist?.negotiationStatus;
+  if (status === "in_range") return "Znotraj budgeta";
+  if (status === "borderline") return "Na meji";
+  if (status === "over_budget") return "Presega budget";
+  if (status === "missing") return "Čaka podatke";
+  return null;
+};
+
+const getNegotiationTone = (candidate: CandidateWithDocument) => {
+  const status = candidate.offer_checklist?.negotiationStatus;
+  if (status === "over_budget") return "text-red-500";
+  if (status === "in_range" || status === "borderline") return "text-emerald-500";
+  return "text-muted-foreground";
+};
+
+const offersViewStorageKey = "smart-ats-offers-view-state";
+const activeOfferDraftStorageKey = "smart-ats-offers-active-draft-candidate";
+
+const defaultOfferWorkspaceFilters = {
+  offer: false,
+  preparing: false,
+  sent: false,
+  accepted: false,
+  declined: false,
+  archived: false,
+};
+
+type OffersViewState = {
+  jobFilter: string;
+  offerStatusFilters: typeof defaultOfferWorkspaceFilters;
+};
+
+const readOffersViewState = (): Partial<OffersViewState> | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(offersViewStorageKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
 
 const getOfferStatusLabel = (
   candidate: CandidateWithDocument,
@@ -162,6 +221,7 @@ function OfferActionSlider({
 
 export default function Offers() {
   const { t } = useI18n();
+  const restoredViewState = useMemo(() => readOffersViewState(), []);
   const [candidates, setCandidates] = useState<CandidateWithDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [generatingCandidateId, setGeneratingCandidateId] = useState<string | null>(null);
@@ -169,14 +229,10 @@ export default function Offers() {
     (OfferDocument & { candidateName?: string }) | null
   >(null);
   const [draftCandidate, setDraftCandidate] = useState<CandidateWithDocument | null>(null);
-  const [jobFilter, setJobFilter] = useState("all");
+  const [jobFilter, setJobFilter] = useState(restoredViewState?.jobFilter ?? "all");
   const [offerStatusFilters, setOfferStatusFilters] = useState({
-    offer: false,
-    preparing: false,
-    sent: false,
-    accepted: false,
-    declined: false,
-    archived: false,
+    ...defaultOfferWorkspaceFilters,
+    ...(restoredViewState?.offerStatusFilters ?? {}),
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -253,6 +309,39 @@ export default function Offers() {
   useEffect(() => {
     loadOffers();
   }, [loadOffers]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    window.sessionStorage.setItem(
+      offersViewStorageKey,
+      JSON.stringify({ jobFilter, offerStatusFilters }),
+    );
+  }, [jobFilter, offerStatusFilters]);
+
+  useEffect(() => {
+    if (draftCandidate || candidates.length === 0 || typeof window === "undefined") return;
+
+    const draftCandidateId = window.sessionStorage.getItem(activeOfferDraftStorageKey);
+    const candidate = candidates.find((item) => item.id === draftCandidateId);
+    if (candidate) {
+      setDraftCandidate(candidate);
+    }
+  }, [candidates, draftCandidate]);
+
+  const openDraftCandidate = (candidate: CandidateWithDocument) => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(activeOfferDraftStorageKey, candidate.id);
+    }
+    setDraftCandidate(candidate);
+  };
+
+  const closeDraftCandidate = () => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(activeOfferDraftStorageKey);
+    }
+    setDraftCandidate(null);
+  };
 
   const stats = useMemo(() => {
     const sent = candidates.filter((candidate) => candidate.offer_checklist?.offerSent).length;
@@ -375,7 +464,7 @@ export default function Offers() {
         ),
       );
       setSelectedDocument({ ...document, candidateName: candidate.full_name });
-      setDraftCandidate(null);
+      closeDraftCandidate();
       return document;
     } catch (generationError) {
       const message =
@@ -752,6 +841,14 @@ export default function Offers() {
                 ? Math.round(Number(candidate.interview_analysis_score))
                 : null;
             const statusLabel = getOfferStatusLabel(candidate, t);
+            const negotiationLabel = getNegotiationLabel(candidate);
+            const negotiationTone = getNegotiationTone(candidate);
+            const expectedGross = formatGrossAmount(
+              getNumberChecklistValue(candidate.offer_checklist, "candidateExpectedGross"),
+            );
+            const maxGross = formatGrossAmount(
+              getNumberChecklistValue(candidate.offer_checklist, "negotiationMaxGross"),
+            );
 
             return (
               <div
@@ -792,6 +889,21 @@ export default function Offers() {
                         <span className="ml-2 font-semibold text-cyan-600 dark:text-cyan-300">
                           {interviewAnalysisScore}%
                         </span>
+                      </p>
+                    ) : null}
+                    {negotiationLabel ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Pogajanja
+                        <span className={`ml-2 font-semibold ${negotiationTone}`}>
+                          {negotiationLabel}
+                        </span>
+                        {expectedGross || maxGross ? (
+                          <span className="ml-2 text-muted-foreground">
+                            {expectedGross ? `Želi ${expectedGross} bruto` : ""}
+                            {expectedGross && maxGross ? " / " : ""}
+                            {maxGross ? `Max ${maxGross}` : ""}
+                          </span>
+                        ) : null}
                       </p>
                     ) : null}
                   </div>
@@ -859,12 +971,12 @@ export default function Offers() {
                       candidate={candidate}
                       disabled={isGenerating}
                       t={t}
-                      onPrepare={() => setDraftCandidate(candidate)}
+                      onPrepare={() => openDraftCandidate(candidate)}
                       onSend={() => {
                         if (candidate.latestDocument) {
                           void markOfferSent(candidate);
                         } else {
-                          setDraftCandidate(candidate);
+                          openDraftCandidate(candidate);
                         }
                       }}
                     />
@@ -876,7 +988,7 @@ export default function Offers() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setDraftCandidate(candidate)}
+                    onClick={() => openDraftCandidate(candidate)}
                     disabled={isGenerating}
                     className="justify-start gap-2"
                   >
@@ -921,11 +1033,12 @@ export default function Offers() {
 
       <OfferDraftDialog
         candidateName={draftCandidate?.full_name}
+        draftKey={draftCandidate ? `smart-ats-offer-draft-${draftCandidate.id}` : undefined}
         error={error}
         initialInputs={draftCandidate?.latestDocument?.inputs}
         isGenerating={Boolean(draftCandidate && generatingCandidateId === draftCandidate.id)}
         open={Boolean(draftCandidate)}
-        onOpenChange={(open) => !open && setDraftCandidate(null)}
+        onOpenChange={(open) => !open && closeDraftCandidate()}
         onGenerate={(inputs) =>
           draftCandidate ? generateOffer(draftCandidate, inputs) : Promise.resolve(null)
         }

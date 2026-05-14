@@ -19,11 +19,12 @@ export function Sidebar() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const navItems = [
-    { to: '/', icon: LayoutDashboard, label: t("dashboard") },
+    { to: '/', icon: LayoutDashboard, label: t("dashboard"), end: true },
     { to: '/applicants', icon: Users, label: t("applicants") },
     { to: '/jobs', icon: Briefcase, label: t("jobs") },
     { to: '/headhunter', icon: UserSearch, label: t("headhunter") },
-    { to: '/interviews', icon: Mic, label: t("interviews") },
+    { to: '/interviews', icon: Mic, label: t("interviews"), end: true },
+    { to: '/interviews/workflow', icon: GitBranch, label: "Potek razgovorov", nested: true },
     { to: '/offers', icon: FileText, label: t("offers") },
     { to: '/ai-agent', icon: Bot, label: t("aiAgent") },
     { to: '/pipeline', icon: GitBranch, label: t("pipeline") },
@@ -51,9 +52,11 @@ export function Sidebar() {
           <NavLink
             key={item.to}
             to={item.to}
+            end={item.end}
             className={({ isActive }) =>
               clsx(
                 'group flex items-center rounded-md px-3 py-2.5 text-sm font-medium logo-font transition-colors',
+                item.nested && "ml-6 py-2 text-xs",
                 isActive
                   ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
                   : 'text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'

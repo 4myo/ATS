@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import type { Applicant, Stage } from "../store";
 import { ApplicantCard } from "../components/ApplicantCard";
 import { ChevronLeft, ChevronRight, FileText, Upload, X } from "lucide-react";
@@ -63,6 +63,49 @@ type CandidateImportDraft = {
 
 let candidateImportDraft: CandidateImportDraft | null = null;
 
+const applicantsViewStorageKey = "smart-ats-applicants-view-state";
+
+const defaultStatusFilters = {
+  new: false,
+};
+
+const defaultOfferStatusFilters = {
+  offer: false,
+  preparing: false,
+  sent: false,
+  accepted: false,
+  declined: false,
+};
+
+type ApplicantsViewState = {
+  ratingFilter: string;
+  searchFilter: string;
+  sortOrder: string;
+  jobFilter: string;
+  jobStatusFilter: string;
+  savedView: SavedViewKey | "all";
+  statusFilters: typeof defaultStatusFilters;
+  offerStatusFilters: typeof defaultOfferStatusFilters;
+  applicantPage: number;
+};
+
+const readApplicantsViewState = (): Partial<ApplicantsViewState> | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.sessionStorage.getItem(applicantsViewStorageKey);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveApplicantsViewState = (state: ApplicantsViewState) => {
+  if (typeof window === "undefined") return;
+
+  window.sessionStorage.setItem(applicantsViewStorageKey, JSON.stringify(state));
+};
+
 const candidateSelect =
   "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at";
 
@@ -124,8 +167,11 @@ const candidateNameFromText = (text: string, fileName: string) => {
 
 export default function Applicants() {
   const { t } = useI18n();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const restoredViewState = useMemo(() => readApplicantsViewState(), []);
+  const didMountFilterResetRef = useRef(false);
   const cachedCandidateList = getCandidateListCache();
   const cachedJobOptions = getCachedJobOptions();
   const [jobs, setJobs] = useState<
@@ -137,24 +183,32 @@ export default function Applicants() {
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(
     !cachedCandidateList,
   );
-  const [ratingFilter, setRatingFilter] = useState<string>("all");
+  const [ratingFilter, setRatingFilter] = useState<string>(
+    restoredViewState?.ratingFilter ?? "all",
+  );
   const [searchFilter, setSearchFilter] = useState<string>(
-    searchParams.get("search") ?? "",
+    searchParams.get("search") ?? restoredViewState?.searchFilter ?? "",
   );
   const [isApplicantSearchOpen, setIsApplicantSearchOpen] = useState(false);
-  const [sortOrder, setSortOrder] = useState<string>("newest");
-  const [jobFilter, setJobFilter] = useState<string>("all");
-  const [jobStatusFilter, setJobStatusFilter] = useState<string>("all");
-  const [savedView, setSavedView] = useState<SavedViewKey | "all">("all");
+  const [sortOrder, setSortOrder] = useState<string>(
+    restoredViewState?.sortOrder ?? "newest",
+  );
+  const [jobFilter, setJobFilter] = useState<string>(
+    restoredViewState?.jobFilter ?? "all",
+  );
+  const [jobStatusFilter, setJobStatusFilter] = useState<string>(
+    restoredViewState?.jobStatusFilter ?? "all",
+  );
+  const [savedView, setSavedView] = useState<SavedViewKey | "all">(
+    restoredViewState?.savedView ?? "all",
+  );
   const [statusFilters, setStatusFilters] = useState({
-    new: false,
+    ...defaultStatusFilters,
+    ...(restoredViewState?.statusFilters ?? {}),
   });
   const [offerStatusFilters, setOfferStatusFilters] = useState({
-    offer: false,
-    preparing: false,
-    sent: false,
-    accepted: false,
-    declined: false,
+    ...defaultOfferStatusFilters,
+    ...(restoredViewState?.offerStatusFilters ?? {}),
   });
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [resumeItems, setResumeItems] = useState<ResumeImportItem[]>([]);
@@ -167,7 +221,10 @@ export default function Applicants() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [applicantPage, setApplicantPage] = useState(1);
+  const [applicantPage, setApplicantPage] = useState(
+    restoredViewState?.applicantPage ?? 1,
+  );
+  const currentApplicantsPath = `${location.pathname}${location.search}`;
 
   useEffect(() => {
     if (!candidateImportDraft) return;
@@ -218,8 +275,35 @@ export default function Applicants() {
   ]);
 
   useEffect(() => {
-    setSearchFilter(searchParams.get("search") ?? "");
+    const searchFromUrl = searchParams.get("search");
+    if (searchFromUrl !== null) {
+      setSearchFilter(searchFromUrl);
+    }
   }, [searchParams]);
+
+  useEffect(() => {
+    saveApplicantsViewState({
+      ratingFilter,
+      searchFilter,
+      sortOrder,
+      jobFilter,
+      jobStatusFilter,
+      savedView,
+      statusFilters,
+      offerStatusFilters,
+      applicantPage,
+    });
+  }, [
+    applicantPage,
+    jobFilter,
+    jobStatusFilter,
+    offerStatusFilters,
+    ratingFilter,
+    savedView,
+    searchFilter,
+    sortOrder,
+    statusFilters,
+  ]);
 
   const mapCandidateRow = (row: Record<string, any>) => {
     const skillProfile = row.skill_profile as Record<string, number> | undefined;
@@ -230,9 +314,9 @@ export default function Applicants() {
       name: row.full_name,
       role: row.job_title,
       stage: (row.stage as Stage) ?? "Applied",
-      analysisStatus: row.analysis_status ?? "pending_ai",
+      analysisStatus: row.analysis_status ?? null,
       createdAt: row.created_at,
-      aiScore: row.ats_score ?? 0,
+      aiScore: row.ats_score ?? null,
       skills: row.skills ?? [],
       experience: Number(row.years_experience ?? 0),
       location: row.location ?? "",
@@ -640,7 +724,7 @@ export default function Applicants() {
                 stage: "Applied",
                 analysisStatus: "pending_ai",
                 createdAt: new Date().toISOString(),
-                aiScore: 0,
+                aiScore: null,
                 skills: [],
                 experience: 0,
                 location: "",
@@ -660,7 +744,7 @@ export default function Applicants() {
                 stage: "Applied",
                 analysisStatus: "pending_ai",
                 createdAt: new Date().toISOString(),
-                aiScore: 0,
+                aiScore: null,
                 skills: [],
                 experience: 0,
                 location: "",
@@ -912,7 +996,7 @@ export default function Applicants() {
     }
 
     if (savedView === "top80") {
-      return (applicant.aiScore ?? 0) >= 80;
+      return applicant.analysisStatus === "complete" && (applicant.aiScore ?? 0) >= 80;
     }
 
     if (savedView === "declinedAfterOffer") {
@@ -947,11 +1031,11 @@ export default function Applicants() {
     .filter((applicant) => jobFilter === "all" || applicant.role === jobFilter)
     .sort((left, right) => {
       if (ratingFilter === "highest") {
-        return (right.aiScore ?? 0) - (left.aiScore ?? 0);
+        return (right.aiScore ?? -1) - (left.aiScore ?? -1);
       }
 
       if (ratingFilter === "lowest") {
-        return (left.aiScore ?? 0) - (right.aiScore ?? 0);
+        return (left.aiScore ?? 101) - (right.aiScore ?? 101);
       }
 
       const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
@@ -970,6 +1054,11 @@ export default function Applicants() {
   );
 
   useEffect(() => {
+    if (!didMountFilterResetRef.current) {
+      didMountFilterResetRef.current = true;
+      return;
+    }
+
     setApplicantPage(1);
   }, [ratingFilter, sortOrder, jobFilter, jobStatusFilter, statusFilters, offerStatusFilters, searchFilter, savedView]);
 
@@ -1353,7 +1442,10 @@ export default function Applicants() {
                           </span>
                         </span>
                         <span className="shrink-0 text-xs font-semibold text-emerald-500">
-                          {Math.round(applicant.aiScore ?? 0)}%
+                          {applicant.analysisStatus === "complete" &&
+                          typeof applicant.aiScore === "number"
+                            ? `${Math.round(applicant.aiScore)}%`
+                            : t("notScored")}
                         </span>
                       </button>
                     ))}
@@ -1439,6 +1531,7 @@ export default function Applicants() {
             <ApplicantCard
               key={applicant.id}
               applicant={applicant}
+              returnTo={currentApplicantsPath}
               onDelete={handleDeleteApplicant}
               onMarkNewReviewed={handleMarkNewReviewed}
             />

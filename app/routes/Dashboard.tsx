@@ -696,7 +696,10 @@ function JobCapacityChart({ data, emptyLabel }: { data: JobCapacityDatum[]; empt
 }
 
 function CandidateScoreStrip({ data, emptyLabel }: { data: DashboardApplicant[]; emptyLabel: string }) {
-  const chartData = [...data].sort((a, b) => b.aiScore - a.aiScore).slice(0, 12);
+  const chartData = data
+    .filter((item) => typeof item.aiScore === "number")
+    .sort((a, b) => (b.aiScore ?? 0) - (a.aiScore ?? 0))
+    .slice(0, 12);
   const [activeId, setActiveId] = useState(chartData[0]?.id ?? "");
   const width = 780;
   const height = 230;
@@ -733,7 +736,7 @@ function CandidateScoreStrip({ data, emptyLabel }: { data: DashboardApplicant[];
                 key={item.id}
                 tabIndex={0}
                 role="button"
-                aria-label={`${item.name}: ${Math.round(item.aiScore)}%`}
+                aria-label={`${item.name}: ${Math.round(item.aiScore ?? 0)}%`}
                 className="cursor-pointer outline-none"
                 onMouseEnter={() => setActiveId(item.id)}
                 onFocus={() => setActiveId(item.id)}
@@ -743,24 +746,24 @@ function CandidateScoreStrip({ data, emptyLabel }: { data: DashboardApplicant[];
                   x1={itemX}
                   x2={itemX}
                   y1={chartHeight}
-                  y2={y(item.aiScore)}
+                  y2={y(item.aiScore ?? 0)}
                   stroke={isActive ? "var(--foreground)" : "var(--border)"}
                   strokeWidth={isActive ? 2.5 : 2}
                   opacity={isActive ? 0.65 : 1}
                 />
                 <circle
                   cx={itemX}
-                  cy={y(item.aiScore)}
+                  cy={y(item.aiScore ?? 0)}
                   r={isActive ? 10 : 7}
                   fill={stageColors[item.stage]}
                   stroke={isActive ? "var(--foreground)" : "transparent"}
                   strokeWidth={isActive ? 2 : 0}
                   opacity={isActive ? 1 : 0.5}
                 >
-                  <title>{`${item.name}: ${Math.round(item.aiScore)}%`}</title>
+                  <title>{`${item.name}: ${Math.round(item.aiScore ?? 0)}%`}</title>
                 </circle>
-                <text x={itemX} y={y(item.aiScore) - 12} textAnchor="middle" className="pointer-events-none fill-foreground text-[11px] font-semibold">
-                  {Math.round(item.aiScore)}
+                <text x={itemX} y={y(item.aiScore ?? 0) - 12} textAnchor="middle" className="pointer-events-none fill-foreground text-[11px] font-semibold">
+                  {Math.round(item.aiScore ?? 0)}
                 </text>
                 <text x={itemX} y={chartHeight + 24} textAnchor="middle" className="pointer-events-none fill-muted-foreground text-[10px]">
                   {shortLabel(item.name.split(" ")[0] || item.name, 8)}
@@ -773,7 +776,7 @@ function CandidateScoreStrip({ data, emptyLabel }: { data: DashboardApplicant[];
       {activeDatum ? (
         <ChartInsight
           label={activeDatum.name}
-          value={`${Math.round(activeDatum.aiScore)}%`}
+          value={`${Math.round(activeDatum.aiScore ?? 0)}%`}
           detail={`${activeDatum.role} - ${activeDatum.stage}`}
           color={stageColors[activeDatum.stage]}
         />
@@ -866,7 +869,8 @@ export default function Dashboard() {
             name: row.full_name,
             role: row.job_title,
             stage: (row.stage as Stage) ?? "Applied",
-            aiScore: Number(row.ats_score ?? 0),
+            analysisStatus: (row.analysis_status as DashboardApplicant["analysisStatus"]) ?? null,
+            aiScore: typeof row.ats_score === "number" ? row.ats_score : null,
             skills: row.skills ?? [],
             experience: Number(row.years_experience ?? 0),
             location: row.location ?? "",
@@ -964,8 +968,11 @@ export default function Dashboard() {
 
   const totalApplicants = filteredApplicants.length;
   const activeJobs = filteredJobs.filter((job) => (job.status ?? "active") === "active").length;
-  const avgScore = totalApplicants
-    ? Math.round(d3.mean(filteredApplicants, (applicant) => applicant.aiScore) ?? 0)
+  const scoredApplicants = filteredApplicants.filter(
+    (applicant) => typeof applicant.aiScore === "number",
+  );
+  const avgScore = scoredApplicants.length
+    ? Math.round(d3.mean(scoredApplicants, (applicant) => applicant.aiScore ?? 0) ?? 0)
     : 0;
   const candidatesNeedingReview = filteredApplicants.filter((applicant) =>
     ["Applied", "Screening"].includes(applicant.stage),
@@ -1076,15 +1083,17 @@ export default function Dashboard() {
     [applicants, filteredJobs],
   );
 
-  const recentApplicants = [...filteredApplicants].sort((a, b) => b.aiScore - a.aiScore).slice(0, 3);
+  const recentApplicants = [...filteredApplicants]
+    .sort((a, b) => (b.aiScore ?? -1) - (a.aiScore ?? -1))
+    .slice(0, 3);
 
   const stats = [
-    { label: t("totalApplicants"), value: totalApplicants, detail: t("allCandidates"), icon: Users, tone: "text-sky-600 bg-sky-500/10 dark:text-sky-300" },
-    { label: t("activeJobs"), value: activeJobs, detail: t("openRoles"), icon: Briefcase, tone: "text-violet-600 bg-violet-500/10 dark:text-violet-300" },
-    { label: t("averageMatchScore"), value: `${avgScore}%`, detail: t("acrossCandidates"), icon: TrendingUp, tone: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300" },
-    { label: t("needReview"), value: candidatesNeedingReview, detail: t("appliedScreening"), icon: AlertCircle, tone: "text-amber-600 bg-amber-500/10 dark:text-amber-300" },
-    { label: t("newThisWeek"), value: newApplicantsThisWeek, detail: t("lastSevenDays"), icon: CalendarDays, tone: "text-cyan-600 bg-cyan-500/10 dark:text-cyan-300" },
-    { label: t("sentOffers"), value: sentOffersCount, detail: t("offersSentDetail"), icon: Send, tone: "text-emerald-600 bg-emerald-500/10 dark:text-emerald-300" },
+    { label: t("totalApplicants"), value: totalApplicants, detail: t("allCandidates"), icon: Users, tone: "text-sky-600 dark:text-sky-300" },
+    { label: t("activeJobs"), value: activeJobs, detail: t("openRoles"), icon: Briefcase, tone: "text-violet-600 dark:text-violet-300" },
+    { label: t("averageMatchScore"), value: `${avgScore}%`, detail: t("acrossCandidates"), icon: TrendingUp, tone: "text-emerald-600 dark:text-emerald-300" },
+    { label: t("needReview"), value: candidatesNeedingReview, detail: t("appliedScreening"), icon: AlertCircle, tone: "text-amber-600 dark:text-amber-300" },
+    { label: t("newThisWeek"), value: newApplicantsThisWeek, detail: t("lastSevenDays"), icon: CalendarDays, tone: "text-cyan-600 dark:text-cyan-300" },
+    { label: t("sentOffers"), value: sentOffersCount, detail: t("offersSentDetail"), icon: Send, tone: "text-emerald-600 dark:text-emerald-300" },
   ];
 
   if (isLoading) {
@@ -1138,8 +1147,8 @@ export default function Dashboard() {
         {stats.map((stat) => (
           <div key={stat.label} className="surface-card overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
             <div className="flex items-start gap-3">
-              <div className={`flex-shrink-0 rounded-md p-2.5 ${stat.tone}`}>
-                <stat.icon className="h-5 w-5" />
+              <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center ${stat.tone}`}>
+                <stat.icon className="h-5 w-5 stroke-[2.25]" />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-medium uppercase tracking-wide subtle-text">{stat.label}</div>
@@ -1223,7 +1232,11 @@ export default function Dashboard() {
               </div>
               <div>
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("match")}</div>
-                <span className="text-lg font-semibold text-emerald-500">{applicant.aiScore}%</span>
+                <span className="text-lg font-semibold text-emerald-500">
+                  {typeof applicant.aiScore === "number"
+                    ? `${Math.round(applicant.aiScore)}%`
+                    : t("notScored")}
+                </span>
               </div>
               <div>
                 <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("stage")}</div>

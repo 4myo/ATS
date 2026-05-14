@@ -15,7 +15,9 @@
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  @apply font-sans antialiased;
+  background-color: var(--background, #f8fafc);
+  color: var(--foreground, #0f172a);
   font-family: "Poppins", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", sans-serif;
 }
@@ -30,9 +32,16 @@ body {
 }
 
 .sidebar-btn-active {
-  @apply bg-indigo-600 text-white shadow-lg shadow-indigo-500/20;
+  @apply shadow-sm;
+  background-color: var(--sidebar-primary, #111827);
+  color: var(--sidebar-primary-foreground, #ffffff);
 }
 
 .sidebar-btn-inactive {
-  @apply text-slate-400 hover:bg-slate-800 hover:text-white;
+  color: color-mix(in oklch, var(--sidebar-foreground, #334155) 60%, transparent);
+}
+
+.sidebar-btn-inactive:hover {
+  background-color: var(--sidebar-accent, #f1f5f9);
+  color: var(--sidebar-accent-foreground, #0f172a);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { Archive, ArrowLeft, Briefcase, CalendarDays, Pencil, RotateCcw, Trash2, Users } from "lucide-react";
 import type { Stage } from "../store";
 import { Button } from "../components/ui/button";
@@ -24,6 +24,10 @@ import { logActivityEvent } from "../lib/activityLog";
 import {
   fetchLinkedCandidateTranscripts,
 } from "../lib/interviewTranscriptLinks";
+import {
+  getLocationPath,
+  getPreviousAppNavigationPath,
+} from "../lib/appNavigationHistory";
 
 type JobDetailRecord = {
   id: string;
@@ -41,7 +45,7 @@ type JobCandidate = {
   id: string;
   name: string;
   stage: Stage;
-  aiScore: number;
+  aiScore: number | null;
   skills: string[];
   interviewScore: number | null;
   combinedScore: number | null;
@@ -61,12 +65,16 @@ const formatJobType = (type?: string | null) =>
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { t, stageLabel } = useI18n();
   const [job, setJob] = useState<JobDetailRecord | null>(null);
   const [jobCandidates, setJobCandidates] = useState<JobCandidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const goBackToPreviousAppLocation = () => {
+    navigate(getPreviousAppNavigationPath(getLocationPath(location), "/jobs"));
+  };
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editType, setEditType] = useState("");
@@ -128,7 +136,7 @@ export default function JobDetail() {
           id: candidate.id as string,
           name: (candidate.full_name as string | null | undefined) ?? t("candidate"),
           stage: (candidate.stage as Stage) ?? "Applied",
-          aiScore: Number(candidate.ats_score ?? 0),
+          aiScore: typeof candidate.ats_score === "number" ? candidate.ats_score : null,
           skills: Array.isArray(candidate.skills)
             ? candidate.skills.map((skill) => String(skill))
             : [],
@@ -359,10 +367,14 @@ export default function JobDetail() {
   if (!job) {
     return (
       <div className="page-container">
-        <Link to="/jobs" className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+        <button
+          type="button"
+          onClick={goBackToPreviousAppLocation}
+          className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+        >
           <ArrowLeft className="h-4 w-4" />
           {t("backToJobs")}
-        </Link>
+        </button>
         <div className="surface-card mt-6 border-dashed p-8 text-center text-sm text-muted-foreground">
           {t("jobNotFound")}
         </div>
@@ -381,10 +393,14 @@ export default function JobDetail() {
     <div className="page-container">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <Link to="/jobs" className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+          <button
+            type="button"
+            onClick={goBackToPreviousAppLocation}
+            className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+          >
             <ArrowLeft className="h-4 w-4" />
             {t("backToJobs")}
-          </Link>
+          </button>
           <div className="mt-5 flex items-start gap-4">
             <div className="rounded-md bg-muted p-3 text-foreground">
               <Briefcase className="h-6 w-6" />
@@ -618,7 +634,11 @@ export default function JobDetail() {
                         {candidate.name}
                       </p>
                       <div className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
-                        <span>{candidate.aiScore}% CV {t("match")}</span>
+                        <span>
+                          {typeof candidate.aiScore === "number"
+                            ? `${Math.round(candidate.aiScore)}% CV ${t("match")}`
+                            : t("notScored")}
+                        </span>
                         {candidate.combinedScore != null ? (
                           <span>{candidate.combinedScore}% CV + razgovor AI</span>
                         ) : candidate.transcriptCount ? (

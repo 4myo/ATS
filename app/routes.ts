@@ -13,6 +13,7 @@ export default [
     route("jobs/:id", "routes/JobDetail.tsx"),
     route("headhunter", "routes/Headhunter.tsx"),
     route("offers", "routes/Offers.tsx"),
+    route("interviews/workflow", "routes/InterviewWorkflow.tsx"),
     route("interviews", "routes/InterviewStudio.tsx"),
     route("pipeline", "routes/PipelineActivity.tsx"),
     route("ai-agent", "routes/AiAgentSettings.tsx"),
