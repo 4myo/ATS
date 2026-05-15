@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
+import { clsx } from "clsx";
 import { CheckCircle2, Eye, FileText, Loader2, Send, UserRound, XCircle } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -632,7 +633,7 @@ export default function Offers() {
       await syncJobStatusForTitle(candidate.job_title);
     }
     void logActivityEvent({
-      action: "offer_outcome_changed",
+      action: "offer_archived",
       entityType: "candidate",
       entityId: candidate.id,
       entityLabel: candidate.full_name,
@@ -751,50 +752,58 @@ export default function Offers() {
               />
               Ponudba
             </label>
-            {offerStatusFilters.offer ? (
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-2 sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0">
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                  <Checkbox
-                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                    checked={offerStatusFilters.preparing}
-                    onCheckedChange={(checked) =>
-                      toggleOfferStatusFilter("preparing", checked === true)
-                    }
-                  />
-                  {t("offerStatusPreparing")}
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                  <Checkbox
-                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                    checked={offerStatusFilters.sent}
-                    onCheckedChange={(checked) =>
-                      toggleOfferStatusFilter("sent", checked === true)
-                    }
-                  />
-                  Poslana, čaka odgovor
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                  <Checkbox
-                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                    checked={offerStatusFilters.accepted}
-                    onCheckedChange={(checked) =>
-                      toggleOfferStatusFilter("accepted", checked === true)
-                    }
-                  />
-                  Sprejeta ponudba
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                  <Checkbox
-                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                    checked={offerStatusFilters.declined}
-                    onCheckedChange={(checked) =>
-                      toggleOfferStatusFilter("declined", checked === true)
-                    }
-                  />
-                  Zavrnjena ponudba
-                </label>
-              </div>
-            ) : null}
+            <div
+              className={clsx(
+                "flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-2 transition-opacity sm:border-l sm:border-t-0 sm:pl-4 sm:pt-0",
+                !offerStatusFilters.offer && "pointer-events-none opacity-45",
+              )}
+              aria-disabled={!offerStatusFilters.offer}
+            >
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                <Checkbox
+                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                  checked={offerStatusFilters.preparing}
+                  disabled={!offerStatusFilters.offer}
+                  onCheckedChange={(checked) =>
+                    toggleOfferStatusFilter("preparing", checked === true)
+                  }
+                />
+                {t("offerStatusPreparing")}
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                <Checkbox
+                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                  checked={offerStatusFilters.sent}
+                  disabled={!offerStatusFilters.offer}
+                  onCheckedChange={(checked) =>
+                    toggleOfferStatusFilter("sent", checked === true)
+                  }
+                />
+                Poslana, čaka odgovor
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                <Checkbox
+                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                  checked={offerStatusFilters.accepted}
+                  disabled={!offerStatusFilters.offer}
+                  onCheckedChange={(checked) =>
+                    toggleOfferStatusFilter("accepted", checked === true)
+                  }
+                />
+                Sprejeta ponudba
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                <Checkbox
+                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                  checked={offerStatusFilters.declined}
+                  disabled={!offerStatusFilters.offer}
+                  onCheckedChange={(checked) =>
+                    toggleOfferStatusFilter("declined", checked === true)
+                  }
+                />
+                Zavrnjena ponudba
+              </label>
+            </div>
           </div>
         </div>
         <div className="grid min-w-[min(100%,10rem)] flex-1 gap-1.5 sm:ml-auto sm:flex-none">

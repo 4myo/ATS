@@ -4,12 +4,14 @@ export type ActivityAction =
   | "candidate_created"
   | "candidate_deleted"
   | "candidate_stage_changed"
+  | "candidate_offer_terms_updated"
   | "job_created"
   | "job_updated"
   | "job_deleted"
   | "job_status_changed"
   | "offer_document_created"
   | "offer_document_updated"
+  | "offer_archived"
   | "offer_sent"
   | "offer_outcome_changed";
 
@@ -68,9 +70,14 @@ export const logActivityEvent = async ({
     });
 
     if (error) {
-      activityLogsAvailable =
-        !error.message?.includes("activity_logs") &&
-        !error.details?.includes("activity_logs");
+      const errorCode = "code" in error ? error.code : undefined;
+      const missingActivityTable =
+        errorCode === "42P01" ||
+        errorCode === "PGRST205" ||
+        error.message?.includes("Could not find the table") ||
+        error.message?.includes("does not exist");
+
+      activityLogsAvailable = missingActivityTable ? false : true;
     } else {
       activityLogsAvailable = true;
     }

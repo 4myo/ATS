@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import * as d3 from "d3";
 import type { Applicant, Stage } from "../store";
-import { Users, Briefcase, TrendingUp, AlertCircle, CalendarDays, Send } from "lucide-react";
+import { Users, Briefcase, TrendingUp, AlertCircle, CalendarDays, Send, Search } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import {
   Select,
@@ -51,6 +52,13 @@ type TrendDatum = {
   sent: number;
 };
 
+type DualLineDatum = {
+  key: string;
+  label: string;
+  primary: number;
+  secondary: number;
+};
+
 type JobCapacityDatum = {
   id: string;
   title: string;
@@ -59,6 +67,8 @@ type JobCapacityDatum = {
   accepted: number;
   applicants: number;
 };
+
+type DashboardChartFocus = "readiness" | "match" | "offers";
 
 const dashboardCandidateSelect =
   "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, created_at";
@@ -98,6 +108,11 @@ const integerTicks = (maxValue: number, desired = 4) => {
 const shortLabel = (value: string, maxLength = 18) =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 
+const daysSince = (value: string | null | undefined) => {
+  if (!value) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000));
+};
+
 function EmptyChart({ label }: { label: string }) {
   return (
     <div className="flex h-full min-h-56 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
@@ -127,6 +142,52 @@ function ChartInsight({
         {detail ? <p className="mt-0.5 truncate text-xs text-muted-foreground">{detail}</p> : null}
       </div>
       <span className="text-xl font-semibold tabular-nums text-foreground">{value}</span>
+    </div>
+  );
+}
+
+function MetricPairInsight({
+  label,
+  detail,
+  primaryLabel,
+  primaryValue,
+  primaryColor,
+  secondaryLabel,
+  secondaryValue,
+  secondaryColor,
+}: {
+  label: string;
+  detail: string;
+  primaryLabel: string;
+  primaryValue: string | number;
+  primaryColor: string;
+  secondaryLabel: string;
+  secondaryValue: string | number;
+  secondaryColor: string;
+}) {
+  return (
+    <div className="mt-3 rounded-md border border-border bg-muted/30 p-3">
+      <div className="flex items-center gap-2">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: primaryColor }} />
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+      </div>
+      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{detail}</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div className="rounded-md border border-border bg-background/55 px-3 py-2 dark:bg-background/30">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: primaryColor }} />
+            {primaryLabel}
+          </div>
+          <div className="mt-1 text-xl font-semibold tabular-nums text-foreground">{primaryValue}</div>
+        </div>
+        <div className="rounded-md border border-border bg-background/55 px-3 py-2 dark:bg-background/30">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: secondaryColor }} />
+            {secondaryLabel}
+          </div>
+          <div className="mt-1 text-xl font-semibold tabular-nums text-foreground">{secondaryValue}</div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -597,13 +658,146 @@ function TrendLines({ data, emptyLabel }: { data: TrendDatum[]; emptyLabel: stri
         </g>
       </svg>
       {activeDatum ? (
-        <ChartInsight
+        <MetricPairInsight
           label={activeDatum.label}
-          value={`${activeDatum.sent}/${activeDatum.offers}`}
-          detail="Poslane ponudbe / pripravljene ponudbe za izbrani dan."
-          color="#22c55e"
+          detail="Ponudbe, ki so bile na izbrani dan ustvarjene ali poslane."
+          primaryLabel="Ustvarjene ponudbe"
+          primaryValue={activeDatum.offers}
+          primaryColor="#8b5cf6"
+          secondaryLabel="Poslane ponudbe"
+          secondaryValue={activeDatum.sent}
+          secondaryColor="#22c55e"
         />
       ) : null}
+    </div>
+  );
+}
+
+function DualLineTrend({
+  data,
+  emptyLabel,
+  primaryLabel,
+  secondaryLabel,
+  primaryColor,
+  secondaryColor,
+  valueSuffix = "",
+  detail,
+  fixedMax,
+}: {
+  data: DualLineDatum[];
+  emptyLabel: string;
+  primaryLabel: string;
+  secondaryLabel: string;
+  primaryColor: string;
+  secondaryColor: string;
+  valueSuffix?: string;
+  detail: string;
+  fixedMax?: number;
+}) {
+  const firstActiveKey = data.find((item) => item.primary || item.secondary)?.key ?? data[0]?.key ?? "";
+  const [activeKey, setActiveKey] = useState(firstActiveKey);
+  const width = 780;
+  const height = 280;
+  const margin = { top: 18, right: 20, bottom: 44, left: 38 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+  const maxValue = fixedMax ?? (d3.max(data, (item) => Math.max(item.primary, item.secondary)) ?? 0);
+  const ticks = fixedMax ? [0, 25, 50, 75, 100] : integerTicks(maxValue);
+  const x = d3
+    .scalePoint()
+    .domain(data.map((item) => item.key))
+    .range([0, chartWidth])
+    .padding(0.4);
+  const y = d3
+    .scaleLinear()
+    .domain([0, Math.max(1, fixedMax ?? (d3.max(ticks) ?? 1))])
+    .range([chartHeight, 0]);
+  const linePrimary = d3
+    .line<DualLineDatum>()
+    .x((item) => x(item.key) ?? 0)
+    .y((item) => y(item.primary))
+    .curve(d3.curveMonotoneX);
+  const lineSecondary = d3
+    .line<DualLineDatum>()
+    .x((item) => x(item.key) ?? 0)
+    .y((item) => y(item.secondary))
+    .curve(d3.curveMonotoneX);
+  const activeDatum =
+    data.find((item) => item.key === activeKey) ??
+    data.find((item) => item.primary || item.secondary) ??
+    data[0];
+  const activeX = activeDatum ? x(activeDatum.key) ?? 0 : 0;
+
+  if (!data.some((item) => item.primary || item.secondary)) return <EmptyChart label={emptyLabel} />;
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-full min-h-64 w-full overflow-visible">
+        <g transform={`translate(${margin.left},${margin.top})`}>
+          {ticks.map((tick) => (
+            <g key={tick} transform={`translate(0,${y(tick)})`}>
+              <line x1={0} x2={chartWidth} stroke="var(--border)" strokeDasharray="3 4" />
+              <text x={-10} y={4} textAnchor="end" className="fill-muted-foreground text-[11px]">
+                {tick}
+              </text>
+            </g>
+          ))}
+          {activeDatum ? (
+            <line x1={activeX} x2={activeX} y1={0} y2={chartHeight} stroke="var(--foreground)" strokeDasharray="4 5" opacity="0.34" />
+          ) : null}
+          <path d={linePrimary(data) ?? ""} fill="none" stroke={primaryColor} strokeWidth={3} />
+          <path d={lineSecondary(data) ?? ""} fill="none" stroke={secondaryColor} strokeWidth={3} />
+          {data.map((item, index) => {
+            const itemX = x(item.key) ?? 0;
+            const isActive = activeDatum?.key === item.key;
+            return (
+              <g
+                key={item.key}
+                tabIndex={0}
+                role="button"
+                aria-label={`${item.label}: ${primaryLabel} ${item.primary}${valueSuffix}, ${secondaryLabel} ${item.secondary}${valueSuffix}`}
+                className="cursor-pointer outline-none"
+                onMouseEnter={() => setActiveKey(item.key)}
+                onFocus={() => setActiveKey(item.key)}
+              >
+                <rect x={itemX - 18} y={0} width={36} height={chartHeight} fill="transparent" />
+                <circle cx={itemX} cy={y(item.primary)} r={isActive ? 6 : 3.5} fill={primaryColor}>
+                  <title>{`${item.label}: ${primaryLabel} ${item.primary}${valueSuffix}`}</title>
+                </circle>
+                <circle cx={itemX} cy={y(item.secondary)} r={isActive ? 6 : 3.5} fill={secondaryColor}>
+                  <title>{`${item.label}: ${secondaryLabel} ${item.secondary}${valueSuffix}`}</title>
+                </circle>
+                {index % 2 === 0 ? (
+                  <text
+                    x={itemX}
+                    y={chartHeight + 24}
+                    textAnchor="middle"
+                    className="pointer-events-none fill-muted-foreground text-[11px]"
+                  >
+                    {item.label}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+      {activeDatum ? (
+        <MetricPairInsight
+          label={activeDatum.label}
+          detail={detail}
+          primaryLabel={primaryLabel}
+          primaryValue={`${activeDatum.primary}${valueSuffix}`}
+          primaryColor={primaryColor}
+          secondaryLabel={secondaryLabel}
+          secondaryValue={`${activeDatum.secondary}${valueSuffix}`}
+          secondaryColor={secondaryColor}
+        />
+      ) : null}
+      <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: primaryColor }} />{primaryLabel}</span>
+        <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: secondaryColor }} />{secondaryLabel}</span>
+      </div>
     </div>
   );
 }
@@ -785,6 +979,175 @@ function CandidateScoreStrip({ data, emptyLabel }: { data: DashboardApplicant[];
   );
 }
 
+function HorizontalBars({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: string }) {
+  const chartData = data.filter((item) => item.value > 0).slice(0, 8);
+  const [activeKey, setActiveKey] = useState(chartData[0]?.key ?? "");
+  const width = 780;
+  const rowHeight = 38;
+  const height = Math.max(220, chartData.length * rowHeight + 58);
+  const margin = { top: 18, right: 56, bottom: 28, left: 168 };
+  const chartWidth = width - margin.left - margin.right;
+  const maxValue = d3.max(chartData, (item) => item.value) ?? 0;
+  const ticks = integerTicks(maxValue);
+  const x = d3
+    .scaleLinear()
+    .domain([0, Math.max(1, d3.max(ticks) ?? 1)])
+    .range([0, chartWidth]);
+  const y = d3
+    .scaleBand()
+    .domain(chartData.map((item) => item.key))
+    .range([0, chartData.length * rowHeight])
+    .padding(0.28);
+  const activeDatum = chartData.find((item) => item.key === activeKey) ?? chartData[0];
+
+  if (!chartData.length) return <EmptyChart label={emptyLabel} />;
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-full min-h-56 w-full overflow-visible">
+        <g transform={`translate(${margin.left},${margin.top})`}>
+          {ticks.map((tick) => (
+            <g key={tick} transform={`translate(${x(tick)},0)`}>
+              <line y1={0} y2={chartData.length * rowHeight} stroke="var(--border)" strokeDasharray="3 4" />
+              <text y={chartData.length * rowHeight + 21} textAnchor="middle" className="fill-muted-foreground text-[11px]">
+                {tick}
+              </text>
+            </g>
+          ))}
+          {chartData.map((item) => {
+            const rowY = y(item.key) ?? 0;
+            const isActive = activeDatum?.key === item.key;
+            return (
+              <g
+                key={item.key}
+                tabIndex={0}
+                role="button"
+                aria-label={`${item.label}: ${item.value}`}
+                className="cursor-pointer outline-none"
+                onMouseEnter={() => setActiveKey(item.key)}
+                onFocus={() => setActiveKey(item.key)}
+              >
+                <rect x={-margin.left + 8} y={rowY - 5} width={width - margin.right - 10} height={y.bandwidth() + 10} rx={7} fill={isActive ? "var(--muted)" : "transparent"} opacity="0.55" />
+                <text x={-12} y={rowY + y.bandwidth() / 2 + 4} textAnchor="end" className="pointer-events-none fill-foreground text-[12px] font-medium">
+                  {shortLabel(item.label, 24)}
+                </text>
+                <rect
+                  x={0}
+                  y={rowY}
+                  width={x(item.value)}
+                  height={y.bandwidth()}
+                  rx={6}
+                  fill={item.color}
+                  opacity={isActive ? 1 : 0.5}
+                  stroke={isActive ? "var(--foreground)" : "transparent"}
+                  strokeWidth={isActive ? 1.5 : 0}
+                >
+                  <title>{`${item.label}: ${item.value}`}</title>
+                </rect>
+                <text x={x(item.value) + 8} y={rowY + y.bandwidth() / 2 + 4} className="pointer-events-none fill-muted-foreground text-[11px]">
+                  {item.value}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+      {activeDatum ? (
+        <ChartInsight
+          label={activeDatum.label}
+          value={activeDatum.value}
+          detail="Največje vrednosti so najbolj uporabne za takojšnje usmerjanje pozornosti."
+          color={activeDatum.color}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ReadinessFunnel({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: string }) {
+  const total = d3.sum(data, (item) => item.value);
+  const width = 780;
+  const height = 300;
+  const margin = { top: 28, right: 20, bottom: 68, left: 44 };
+  const chartWidth = width - margin.left - margin.right;
+  const chartHeight = height - margin.top - margin.bottom;
+  const maxValue = d3.max(data, (item) => item.value) ?? 0;
+  const ticks = integerTicks(maxValue);
+  const x = d3
+    .scaleBand()
+    .domain(data.map((item) => item.key))
+    .range([0, chartWidth])
+    .padding(0.34);
+  const y = d3
+    .scaleLinear()
+    .domain([0, Math.max(1, d3.max(ticks) ?? 1)])
+    .range([chartHeight, 0]);
+
+  if (!total) return <EmptyChart label={emptyLabel} />;
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="mx-auto h-full min-h-72 w-full max-w-5xl overflow-visible">
+      <g transform={`translate(${margin.left},${margin.top})`}>
+        {ticks.map((tick) => (
+          <g key={tick} transform={`translate(0,${y(tick)})`}>
+            <line x1={0} x2={chartWidth} stroke="var(--border)" strokeDasharray="3 4" />
+            <text x={-10} y={4} textAnchor="end" className="fill-muted-foreground text-[11px]">
+              {tick}
+            </text>
+          </g>
+        ))}
+        <line x1={0} x2={0} y1={0} y2={chartHeight} stroke="var(--border)" />
+        <line x1={0} x2={chartWidth} y1={chartHeight} y2={chartHeight} stroke="var(--border)" />
+        {data.map((item) => {
+          const xPosition = x(item.key) ?? 0;
+          const barHeight = chartHeight - y(item.value);
+          const yPosition = y(item.value);
+          const rate = Math.round((item.value / Math.max(1, total)) * 100);
+          return (
+            <g key={item.key}>
+              <rect
+                x={xPosition}
+                y={yPosition}
+                width={x.bandwidth()}
+                height={barHeight}
+                rx={8}
+                fill={item.color}
+                opacity={item.value ? 0.88 : 0.14}
+              >
+                <title>{`${item.label}: ${item.value}`}</title>
+              </rect>
+              <text
+                x={xPosition + x.bandwidth() / 2}
+                y={Math.max(12, yPosition - 10)}
+                textAnchor="middle"
+                className="fill-foreground text-[12px] font-semibold"
+              >
+                {item.value}
+              </text>
+              <text
+                x={xPosition + x.bandwidth() / 2}
+                y={chartHeight + 24}
+                textAnchor="middle"
+                className="fill-muted-foreground text-[11px] font-medium"
+              >
+                {shortLabel(item.label, 13)}
+              </text>
+              <text
+                x={xPosition + x.bandwidth() / 2}
+                y={chartHeight + 42}
+                textAnchor="middle"
+                className="fill-muted-foreground text-[11px]"
+              >
+                {rate}% pogleda
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    </svg>
+  );
+}
+
 export default function Dashboard() {
   const { t, stageLabel } = useI18n();
   const cachedDashboard = getDashboardCache();
@@ -794,7 +1157,12 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState<DashboardJob[]>(cachedDashboard?.jobs ?? []);
   const [isLoading, setIsLoading] = useState(!hasFreshDashboardCache());
   const [jobFilter, setJobFilter] = useState("all");
-  const [candidateFilter, setCandidateFilter] = useState("all");
+  const [jobStatusFilter, setJobStatusFilter] = useState("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [scoreFilter, setScoreFilter] = useState("all");
+  const [offerFilter, setOfferFilter] = useState("all");
+  const [dashboardSearch, setDashboardSearch] = useState("");
+  const [chartFocus, setChartFocus] = useState<DashboardChartFocus>("readiness");
 
   useEffect(() => {
     let isMounted = true;
@@ -934,36 +1302,94 @@ export default function Dashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (offerFilter !== "all") {
+      setChartFocus("offers");
+      return;
+    }
+
+    if (scoreFilter !== "all") {
+      setChartFocus("match");
+      return;
+    }
+
+    if (stageFilter !== "all") {
+      setChartFocus("readiness");
+    }
+  }, [offerFilter, scoreFilter, stageFilter]);
+
   const jobOptions = useMemo(
     () => [...new Set(applicants.map((applicant) => applicant.role))].sort(),
     [applicants],
   );
 
-  const candidateOptions = useMemo(
-    () =>
-      applicants
-        .map((applicant) => ({
-          id: applicant.id,
-          name: applicant.name,
-          score: Math.round(applicant.aiScore ?? 0),
-        }))
-        .sort((left, right) => left.name.localeCompare(right.name)),
-    [applicants],
+  const jobStatusByTitle = useMemo(
+    () => new Map(jobs.map((job) => [job.title, job.status ?? "active"])),
+    [jobs],
   );
 
   const filteredApplicants = useMemo(
-    () =>
-      applicants.filter(
-        (applicant) =>
-          (jobFilter === "all" || applicant.role === jobFilter) &&
-          (candidateFilter === "all" || applicant.id === candidateFilter),
-      ),
-    [applicants, candidateFilter, jobFilter],
+    () => {
+      const normalizedSearch = dashboardSearch.trim().toLowerCase();
+
+      return applicants.filter((applicant) => {
+        const jobStatus = jobStatusByTitle.get(applicant.role) ?? "active";
+        const score = typeof applicant.aiScore === "number" ? applicant.aiScore : null;
+        const offerSent = Boolean(applicant.offerChecklist?.offerSent);
+        const offerOutcome = applicant.offerOutcome ?? "pending";
+
+        const matchesSearch =
+          !normalizedSearch ||
+          [applicant.name, applicant.role, applicant.email, applicant.location]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(normalizedSearch));
+        const matchesJob = jobFilter === "all" || applicant.role === jobFilter;
+        const matchesJobStatus = jobStatusFilter === "all" || jobStatus === jobStatusFilter;
+        const matchesStage = stageFilter === "all" || applicant.stage === stageFilter;
+        const matchesScore =
+          scoreFilter === "all" ||
+          (scoreFilter === "strong" && score != null && score >= 80) ||
+          (scoreFilter === "medium" && score != null && score >= 60 && score < 80) ||
+          (scoreFilter === "low" && score != null && score < 60) ||
+          (scoreFilter === "unscored" && score == null);
+        const matchesOffer =
+          offerFilter === "all" ||
+          (offerFilter === "without_offer" && applicant.stage !== "Offer" && !offerSent && offerOutcome === "pending") ||
+          (offerFilter === "preparing" && applicant.stage === "Offer" && !offerSent) ||
+          (offerFilter === "sent" && offerSent && offerOutcome === "pending") ||
+          (offerFilter === "accepted" && offerOutcome === "accepted") ||
+          (offerFilter === "declined" && offerOutcome === "declined");
+
+        return (
+          matchesSearch &&
+          matchesJob &&
+          matchesJobStatus &&
+          matchesStage &&
+          matchesScore &&
+          matchesOffer
+        );
+      });
+    },
+    [
+      applicants,
+      dashboardSearch,
+      jobFilter,
+      jobStatusByTitle,
+      jobStatusFilter,
+      offerFilter,
+      scoreFilter,
+      stageFilter,
+    ],
   );
 
   const filteredJobs = useMemo(
-    () => jobs.filter((job) => jobFilter === "all" || job.title === jobFilter),
-    [jobs, jobFilter],
+    () =>
+      jobs.filter(
+        (job) =>
+          (jobFilter === "all" || job.title === jobFilter) &&
+          (jobStatusFilter === "all" || (job.status ?? "active") === jobStatusFilter),
+      ),
+    [jobs, jobFilter, jobStatusFilter],
   );
 
   const totalApplicants = filteredApplicants.length;
@@ -1067,6 +1493,64 @@ export default function Dashboard() {
     return days;
   }, [offerRelatedApplicants]);
 
+  const matchQualityTrendData = useMemo<DualLineDatum[]>(() => {
+    const days = Array.from({ length: 14 }, (_item, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (13 - index));
+      const key = date.toISOString().slice(0, 10);
+
+      return {
+        key,
+        label: date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" }),
+        primary: 0,
+        secondary: 0,
+      };
+    });
+
+    return days.map((day) => {
+      const scored = filteredApplicants.filter((applicant) => {
+        if (!applicant.createdAt || typeof applicant.aiScore !== "number") return false;
+        return new Date(applicant.createdAt).toISOString().slice(0, 10) === day.key;
+      });
+
+      return {
+        ...day,
+        primary: scored.length ? Math.round(d3.mean(scored, (applicant) => applicant.aiScore ?? 0) ?? 0) : 0,
+        secondary: scored.length ? Math.round(d3.max(scored, (applicant) => applicant.aiScore ?? 0) ?? 0) : 0,
+      };
+    });
+  }, [filteredApplicants]);
+
+  const offerDecisionTrendData = useMemo<DualLineDatum[]>(() => {
+    const days = Array.from({ length: 14 }, (_item, index) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (13 - index));
+      const key = date.toISOString().slice(0, 10);
+
+      return {
+        key,
+        label: date.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" }),
+        primary: 0,
+        secondary: 0,
+      };
+    });
+
+    return days.map((day) => {
+      const sent = filteredApplicants.filter((applicant) => {
+        if (!applicant.offerChecklist?.offerSent || !applicant.offerSentAt) return false;
+        return new Date(applicant.offerSentAt).toISOString().slice(0, 10) === day.key;
+      });
+      const accepted = sent.filter((applicant) => applicant.offerOutcome === "accepted").length;
+      const pending = sent.filter((applicant) => (applicant.offerOutcome ?? "pending") === "pending").length;
+
+      return {
+        ...day,
+        primary: sent.length ? Math.round((accepted / sent.length) * 100) : 0,
+        secondary: sent.length ? Math.round((pending / sent.length) * 100) : 0,
+      };
+    });
+  }, [filteredApplicants]);
+
   const jobCapacityData = useMemo<JobCapacityDatum[]>(
     () =>
       filteredJobs.map((job) => {
@@ -1083,6 +1567,165 @@ export default function Dashboard() {
     [applicants, filteredJobs],
   );
 
+  const readinessFunnelData = useMemo<BarDatum[]>(
+    () =>
+      stageOrder.map((stage) => ({
+        key: stage,
+        label: stageLabel(stage),
+        value: filteredApplicants.filter((applicant) => applicant.stage === stage).length,
+        color: stageColors[stage],
+      })),
+    [filteredApplicants, stageLabel],
+  );
+
+  const readinessBottleneckData = useMemo<BarDatum[]>(
+    () =>
+      filteredJobs
+        .map((job) => {
+          const jobApplicants = filteredApplicants.filter((applicant) => applicant.role === job.title);
+          const earlyStage = jobApplicants.filter((applicant) =>
+            ["Applied", "Screening"].includes(applicant.stage),
+          ).length;
+          return {
+            key: job.id,
+            label: job.title,
+            value: earlyStage,
+            color: earlyStage > Math.max(2, job.openings * 2) ? "#f59e0b" : "#06b6d4",
+          };
+        })
+        .sort((left, right) => right.value - left.value),
+    [filteredApplicants, filteredJobs],
+  );
+
+  const stageAgeData = useMemo<BarDatum[]>(
+    () =>
+      stageOrder.map((stage) => {
+        const ages = filteredApplicants
+          .filter((applicant) => applicant.stage === stage)
+          .map((applicant) => daysSince(applicant.createdAt))
+          .filter((value): value is number => value != null);
+
+        return {
+          key: stage,
+          label: stageLabel(stage),
+          value: ages.length ? Math.round(d3.mean(ages) ?? 0) : 0,
+          color: stageColors[stage],
+        };
+      }),
+    [filteredApplicants, stageLabel],
+  );
+
+  const scoreBucketData = useMemo<BarDatum[]>(() => {
+    const buckets = [
+      { key: "excellent", label: "90-100%", min: 90, max: 100, color: "#14b8a6" },
+      { key: "strong", label: "80-89%", min: 80, max: 89.999, color: "#22c55e" },
+      { key: "medium", label: "60-79%", min: 60, max: 79.999, color: "#f59e0b" },
+      { key: "low", label: "Pod 60%", min: 0, max: 59.999, color: "#ef4444" },
+      { key: "unscored", label: "Brez ocene", min: null, max: null, color: "#64748b" },
+    ];
+
+    return buckets.map((bucket) => ({
+      key: bucket.key,
+      label: bucket.label,
+      value: filteredApplicants.filter((applicant) => {
+        if (bucket.key === "unscored") return typeof applicant.aiScore !== "number";
+        return typeof applicant.aiScore === "number" && applicant.aiScore >= bucket.min! && applicant.aiScore <= bucket.max!;
+      }).length,
+      color: bucket.color,
+    }));
+  }, [filteredApplicants]);
+
+  const roleMatchData = useMemo<BarDatum[]>(
+    () =>
+      filteredJobs
+        .map((job) => {
+          const scored = filteredApplicants.filter(
+            (applicant) => applicant.role === job.title && typeof applicant.aiScore === "number",
+          );
+          return {
+            key: job.id,
+            label: job.title,
+            value: scored.length ? Math.round(d3.mean(scored, (applicant) => applicant.aiScore ?? 0) ?? 0) : 0,
+            color: "#8b5cf6",
+          };
+        })
+        .filter((item) => item.value > 0)
+        .sort((left, right) => right.value - left.value),
+    [filteredApplicants, filteredJobs],
+  );
+
+  const offerFunnelData = useMemo<BarDatum[]>(
+    () => [
+      {
+        key: "preparing",
+        label: "V pripravi",
+        value: filteredApplicants.filter(
+          (applicant) =>
+            applicant.stage === "Offer" &&
+            !applicant.offerChecklist?.offerSent &&
+            (applicant.offerOutcome ?? "pending") === "pending",
+        ).length,
+        color: "#f59e0b",
+      },
+      {
+        key: "sent",
+        label: "Čakajo odgovor",
+        value: filteredApplicants.filter(
+          (applicant) =>
+            applicant.offerChecklist?.offerSent &&
+            (applicant.offerOutcome ?? "pending") === "pending",
+        ).length,
+        color: "#22c55e",
+      },
+      {
+        key: "accepted",
+        label: "Sprejete",
+        value: filteredApplicants.filter((applicant) => applicant.offerOutcome === "accepted").length,
+        color: "#14b8a6",
+      },
+      {
+        key: "declined",
+        label: "Zavrnjene",
+        value: filteredApplicants.filter((applicant) => applicant.offerOutcome === "declined").length,
+        color: "#ef4444",
+      },
+    ],
+    [filteredApplicants],
+  );
+
+  const offerAgingData = useMemo<BarDatum[]>(
+    () => [
+      {
+        key: "0-3",
+        label: "0-3 dni",
+        value: filteredApplicants.filter((applicant) => {
+          const age = daysSince(applicant.offerSentAt);
+          return applicant.offerChecklist?.offerSent && (applicant.offerOutcome ?? "pending") === "pending" && age != null && age <= 3;
+        }).length,
+        color: "#22c55e",
+      },
+      {
+        key: "4-7",
+        label: "4-7 dni",
+        value: filteredApplicants.filter((applicant) => {
+          const age = daysSince(applicant.offerSentAt);
+          return applicant.offerChecklist?.offerSent && (applicant.offerOutcome ?? "pending") === "pending" && age != null && age >= 4 && age <= 7;
+        }).length,
+        color: "#f59e0b",
+      },
+      {
+        key: "8+",
+        label: "8+ dni",
+        value: filteredApplicants.filter((applicant) => {
+          const age = daysSince(applicant.offerSentAt);
+          return applicant.offerChecklist?.offerSent && (applicant.offerOutcome ?? "pending") === "pending" && age != null && age >= 8;
+        }).length,
+        color: "#ef4444",
+      },
+    ],
+    [filteredApplicants],
+  );
+
   const recentApplicants = [...filteredApplicants]
     .sort((a, b) => (b.aiScore ?? -1) - (a.aiScore ?? -1))
     .slice(0, 3);
@@ -1096,10 +1739,6 @@ export default function Dashboard() {
     { label: t("sentOffers"), value: sentOffersCount, detail: t("offersSentDetail"), icon: Send, tone: "text-emerald-600 dark:text-emerald-300" },
   ];
 
-  if (isLoading) {
-    return <DashboardLoading />;
-  }
-
   return (
     <div className="page-container">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -1107,11 +1746,57 @@ export default function Dashboard() {
           <h1 className="page-title">{t("dashboardOverview")}</h1>
           <p className="text-sm subtle-text">{t("dashboardSubtitle")}</p>
         </div>
-        <div className="surface-card flex flex-wrap items-end gap-3 p-3">
-          <div className="grid min-w-[220px] gap-1.5">
-            <Label>{t("filterByJob")}</Label>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+        {isLoading
+          ? Array.from({ length: 6 }, (_item, index) => (
+              <div key={index} className="surface-card overflow-hidden p-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-9 w-9 animate-pulse rounded-md bg-muted" />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+                    <div className="h-7 w-16 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-28 animate-pulse rounded bg-muted" />
+                  </div>
+                </div>
+              </div>
+            ))
+          : stats.map((stat) => (
+              <div key={stat.label} className="surface-card overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex items-start gap-3">
+                  <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center ${stat.tone}`}>
+                    <stat.icon className="h-5 w-5 stroke-[2.25]" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium uppercase tracking-wide subtle-text">{stat.label}</div>
+                    <div className="mt-1 text-2xl font-semibold text-foreground">{stat.value}</div>
+                    <div className="mt-1 truncate text-xs text-muted-foreground">{stat.detail}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+      </div>
+
+      <div className="surface-card grid gap-2.5 p-3">
+        <div className="grid items-end gap-2 lg:grid-cols-3 2xl:grid-cols-[minmax(14rem,1.35fr)_minmax(11.5rem,0.95fr)_minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(11.5rem,0.9fr)]">
+          <label className="grid gap-1">
+            <span className="text-xs font-medium text-muted-foreground">Iskanje</span>
+            <span className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                value={dashboardSearch}
+                onChange={(event) => setDashboardSearch(event.target.value)}
+                placeholder="Kandidat, vloga ali email"
+                className="h-9 border-border bg-background pl-9 shadow-sm dark:bg-muted/30"
+              />
+            </span>
+          </label>
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">{t("filterByJob")}</Label>
             <Select value={jobFilter} onValueChange={setJobFilter}>
-              <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+              <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1124,87 +1809,234 @@ export default function Dashboard() {
               </SelectContent>
             </Select>
           </div>
-          <div className="grid min-w-[220px] gap-1.5">
-            <Label>{t("candidate")}</Label>
-            <Select value={candidateFilter} onValueChange={setCandidateFilter}>
-              <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">Status dela</Label>
+            <Select value={jobStatusFilter} onValueChange={setJobStatusFilter}>
+              <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{t("allCandidates")}</SelectItem>
-                {candidateOptions.map((candidate) => (
-                  <SelectItem key={candidate.id} value={candidate.id}>
-                    {candidate.name} - {candidate.score}%
+                <SelectItem value="all">Vsa dela</SelectItem>
+                <SelectItem value="active">Aktivna dela</SelectItem>
+                <SelectItem value="inactive">Neaktivna dela</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">Faza</Label>
+            <Select value={stageFilter} onValueChange={setStageFilter}>
+              <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Vse faze</SelectItem>
+                {stageOrder.map((stage) => (
+                  <SelectItem key={stage} value={stage}>
+                    {stageLabel(stage)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">Ujemanje</Label>
+            <Select value={scoreFilter} onValueChange={setScoreFilter}>
+              <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Vse ocene</SelectItem>
+                <SelectItem value="strong">80% ali več</SelectItem>
+                <SelectItem value="medium">60-79%</SelectItem>
+                <SelectItem value="low">Pod 60%</SelectItem>
+                <SelectItem value="unscored">Brez ocene</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">Ponudbe</Label>
+            <Select value={offerFilter} onValueChange={setOfferFilter}>
+              <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Vsi kandidati</SelectItem>
+                <SelectItem value="without_offer">Brez ponudbe</SelectItem>
+                <SelectItem value="preparing">V pripravi</SelectItem>
+                <SelectItem value="sent">Poslana, čaka odgovor</SelectItem>
+                <SelectItem value="accepted">Sprejeta</SelectItem>
+                <SelectItem value="declined">Zavrnjena</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid gap-1">
+            <Label className="text-xs text-muted-foreground">Grafični pregled</Label>
+            <div className="grid gap-1 sm:grid-cols-3 lg:w-[28rem]">
+              {[
+                { key: "readiness" as const, label: "Pripravljenost" },
+                { key: "match" as const, label: "Ujemanje" },
+                { key: "offers" as const, label: "Ponudbe" },
+              ].map((item) => (
+                <Button
+                  key={item.key}
+                  type="button"
+                  size="sm"
+                  className="h-9 px-2 text-sm"
+                  variant={chartFocus === item.key ? "default" : "outline"}
+                  onClick={() => setChartFocus(item.key)}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="grid gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 whitespace-nowrap"
+              onClick={() => {
+                setDashboardSearch("");
+                setJobFilter("all");
+                setJobStatusFilter("all");
+                setStageFilter("all");
+                setScoreFilter("all");
+                setOfferFilter("all");
+              }}
+            >
+              Ponastavi filtre
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-        {stats.map((stat) => (
-          <div key={stat.label} className="surface-card overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
-            <div className="flex items-start gap-3">
-              <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center ${stat.tone}`}>
-                <stat.icon className="h-5 w-5 stroke-[2.25]" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium uppercase tracking-wide subtle-text">{stat.label}</div>
-                <div className="mt-1 text-2xl font-semibold text-foreground">{stat.value}</div>
-                <div className="mt-1 truncate text-xs text-muted-foreground">{stat.detail}</div>
-              </div>
-            </div>
+      {isLoading ? (
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <section className="surface-card p-5">
+            <div className="mb-4 h-5 w-44 animate-pulse rounded bg-muted" />
+            <LoadingChart variant="bars" />
+          </section>
+          <section className="surface-card p-5">
+            <div className="mb-4 h-5 w-48 animate-pulse rounded bg-muted" />
+            <LoadingChart variant="donut" />
+          </section>
+        </div>
+      ) : chartFocus === "readiness" ? (
+        <>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Status pripravljenosti</h2>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Uravnotežen prikaz trenutne razporeditve kandidatov po fazah izbranega pogleda.
+              </p>
+              <ReadinessFunnel data={readinessFunnelData} emptyLabel={t("noApplicants")} />
+            </section>
+
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Kandidati po fazah</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Operativni pogled za trenutno obremenitev faz.</p>
+              <DonutChart data={stageData} emptyLabel={t("noApplicants")} />
+            </section>
           </div>
-        ))}
-      </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-        <section className="surface-card p-5">
-          <h2 className="mb-1 text-base font-semibold text-foreground">{t("applicantPipeline")}</h2>
-          <p className="mb-4 text-sm text-muted-foreground">{t("distributionByStage")}</p>
-          <VerticalBars data={stageData} emptyLabel={t("noApplicants")} />
-        </section>
-
-        <section className="surface-card p-5">
-          <h2 className="mb-1 text-base font-semibold text-foreground">{t("distributionByStage")}</h2>
-          <p className="mb-4 text-sm text-muted-foreground">{t("applicantsSubtitle")}</p>
-          <DonutChart data={stageData} emptyLabel={t("noApplicants")} />
-        </section>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
-        <section className="surface-card p-5">
-          <h2 className="mb-1 text-base font-semibold text-foreground">{t("offerStatusOverview")}</h2>
-          <p className="mb-4 text-sm text-muted-foreground">{t("offerStatusOverviewSubtitle")}</p>
-          <VerticalBars data={offerStatusData} emptyLabel={t("noOfferCandidates")} />
-        </section>
-
-        <section className="surface-card p-5">
-          <h2 className="mb-1 text-base font-semibold text-foreground">{t("offerTracking")}</h2>
-          <p className="mb-4 text-sm text-muted-foreground">{t("offerTrackingSubtitle")}</p>
-          <TrendLines data={offerTrendData} emptyLabel={t("noOfferCandidates")} />
-          <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-violet-500" />{t("offersCreated")}</span>
-            <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" />{t("offersSent")}</span>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Ozka grla po vlogah</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Vloge z največ kandidati v začetnih fazah potrebujejo pregled ali odločitev.</p>
+              <HorizontalBars data={readinessBottleneckData} emptyLabel={t("noApplicants")} />
+            </section>
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Povprečna starost faze</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Koliko dni so kandidati v povprečju v procesu glede na trenutni status.</p>
+              <VerticalBars data={stageAgeData} emptyLabel={t("noApplicants")} />
+            </section>
           </div>
-        </section>
-      </div>
+        </>
+      ) : chartFocus === "match" ? (
+        <>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Porazdelitev ujemanja</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Pokaže, ali ima izbrani pogled dovolj močnih kandidatov ali preveč neocenjenih profilov.</p>
+              <VerticalBars data={scoreBucketData} emptyLabel={t("noApplicants")} />
+            </section>
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Povprečno ujemanje po vlogah</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Najhitrejši način za odkritje vlog z najmočnejšim naborom kandidatov.</p>
+              <HorizontalBars data={roleMatchData} emptyLabel={t("noApplicants")} />
+            </section>
+          </div>
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-        <section className="surface-card p-5">
-          <h2 className="mb-1 text-base font-semibold text-foreground">{t("activeJobPostings")}</h2>
-          <p className="mb-4 text-sm text-muted-foreground">{t("jobsSubtitle")}</p>
-          <JobCapacityChart data={jobCapacityData} emptyLabel={t("noJobs")} />
-        </section>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">{t("topCandidateMatches")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{t("topCandidateMatchesSubtitle")}</p>
+              <CandidateScoreStrip data={filteredApplicants} emptyLabel={t("noApplicants")} />
+            </section>
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Trend kakovosti ujemanja</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Povprečno in najboljše ujemanje novo dodanih kandidatov po dnevih.</p>
+              <DualLineTrend
+                data={matchQualityTrendData}
+                emptyLabel={t("noApplicants")}
+                primaryLabel="Povprečje"
+                secondaryLabel="Najboljši"
+                primaryColor="#14b8a6"
+                secondaryColor="#8b5cf6"
+                valueSuffix="%"
+                fixedMax={100}
+                detail="Povprečno ujemanje / najvišje ujemanje za kandidate dodane na izbrani dan."
+              />
+            </section>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Status ponudb</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Prikazuje disjunktne statuse ponudb, brez podvajanja sprejetih in poslanih kandidatov.</p>
+              <ReadinessFunnel data={offerFunnelData} emptyLabel={t("noOfferCandidates")} />
+            </section>
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Starost odprtih ponudb</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Ponudbe brez odgovora po 8+ dneh so kandidati za follow-up.</p>
+              <VerticalBars data={offerAgingData} emptyLabel={t("noOfferCandidates")} />
+            </section>
+          </div>
 
-        <section className="surface-card p-5">
-          <h2 className="mb-1 text-base font-semibold text-foreground">{t("topCandidateMatches")}</h2>
-          <p className="mb-4 text-sm text-muted-foreground">{t("topCandidateMatchesSubtitle")}</p>
-          <CandidateScoreStrip data={filteredApplicants} emptyLabel={t("noApplicants")} />
-        </section>
-      </div>
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">{t("offerTracking")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{t("offerTrackingSubtitle")}</p>
+              <TrendLines data={offerTrendData} emptyLabel={t("noOfferCandidates")} />
+              <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-violet-500" />{t("offersCreated")}</span>
+                <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" />{t("offersSent")}</span>
+              </div>
+            </section>
+            <section className="surface-card p-5">
+              <h2 className="mb-1 text-base font-semibold text-foreground">Odziv na poslane ponudbe</h2>
+              <p className="mb-4 text-sm text-muted-foreground">Primerja sprejete ponudbe in ponudbe, ki še čakajo odgovor po datumu pošiljanja.</p>
+              <DualLineTrend
+                data={offerDecisionTrendData}
+                emptyLabel={t("noOfferCandidates")}
+                primaryLabel="Sprejete"
+                secondaryLabel="Čakajo"
+                primaryColor="#14b8a6"
+                secondaryColor="#f59e0b"
+                valueSuffix="%"
+                fixedMax={100}
+                detail="Delež sprejetih / čakajočih ponudb med ponudbami poslanimi na izbrani dan."
+              />
+            </section>
+          </div>
+        </>
+      )}
 
       <section className="surface-card p-5">
         <div className="mb-4 flex items-center justify-between">

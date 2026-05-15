@@ -3,13 +3,13 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { Sidebar } from "../components/Sidebar";
 import { AiAnalysisQueueBar } from "../components/AiAnalysisQueueBar";
 import { CandidateImportProgressBar } from "../components/CandidateImportProgressBar";
-import { Briefcase, LogOut, Menu, Search, Moon, Sun, Users } from "lucide-react";
+import { Briefcase, LogOut, Search, Moon, Sun, Users } from "lucide-react";
 import { Link } from "react-router";
+import { clsx } from "clsx";
 import { supabase } from "../lib/supabase";
 import { clearCandidateListCache } from "../lib/candidateListCache";
 import { clearDashboardCache } from "../lib/dashboardCache";
 import { clearJobCache, prefetchJobList } from "../lib/jobCache";
-import { Sheet, SheetContent, SheetTrigger } from "../components/ui/sheet";
 import { useI18n } from "../lib/i18n";
 import { getLocationPath, recordAppNavigationPath } from "../lib/appNavigationHistory";
 
@@ -25,6 +25,8 @@ type SearchResult = {
   type: "candidate" | "job";
   path: string;
 };
+
+const sidebarStorageKey = "smart-ats-sidebar-collapsed";
 
 const normalizeSearchForIlike = (value: string) =>
   value
@@ -44,11 +46,31 @@ export function Layout() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isCompactSidebar, setIsCompactSidebar] = useState(false);
   const { language, setLanguage, t } = useI18n();
 
   useEffect(() => {
     recordAppNavigationPath(getLocationPath(location));
   }, [location]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 1023px)");
+
+    const syncSidebarMode = () => {
+      const compact = mediaQuery.matches;
+      setIsCompactSidebar(compact);
+      setIsSidebarCollapsed(
+        compact
+          ? true
+          : window.localStorage.getItem(sidebarStorageKey) === "true",
+      );
+    };
+
+    syncSidebarMode();
+    mediaQuery.addEventListener("change", syncSidebarMode);
+    return () => mediaQuery.removeEventListener("change", syncSidebarMode);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -127,6 +149,16 @@ export function Layout() {
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     navigate("/auth", { replace: true });
+  };
+
+  const toggleSidebar = () => {
+    setIsSidebarCollapsed((current) => {
+      const next = !current;
+      if (!isCompactSidebar) {
+        window.localStorage.setItem(sidebarStorageKey, String(next));
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -237,26 +269,49 @@ export function Layout() {
   }
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background">
+    <div className="relative flex h-screen w-full overflow-hidden bg-background">
       <AiAnalysisQueueBar />
       <CandidateImportProgressBar />
-      <div className="hidden flex-none lg:block">
-        <Sidebar />
+      {isCompactSidebar && !isSidebarCollapsed ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-30 bg-background/70 backdrop-blur-sm lg:hidden"
+          onClick={toggleSidebar}
+          aria-label="Zapri meni"
+        />
+      ) : null}
+      <div
+        className={clsx(
+          "relative z-40 flex-none transition-[width] duration-300 ease-in-out",
+          isCompactSidebar
+            ? "w-[4.5rem]"
+            : isSidebarCollapsed
+              ? "w-[4.5rem]"
+              : "w-56",
+        )}
+      >
+        <div
+          className={clsx(
+            "h-screen transition-[width] duration-300 ease-in-out",
+            isCompactSidebar && "fixed inset-y-0 left-0",
+            isSidebarCollapsed ? "w-[4.5rem]" : "w-56",
+          )}
+        >
+          <Sidebar
+            collapsed={isSidebarCollapsed}
+            onToggle={toggleSidebar}
+            onNavigate={() => {
+              if (isCompactSidebar) {
+                setIsSidebarCollapsed(true);
+              }
+            }}
+          />
+        </div>
       </div>
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden transition-[width] duration-300 ease-in-out">
         <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-3 py-3 shadow-sm dark:bg-sidebar dark:shadow-none sm:px-6 sm:py-0">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <Sheet>
-              <SheetTrigger asChild>
-                <button className="inline-flex items-center justify-center rounded-md border border-border bg-card p-2 text-muted-foreground shadow-sm transition hover:bg-muted lg:hidden">
-                  <Menu className="h-5 w-5" />
-                </button>
-              </SheetTrigger>
-              <SheetContent side="left" className="p-0">
-                <Sidebar />
-              </SheetContent>
-            </Sheet>
             <form className="relative min-w-0 flex-1 sm:flex-none" onSubmit={handleSearchSubmit}>
               <div className="flex w-full min-w-[9rem] items-center rounded-md border border-border bg-muted/60 px-3 py-2 transition-all focus-within:bg-card focus-within:ring-2 focus-within:ring-ring sm:w-72 lg:w-96">
                 <Search className="h-4 w-4 text-muted-foreground" />

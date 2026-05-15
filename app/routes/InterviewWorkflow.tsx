@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { supabase } from "../lib/supabase";
+import { logActivityEvent } from "../lib/activityLog";
 import { fetchLinkedCandidateTranscripts } from "../lib/interviewTranscriptLinks";
 
 type CandidateStage = "Applied" | "Screening" | "Interview" | "Offer" | "Accepted" | "Rejected";
@@ -709,6 +710,16 @@ export default function InterviewWorkflow() {
     };
     const nextOfferOutcome =
       updates.offerOutcome === undefined ? candidate.offerOutcome : updates.offerOutcome;
+    const stageChanged = nextStage !== candidate.stage;
+    const offerOutcomeChanged =
+      updates.offerOutcome !== undefined && nextOfferOutcome !== candidate.offerOutcome;
+    const offerTermsChanged = Boolean(
+      updates.offerChecklist &&
+        ("negotiationMinGross" in updates.offerChecklist ||
+          "negotiationMaxGross" in updates.offerChecklist ||
+          "candidateExpectedGross" in updates.offerChecklist ||
+          "negotiationStatus" in updates.offerChecklist),
+    );
 
     const { error } = await supabase
       .from("candidates")
@@ -738,6 +749,53 @@ export default function InterviewWorkflow() {
           : item,
       ),
     );
+
+    if (stageChanged) {
+      void logActivityEvent({
+        action: "candidate_stage_changed",
+        entityType: "candidate",
+        entityId: candidate.id,
+        entityLabel: candidate.name,
+        fromValue: candidate.stage,
+        toValue: nextStage,
+        metadata: {
+          job_title: candidate.role,
+          source: "interview_workflow",
+          offer_outcome: nextOfferOutcome,
+        },
+      });
+    }
+
+    if (offerTermsChanged) {
+      void logActivityEvent({
+        action: "candidate_offer_terms_updated",
+        entityType: "candidate",
+        entityId: candidate.id,
+        entityLabel: candidate.name,
+        fromValue: candidate.offerChecklist.negotiationStatus ?? null,
+        toValue: nextChecklist.negotiationStatus ?? null,
+        metadata: {
+          job_title: candidate.role,
+          source: "interview_workflow",
+          negotiation_min_gross: nextChecklist.negotiationMinGross ?? null,
+          negotiation_max_gross: nextChecklist.negotiationMaxGross ?? null,
+          candidate_expected_gross: nextChecklist.candidateExpectedGross ?? null,
+        },
+      });
+    }
+
+    if (offerOutcomeChanged && !stageChanged) {
+      void logActivityEvent({
+        action: "offer_outcome_changed",
+        entityType: "candidate",
+        entityId: candidate.id,
+        entityLabel: candidate.name,
+        fromValue: candidate.offerOutcome ?? null,
+        toValue: nextOfferOutcome ?? null,
+        metadata: { job_title: candidate.role, source: "interview_workflow" },
+      });
+    }
+
     setMessage(updates.successMessage);
   };
 
