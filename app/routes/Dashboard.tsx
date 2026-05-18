@@ -391,6 +391,7 @@ function DashboardLoading() {
 }
 
 function VerticalBars({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: string }) {
+  const { tt } = useI18n();
   const firstActiveKey = data.find((item) => item.value > 0)?.key ?? data[0]?.key ?? "";
   const [activeKey, setActiveKey] = useState(firstActiveKey);
   const width = 720;
@@ -479,7 +480,7 @@ function VerticalBars({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: stri
         <ChartInsight
           label={activeDatum.label}
           value={activeDatum.value}
-          detail="Premakni miško ali uporabi tab za pregled posameznih stolpcev."
+          detail={tt("Premakni miško ali uporabi tab za pregled posameznih stolpcev.")}
           color={activeDatum.color}
         />
       ) : null}
@@ -980,6 +981,7 @@ function CandidateScoreStrip({ data, emptyLabel }: { data: DashboardApplicant[];
 }
 
 function HorizontalBars({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: string }) {
+  const { tt } = useI18n();
   const chartData = data.filter((item) => item.value > 0).slice(0, 8);
   const [activeKey, setActiveKey] = useState(chartData[0]?.key ?? "");
   const width = 780;
@@ -1056,7 +1058,7 @@ function HorizontalBars({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: st
         <ChartInsight
           label={activeDatum.label}
           value={activeDatum.value}
-          detail="Največje vrednosti so najbolj uporabne za takojšnje usmerjanje pozornosti."
+          detail={tt("Največje vrednosti so najbolj uporabne za takojšnje usmerjanje pozornosti.")}
           color={activeDatum.color}
         />
       ) : null}
@@ -1149,7 +1151,7 @@ function ReadinessFunnel({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: s
 }
 
 export default function Dashboard() {
-  const { t, stageLabel } = useI18n();
+  const { t, tt, stageLabel } = useI18n();
   const cachedDashboard = getDashboardCache();
   const [applicants, setApplicants] = useState<DashboardApplicant[]>(
     (cachedDashboard?.applicants ?? []) as DashboardApplicant[],
@@ -1669,7 +1671,7 @@ export default function Dashboard() {
       },
       {
         key: "sent",
-        label: "Čakajo odgovor",
+        label: tt("Čakajo odgovor"),
         value: filteredApplicants.filter(
           (applicant) =>
             applicant.offerChecklist?.offerSent &&
@@ -1846,7 +1848,7 @@ export default function Dashboard() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Vse ocene</SelectItem>
-                <SelectItem value="strong">80% ali več</SelectItem>
+                <SelectItem value="strong">{tt("80% ali več")}</SelectItem>
                 <SelectItem value="medium">60-79%</SelectItem>
                 <SelectItem value="low">Pod 60%</SelectItem>
                 <SelectItem value="unscored">Brez ocene</SelectItem>
@@ -1863,7 +1865,7 @@ export default function Dashboard() {
                 <SelectItem value="all">Vsi kandidati</SelectItem>
                 <SelectItem value="without_offer">Brez ponudbe</SelectItem>
                 <SelectItem value="preparing">V pripravi</SelectItem>
-                <SelectItem value="sent">Poslana, čaka odgovor</SelectItem>
+                <SelectItem value="sent">{tt("Poslana, čaka odgovor")}</SelectItem>
                 <SelectItem value="accepted">Sprejeta</SelectItem>
                 <SelectItem value="declined">Zavrnjena</SelectItem>
               </SelectContent>
@@ -1873,7 +1875,7 @@ export default function Dashboard() {
 
         <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
           <div className="grid gap-1">
-            <Label className="text-xs text-muted-foreground">Grafični pregled</Label>
+            <Label className="text-xs text-muted-foreground">{tt("Grafični pregled")}</Label>
             <div className="grid gap-1 sm:grid-cols-3 lg:w-[28rem]">
               {[
                 { key: "readiness" as const, label: "Pripravljenost" },
@@ -1929,29 +1931,29 @@ export default function Dashboard() {
         <>
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Status pripravljenosti</h2>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Status pripravljenosti")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">
-                Uravnotežen prikaz trenutne razporeditve kandidatov po fazah izbranega pogleda.
+                {tt("Uravnotežen prikaz trenutne razporeditve kandidatov po fazah izbranega pogleda.")}
               </p>
               <ReadinessFunnel data={readinessFunnelData} emptyLabel={t("noApplicants")} />
             </section>
 
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Kandidati po fazah</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Operativni pogled za trenutno obremenitev faz.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Kandidati po fazah")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Operativni pogled za trenutno obremenitev faz.")}</p>
               <DonutChart data={stageData} emptyLabel={t("noApplicants")} />
             </section>
           </div>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Ozka grla po vlogah</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Vloge z največ kandidati v začetnih fazah potrebujejo pregled ali odločitev.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Ozka grla po vlogah")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Vloge z največ kandidati v začetnih fazah potrebujejo pregled ali odločitev.")}</p>
               <HorizontalBars data={readinessBottleneckData} emptyLabel={t("noApplicants")} />
             </section>
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Povprečna starost faze</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Koliko dni so kandidati v povprečju v procesu glede na trenutni status.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Povprečna starost faze")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Koliko dni so kandidati v povprečju v procesu glede na trenutni status.")}</p>
               <VerticalBars data={stageAgeData} emptyLabel={t("noApplicants")} />
             </section>
           </div>
@@ -1960,13 +1962,13 @@ export default function Dashboard() {
         <>
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Porazdelitev ujemanja</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Pokaže, ali ima izbrani pogled dovolj močnih kandidatov ali preveč neocenjenih profilov.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Porazdelitev ujemanja")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Pokaže, ali ima izbrani pogled dovolj močnih kandidatov ali preveč neocenjenih profilov.")}</p>
               <VerticalBars data={scoreBucketData} emptyLabel={t("noApplicants")} />
             </section>
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Povprečno ujemanje po vlogah</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Najhitrejši način za odkritje vlog z najmočnejšim naborom kandidatov.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Povprečno ujemanje po vlogah")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Najhitrejši način za odkritje vlog z najmočnejšim naborom kandidatov.")}</p>
               <HorizontalBars data={roleMatchData} emptyLabel={t("noApplicants")} />
             </section>
           </div>
@@ -1978,18 +1980,18 @@ export default function Dashboard() {
               <CandidateScoreStrip data={filteredApplicants} emptyLabel={t("noApplicants")} />
             </section>
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Trend kakovosti ujemanja</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Povprečno in najboljše ujemanje novo dodanih kandidatov po dnevih.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Trend kakovosti ujemanja")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Povprečno in najboljše ujemanje novo dodanih kandidatov po dnevih.")}</p>
               <DualLineTrend
                 data={matchQualityTrendData}
                 emptyLabel={t("noApplicants")}
-                primaryLabel="Povprečje"
-                secondaryLabel="Najboljši"
+                primaryLabel={tt("Povprečje")}
+                secondaryLabel={tt("Najboljši")}
                 primaryColor="#14b8a6"
                 secondaryColor="#8b5cf6"
                 valueSuffix="%"
                 fixedMax={100}
-                detail="Povprečno ujemanje / najvišje ujemanje za kandidate dodane na izbrani dan."
+                detail={tt("Povprečno ujemanje / najvišje ujemanje za kandidate dodane na izbrani dan.")}
               />
             </section>
           </div>
@@ -1998,13 +2000,13 @@ export default function Dashboard() {
         <>
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Status ponudb</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Prikazuje disjunktne statuse ponudb, brez podvajanja sprejetih in poslanih kandidatov.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Status ponudb")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Prikazuje disjunktne statuse ponudb, brez podvajanja sprejetih in poslanih kandidatov.")}</p>
               <ReadinessFunnel data={offerFunnelData} emptyLabel={t("noOfferCandidates")} />
             </section>
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Starost odprtih ponudb</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Ponudbe brez odgovora po 8+ dneh so kandidati za follow-up.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Starost odprtih ponudb")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Ponudbe brez odgovora po 8+ dneh so kandidati za follow-up.")}</p>
               <VerticalBars data={offerAgingData} emptyLabel={t("noOfferCandidates")} />
             </section>
           </div>
@@ -2020,18 +2022,18 @@ export default function Dashboard() {
               </div>
             </section>
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Odziv na poslane ponudbe</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Primerja sprejete ponudbe in ponudbe, ki še čakajo odgovor po datumu pošiljanja.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Odziv na poslane ponudbe")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Primerja sprejete ponudbe in ponudbe, ki še čakajo odgovor po datumu pošiljanja.")}</p>
               <DualLineTrend
                 data={offerDecisionTrendData}
                 emptyLabel={t("noOfferCandidates")}
                 primaryLabel="Sprejete"
-                secondaryLabel="Čakajo"
+                secondaryLabel={tt("Čakajo")}
                 primaryColor="#14b8a6"
                 secondaryColor="#f59e0b"
                 valueSuffix="%"
                 fixedMax={100}
-                detail="Delež sprejetih / čakajočih ponudb med ponudbami poslanimi na izbrani dan."
+                detail={tt("Delež sprejetih / čakajočih ponudb med ponudbami poslanimi na izbrani dan.")}
               />
             </section>
           </div>

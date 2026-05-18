@@ -24,6 +24,7 @@ import {
 } from "../components/ui/select";
 import { supabase } from "../lib/supabase";
 import type { ActivityLogRow } from "../lib/activityLog";
+import { useI18n } from "../lib/i18n";
 
 type TimelineEvent = {
   id: string;
@@ -163,9 +164,9 @@ const hourOptions = Array.from({ length: 24 }, (_item, hour) => ({
   label: `${hour.toString().padStart(2, "0")}:00`,
 }));
 
-const formatActivityValue = (value: string | null | undefined) => {
+const formatActivityValue = (value: string | null | undefined, tt: (value: string) => string) => {
   if (!value) return "-";
-  return valueLabels[value] ?? value.replaceAll("_", " ");
+  return tt(valueLabels[value] ?? value.replaceAll("_", " "));
 };
 
 const formatDateTime = (value: string) =>
@@ -239,6 +240,7 @@ function EmptyChart({ label }: { label: string }) {
 }
 
 function EventBars({ events }: { events: TimelineEvent[] }) {
+  const { tt } = useI18n();
   const data = useMemo(() => {
     const byAction = d3.rollups(
       events,
@@ -248,15 +250,15 @@ function EventBars({ events }: { events: TimelineEvent[] }) {
     return byAction
       .map(([action, value]) => ({
         action,
-        label: actionLabels[action] ?? action,
+        label: tt(actionLabels[action] ?? action),
         value,
         color: actionColors[action] ?? "#64748b",
       }))
       .sort((left, right) => right.value - left.value)
       .slice(0, 8);
-  }, [events]);
+  }, [events, tt]);
 
-  if (!data.length) return <EmptyChart label="Ni dogodkov za izbrani pogled." />;
+  if (!data.length) return <EmptyChart label={tt("Ni dogodkov za izbrani pogled.")} />;
 
   const width = 760;
   const height = 280;
@@ -324,6 +326,7 @@ function EventBars({ events }: { events: TimelineEvent[] }) {
 }
 
 function HourBars({ events }: { events: TimelineEvent[] }) {
+  const { tt } = useI18n();
   const data = useMemo(
     () =>
       Array.from({ length: 24 }, (_item, hour) => ({
@@ -334,7 +337,7 @@ function HourBars({ events }: { events: TimelineEvent[] }) {
     [events],
   );
 
-  if (!events.length) return <EmptyChart label="Ni časovne distribucije." />;
+  if (!events.length) return <EmptyChart label={tt("Ni časovne distribucije.")} />;
 
   const width = 760;
   const height = 280;
@@ -385,12 +388,13 @@ function HourBars({ events }: { events: TimelineEvent[] }) {
 }
 
 function ScatterTimeline({ events }: { events: TimelineEvent[] }) {
+  const { tt } = useI18n();
   const sortedEvents = useMemo(
     () => [...events].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),
     [events],
   );
 
-  if (sortedEvents.length < 2) return <EmptyChart label="Za prikaz časovnega raztrosa potrebujemo vsaj dva dogodka." />;
+  if (sortedEvents.length < 2) return <EmptyChart label={tt("Za prikaz časovnega raztrosa potrebujemo vsaj dva dogodka.")} />;
 
   const width = 960;
   const height = 320;
@@ -442,7 +446,7 @@ function ScatterTimeline({ events }: { events: TimelineEvent[] }) {
               fill={actionColors[event.action] ?? "#60a5fa"}
               opacity={0.74}
             >
-              <title>{`${actionLabels[event.action] ?? event.action} · ${event.entityLabel} · ${formatDateTime(event.createdAt)}`}</title>
+              <title>{`${tt(actionLabels[event.action] ?? event.action)} · ${event.entityLabel} · ${formatDateTime(event.createdAt)}`}</title>
             </circle>
           );
         })}
@@ -452,6 +456,7 @@ function ScatterTimeline({ events }: { events: TimelineEvent[] }) {
 }
 
 export default function PipelineActivity() {
+  const { tt } = useI18n();
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [logsAvailable, setLogsAvailable] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
@@ -508,7 +513,7 @@ export default function PipelineActivity() {
               action: row.action,
               entityType: row.entity_type,
               entityId: row.entity_id,
-              entityLabel: row.entity_label ?? "Brez oznake",
+              entityLabel: row.entity_label ?? tt("Brez oznake"),
               fromValue: row.from_value,
               toValue: row.to_value,
               createdAt: row.created_at,
@@ -571,7 +576,7 @@ export default function PipelineActivity() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [tt]);
 
   const filteredEvents = useMemo(() => {
     const { from, to } = getPeriodBounds(timePeriodFilter, customDateFrom, customDateTo);
@@ -609,10 +614,10 @@ export default function PipelineActivity() {
 
         return [
           event.entityLabel,
-          entityLabels[event.entityType] ?? event.entityType,
-          actionLabels[event.action] ?? event.action,
-          formatActivityValue(event.fromValue),
-          formatActivityValue(event.toValue),
+          tt(entityLabels[event.entityType] ?? event.entityType),
+          tt(actionLabels[event.action] ?? event.action),
+          formatActivityValue(event.fromValue, tt),
+          formatActivityValue(event.toValue, tt),
           String(event.metadata?.job_title ?? ""),
           String(event.metadata?.candidate_name ?? ""),
         ]
@@ -689,7 +694,7 @@ export default function PipelineActivity() {
         <div>
           <h1 className="page-title">Dnevnik</h1>
           <p className="text-sm subtle-text">
-            Pregled zabeleženih sprememb, ponudb in premikov kandidatov skozi faze postopka.
+            {tt("Pregled zabeleženih sprememb, ponudb in premikov kandidatov skozi faze postopka.")}
           </p>
         </div>
       </div>
@@ -712,8 +717,9 @@ export default function PipelineActivity() {
 
       {!logsAvailable ? (
         <div className="surface-card border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Tabela <code>activity_logs</code> še ni ustvarjena, zato stran prikazuje posnetke trenutnega stanja iz obstoječih tabel.
-          Po zagonu SQL sheme bodo novi premiki in urejanja prikazani kot zabeleženi zapisi.
+          {tt("Tabela activity_logs še ni ustvarjena, zato stran prikazuje posnetke trenutnega stanja iz obstoječih tabel.")}
+          {" "}
+          {tt("Po zagonu SQL sheme bodo novi premiki in urejanja prikazani kot zabeleženi zapisi.")}
         </div>
       ) : null}
 
@@ -732,47 +738,47 @@ export default function PipelineActivity() {
             </span>
           </label>
           <div className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Obdobje</span>
+            <span className="text-sm font-medium text-foreground">{tt("Obdobje")}</span>
             <Select value={timePeriodFilter} onValueChange={(value) => setTimePeriodFilter(value as TimePeriodFilter)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Ves čas</SelectItem>
-                <SelectItem value="today">Danes</SelectItem>
-                <SelectItem value="yesterday">Včeraj</SelectItem>
-                <SelectItem value="7d">Zadnjih 7 dni</SelectItem>
-                <SelectItem value="30d">Zadnjih 30 dni</SelectItem>
-                <SelectItem value="90d">Zadnjih 90 dni</SelectItem>
-                <SelectItem value="custom">Ročni razpon</SelectItem>
+                <SelectItem value="all">{tt("Ves čas")}</SelectItem>
+                <SelectItem value="today">{tt("Danes")}</SelectItem>
+                <SelectItem value="yesterday">{tt("Včeraj")}</SelectItem>
+                <SelectItem value="7d">{tt("Zadnjih 7 dni")}</SelectItem>
+                <SelectItem value="30d">{tt("Zadnjih 30 dni")}</SelectItem>
+                <SelectItem value="90d">{tt("Zadnjih 90 dni")}</SelectItem>
+                <SelectItem value="custom">{tt("Ročni razpon")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Vrsta zapisa</span>
+            <span className="text-sm font-medium text-foreground">{tt("Vrsta zapisa")}</span>
             <Select value={entityFilter} onValueChange={setEntityFilter}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Vse vrste</SelectItem>
-                <SelectItem value="candidate">Kandidati</SelectItem>
-                <SelectItem value="job">Delovna mesta</SelectItem>
-                <SelectItem value="offer_document">Ponudbeni dokumenti</SelectItem>
+                <SelectItem value="all">{tt("Vse vrste")}</SelectItem>
+                <SelectItem value="candidate">{tt("Kandidati")}</SelectItem>
+                <SelectItem value="job">{tt("Delovna mesta")}</SelectItem>
+                <SelectItem value="offer_document">{tt("Ponudbeni dokumenti")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Dogodek</span>
+            <span className="text-sm font-medium text-foreground">{tt("Dogodek")}</span>
             <Select value={actionFilter} onValueChange={setActionFilter}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Vsi dogodki</SelectItem>
+                <SelectItem value="all">{tt("Vsi dogodki")}</SelectItem>
                 {actionOptions.map((action) => (
                   <SelectItem key={action} value={action}>
-                    {actionLabels[action] ?? action}
+                    {tt(actionLabels[action] ?? action)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -782,7 +788,7 @@ export default function PipelineActivity() {
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <label className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Od datuma</span>
+            <span className="text-sm font-medium text-foreground">{tt("Od datuma")}</span>
             <Input
               type="date"
               value={customDateFrom}
@@ -793,7 +799,7 @@ export default function PipelineActivity() {
             />
           </label>
           <label className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Do datuma</span>
+            <span className="text-sm font-medium text-foreground">{tt("Do datuma")}</span>
             <Input
               type="date"
               value={customDateTo}
@@ -804,7 +810,7 @@ export default function PipelineActivity() {
             />
           </label>
           <div className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Dan v tednu</span>
+            <span className="text-sm font-medium text-foreground">{tt("Dan v tednu")}</span>
             <Select value={weekdayFilter} onValueChange={setWeekdayFilter}>
               <SelectTrigger>
                 <SelectValue />
@@ -812,14 +818,14 @@ export default function PipelineActivity() {
               <SelectContent>
                 {weekDayOptions.map((day) => (
                   <SelectItem key={day.value} value={day.value}>
-                    {day.label}
+                    {tt(day.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Ura od</span>
+            <span className="text-sm font-medium text-foreground">{tt("Ura od")}</span>
             <Select value={hourFromFilter} onValueChange={setHourFromFilter}>
               <SelectTrigger>
                 <SelectValue />
@@ -834,7 +840,7 @@ export default function PipelineActivity() {
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Ura do</span>
+            <span className="text-sm font-medium text-foreground">{tt("Ura do")}</span>
             <Select value={hourToFilter} onValueChange={setHourToFilter}>
               <SelectTrigger>
                 <SelectValue />
@@ -849,7 +855,7 @@ export default function PipelineActivity() {
             </Select>
           </div>
           <div className="grid gap-1.5">
-            <span className="text-sm font-medium text-foreground">Vir</span>
+            <span className="text-sm font-medium text-foreground">{tt("Vir")}</span>
             <Select value={sourceFilter} onValueChange={(value) => setSourceFilter(value as SourceFilter)}>
               <SelectTrigger>
                 <SelectValue />
@@ -865,7 +871,7 @@ export default function PipelineActivity() {
 
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="grid min-w-[14rem] gap-1.5">
-            <span className="text-sm font-medium text-foreground">Sprememba vrednosti</span>
+            <span className="text-sm font-medium text-foreground">{tt("Sprememba vrednosti")}</span>
             <Select
               value={valueChangeFilter}
               onValueChange={(value) => setValueChangeFilter(value as ValueChangeFilter)}
@@ -933,7 +939,7 @@ export default function PipelineActivity() {
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-foreground">{event.entityLabel}</p>
                           <p className="truncate text-xs text-muted-foreground">
-                            {entityLabels[event.entityType] ?? event.entityType} · {actionLabels[event.action] ?? event.action}
+                            {tt(entityLabels[event.entityType] ?? event.entityType)} · {tt(actionLabels[event.action] ?? event.action)}
                           </p>
                         </div>
                       </div>
@@ -941,9 +947,9 @@ export default function PipelineActivity() {
                     <div className="text-sm text-muted-foreground">
                       {event.fromValue || event.toValue ? (
                         <span>
-                          {formatActivityValue(event.fromValue)} →{" "}
+                          {formatActivityValue(event.fromValue, tt)} →{" "}
                           <span className="font-medium text-foreground">
-                            {formatActivityValue(event.toValue)}
+                            {formatActivityValue(event.toValue, tt)}
                           </span>
                         </span>
                       ) : (
@@ -953,11 +959,11 @@ export default function PipelineActivity() {
                     <div className="text-sm text-muted-foreground">{formatDateTime(event.createdAt)}</div>
                     <div className="flex items-center gap-2 lg:justify-end">
                       <Badge variant={event.source === "log" ? "default" : "secondary"}>
-                        {event.source === "log" ? "log" : "stanje"}
+                        {event.source === "log" ? "log" : tt("stanje")}
                       </Badge>
                       {detailPath ? (
                         <Button asChild variant="outline" size="sm">
-                          <Link to={detailPath}>Odpri zapis</Link>
+                          <Link to={detailPath}>{tt("Odpri zapis")}</Link>
                         </Button>
                       ) : null}
                     </div>
@@ -965,14 +971,14 @@ export default function PipelineActivity() {
                 );
               })}
               {!filteredEvents.length ? (
-                <div className="px-5 py-10 text-center text-sm text-muted-foreground">Ni dogodkov za izbrane filtre.</div>
+                <div className="px-5 py-10 text-center text-sm text-muted-foreground">{tt("Ni dogodkov za izbrane filtre.")}</div>
               ) : null}
             </div>
             {filteredEvents.length > logsPerPage ? (
               <div className="flex flex-col gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-muted-foreground">
-                  Prikazujem {(logPage - 1) * logsPerPage + 1}-
-                  {Math.min(logPage * logsPerPage, filteredEvents.length)} od {filteredEvents.length}
+                  {tt("Prikazujem")} {(logPage - 1) * logsPerPage + 1}-
+                  {Math.min(logPage * logsPerPage, filteredEvents.length)} {tt("od")} {filteredEvents.length}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -982,7 +988,7 @@ export default function PipelineActivity() {
                     disabled={logPage <= 1}
                     onClick={() => setLogPage((page) => Math.max(1, page - 1))}
                   >
-                    Prejšnja
+                    {tt("Prejšnja")}
                   </Button>
                   <span className="text-sm font-medium text-foreground">
                     {logPage} / {logPageCount}
@@ -994,7 +1000,7 @@ export default function PipelineActivity() {
                     disabled={logPage >= logPageCount}
                     onClick={() => setLogPage((page) => Math.min(logPageCount, page + 1))}
                   >
-                    Naslednja
+                    {tt("Naslednja")}
                   </Button>
                 </div>
               </div>
@@ -1003,21 +1009,21 @@ export default function PipelineActivity() {
 
           <div className="grid gap-5 xl:grid-cols-2">
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Porazdelitev dogodkov</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Najpogostejše akcije v izbranem pogledu.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Porazdelitev dogodkov")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Najpogostejše akcije v izbranem pogledu.")}</p>
               <EventBars events={filteredEvents} />
             </section>
             <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">Ura v dnevu</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Kdaj se običajno dogajajo spremembe postopka.</p>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Ura v dnevu")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Kdaj se običajno dogajajo spremembe postopka.")}</p>
               <HourBars events={filteredEvents} />
             </section>
           </div>
 
           <section className="surface-card p-5">
-            <h2 className="mb-1 text-base font-semibold text-foreground">Časovni raztros</h2>
+            <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Časovni raztros")}</h2>
             <p className="mb-4 text-sm text-muted-foreground">
-              Čas dogodka je prikazan po osi X; višina prikazuje ATS oceno, kjer obstaja, sicer razporeditev vrst dogodkov.
+              {tt("Čas dogodka je prikazan po osi X; višina prikazuje ATS oceno, kjer obstaja, sicer razporeditev vrst dogodkov.")}
             </p>
             <ScatterTimeline events={filteredEvents} />
           </section>

@@ -167,7 +167,7 @@ const candidateNameFromText = (text: string, fileName: string) => {
 };
 
 export default function Applicants() {
-  const { t } = useI18n();
+  const { t, tt } = useI18n();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -846,10 +846,10 @@ export default function Applicants() {
         currentLabel: null,
         message:
           failedImports.length > 0
-            ? "Uvoz končan z napakami."
+            ? tt("Uvoz končan z napakami.")
             : queuedAnalyses.length > 0
-              ? "Uvoz končan. Nekatere AI analize čakajo na ponovni poskus."
-              : "Uvoz kandidatov končan.",
+              ? tt("Uvoz končan. Nekatere AI analize čakajo na ponovni poskus.")
+              : tt("Uvoz kandidatov končan."),
       });
       if (failedImports.length > 0) {
         setResumeItems((currentItems) =>
@@ -1382,7 +1382,7 @@ export default function Applicants() {
                     toggleOfferStatusFilter("sent", checked === true)
                   }
                 />
-                Poslana, čaka odgovor
+                {tt("Poslana, čaka odgovor")}
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
                 <Checkbox

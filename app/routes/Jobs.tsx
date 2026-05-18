@@ -62,8 +62,8 @@ const jobTypeOptions = [
   { value: "Internship", label: "Pripravništvo" },
 ];
 
-const formatJobType = (type?: string | null) =>
-  jobTypeOptions.find((option) => option.value === type)?.label ?? type ?? "";
+const formatJobType = (type: string | null | undefined, tt: (value: string) => string) =>
+  tt(jobTypeOptions.find((option) => option.value === type)?.label ?? type ?? "");
 
 const jobsViewStorageKey = "smart-ats-jobs-view-state";
 const jobsDraftStorageKey = "smart-ats-jobs-draft-state";
@@ -96,7 +96,7 @@ const readSessionJson = <T,>(key: string): Partial<T> | null => {
 };
 
 export default function Jobs() {
-  const { t } = useI18n();
+  const { t, tt } = useI18n();
   const navigate = useNavigate();
   const restoredViewState = useMemo(
     () => readSessionJson<JobsViewState>(jobsViewStorageKey),
@@ -419,7 +419,7 @@ export default function Jobs() {
       action: "job_deleted",
       entityType: "job",
       entityId: jobId,
-      entityLabel: job?.title ?? "Delovno mesto",
+      entityLabel: job?.title ?? tt("Delovno mesto"),
       metadata: { status: job?.status, openings: job?.openings },
     });
     setDeletingJobId(null);
@@ -462,7 +462,7 @@ export default function Jobs() {
     return jobs.filter((job) => {
       const matchesSearch =
         !query ||
-        [job.title, job.description ?? "", formatJobType(job.type)]
+        [job.title, job.description ?? "", formatJobType(job.type, tt)]
           .join(" ")
           .toLowerCase()
           .includes(query);
@@ -472,7 +472,7 @@ export default function Jobs() {
 
       return matchesSearch && matchesType && matchesStatus;
     });
-  }, [jobs, jobSearch, jobStatusFilter, jobTypeFilter]);
+  }, [jobs, jobSearch, jobStatusFilter, jobTypeFilter, tt]);
 
   const jobPageCount = Math.max(1, Math.ceil(filteredJobs.length / jobsPerPage));
   const paginatedJobs = filteredJobs.slice(
@@ -537,7 +537,7 @@ export default function Jobs() {
                   <SelectContent>
                     {jobTypeOptions.map((type) => (
                       <SelectItem key={type.value} value={type.value}>
-                        {type.label}
+                        {tt(type.label)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -649,7 +649,7 @@ export default function Jobs() {
                 <SelectContent>
                   {jobTypeOptions.map((type) => (
                     <SelectItem key={type.value} value={type.value}>
-                      {type.label}
+                      {tt(type.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -708,25 +708,25 @@ export default function Jobs() {
 
       <div className="surface-card grid gap-3 p-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(12rem,0.45fr)_minmax(12rem,0.45fr)]">
         <div className="grid gap-1.5">
-          <Label htmlFor="job-search">Išči delovna mesta</Label>
+          <Label htmlFor="job-search">{tt("Išči delovna mesta")}</Label>
           <Input
             id="job-search"
             value={jobSearch}
             onChange={(event) => setJobSearch(event.target.value)}
-            placeholder="Naziv, opis ali tip dela..."
+            placeholder={tt("Naziv, opis ali tip dela...")}
           />
         </div>
         <div className="grid gap-1.5">
-          <Label>Tip dela</Label>
+          <Label>{t("jobType")}</Label>
           <Select value={jobTypeFilter} onValueChange={setJobTypeFilter}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Vsi tipi dela</SelectItem>
+              <SelectItem value="all">{tt("Vsi tipi dela")}</SelectItem>
               {jobTypeOptions.map((type) => (
                 <SelectItem key={type.value} value={type.value}>
-                  {type.label}
+                  {tt(type.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -739,7 +739,7 @@ export default function Jobs() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Vsi statusi</SelectItem>
+              <SelectItem value="all">{tt("Vsi statusi")}</SelectItem>
               <SelectItem value="active">{t("active")}</SelectItem>
               <SelectItem value="inactive">{t("inactive")}</SelectItem>
             </SelectContent>
@@ -801,7 +801,7 @@ export default function Jobs() {
                   {job.title}
                 </h3>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
-                  {job.type ? <span>{formatJobType(job.type)}</span> : null}
+                  {job.type ? <span>{formatJobType(job.type, tt)}</span> : null}
                   <span>{t("jobOpenings")}: {job.openings ?? 1}</span>
                 </div>
                 {job.description && (

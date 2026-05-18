@@ -33,6 +33,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { logActivityEvent } from "../lib/activityLog";
 import { fetchLinkedCandidateTranscripts } from "../lib/interviewTranscriptLinks";
+import { useI18n } from "../lib/i18n";
 
 type CandidateStage = "Applied" | "Screening" | "Interview" | "Offer" | "Accepted" | "Rejected";
 type WorkflowFilter =
@@ -244,6 +245,7 @@ function StatCard({
 }
 
 function CandidateNode({ candidate }: { candidate: WorkflowCandidate }) {
+  const { tt } = useI18n();
   const status = getCandidateStatus(candidate);
   const score = getCandidateScore(candidate);
 
@@ -262,24 +264,25 @@ function CandidateNode({ candidate }: { candidate: WorkflowCandidate }) {
         </span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
-        <span>{candidate.transcriptCount} transkriptov</span>
-        <span className="text-right">{negotiationLabels[status]}</span>
+        <span>{candidate.transcriptCount} {tt("transkriptov")}</span>
+        <span className="text-right">{tt(negotiationLabels[status])}</span>
       </div>
     </Link>
   );
 }
 
 function WorkflowGraph({ candidates }: { candidates: WorkflowCandidate[] }) {
+  const { tt } = useI18n();
   return (
     <section className="rounded-md border border-border bg-card p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-foreground">Graf procesa razgovorov</h2>
+          <h2 className="text-base font-semibold text-foreground">{tt("Graf procesa razgovorov")}</h2>
           <p className="text-sm text-muted-foreground">
-            Kandidati so razporejeni po fazah, od prvega kroga do končne odločitve.
+            {tt("Kandidati so razporejeni po fazah, od prvega kroga do končne odločitve.")}
           </p>
         </div>
-        <Badge variant="secondary">{candidates.length} kandidatov</Badge>
+        <Badge variant="secondary">{candidates.length} {tt("kandidatov")}</Badge>
       </div>
 
       <div className="grid gap-3 xl:grid-cols-4">
@@ -557,6 +560,7 @@ function CandidateCharts({
 }
 
 export default function InterviewWorkflow() {
+  const { tt } = useI18n();
   const [candidates, setCandidates] = useState<WorkflowCandidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -961,25 +965,24 @@ export default function InterviewWorkflow() {
           <div>
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
               <Briefcase className="h-4 w-4" />
-              Razgovori
+              {tt("Razgovori")}
             </div>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-              Potek razgovorov
+              {tt("Potek razgovorov")}
             </h1>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Ločena stran za prvi krog, ponudbe in plačna pogajanja. Faze kandidata ostanejo
-              usklajene z vsemi stranmi, vključno s Ponudbami.
+              {tt("Ločena stran za prvi krog, ponudbe in plačna pogajanja. Faze kandidata ostanejo usklajene z vsemi stranmi, vključno s Ponudbami.")}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" onClick={() => void loadCandidates()}>
               {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Osveži
+              {tt("Osveži")}
             </Button>
             <Button asChild type="button" variant="outline">
               <Link to="/interviews">
                 <FileText className="mr-2 h-4 w-4" />
-                Studio razgovorov
+                {tt("Studio razgovorov")}
               </Link>
             </Button>
           </div>
@@ -992,10 +995,10 @@ export default function InterviewWorkflow() {
         ) : null}
 
         <div className="grid gap-3 md:grid-cols-4">
-          <StatCard label="Prvi krog" value={stats.interview} detail="Kandidati v razgovoru" />
-          <StatCard label="Pogajanja" value={stats.offer} detail="Aktivne ponudbe" />
-          <StatCard label="Presega budget" value={stats.overBudget} detail="Potrebna odločitev" />
-          <StatCard label="Sprejeti" value={stats.accepted} detail="Zaključen proces" />
+          <StatCard label={tt("Prvi krog")} value={stats.interview} detail={tt("Kandidati v razgovoru")} />
+          <StatCard label={tt("Pogajanja")} value={stats.offer} detail={tt("Aktivne ponudbe")} />
+          <StatCard label={tt("Presega budget")} value={stats.overBudget} detail={tt("Potrebna odločitev")} />
+          <StatCard label={tt("Sprejeti")} value={stats.accepted} detail={tt("Zaključen proces")} />
         </div>
 
         <section className="rounded-md border border-border bg-card p-4">
@@ -1005,22 +1008,22 @@ export default function InterviewWorkflow() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Vsi v procesu</SelectItem>
-                <SelectItem value="first_round">Razgovor za ujemanje</SelectItem>
-                <SelectItem value="negotiation">Ponudba / pogajanja</SelectItem>
-                <SelectItem value="in_range">Znotraj budgeta</SelectItem>
-                <SelectItem value="over_budget">Presega budget</SelectItem>
-                <SelectItem value="accepted">Sprejeti</SelectItem>
-                <SelectItem value="rejected">Zavrnjeni</SelectItem>
+                <SelectItem value="all">{tt("Vsi v procesu")}</SelectItem>
+                <SelectItem value="first_round">{tt("Razgovor za ujemanje")}</SelectItem>
+                <SelectItem value="negotiation">{tt("Ponudba / pogajanja")}</SelectItem>
+                <SelectItem value="in_range">{tt("Znotraj budgeta")}</SelectItem>
+                <SelectItem value="over_budget">{tt("Presega budget")}</SelectItem>
+                <SelectItem value="accepted">{tt("Sprejeti")}</SelectItem>
+                <SelectItem value="rejected">{tt("Zavrnjeni")}</SelectItem>
               </SelectContent>
             </Select>
 
             <Select value={jobFilter} onValueChange={setJobFilter}>
               <SelectTrigger>
-                <SelectValue placeholder="Delovno mesto" />
+                <SelectValue placeholder={tt("Delovno mesto")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Vsa delovna mesta</SelectItem>
+                <SelectItem value="all">{tt("Vsa delovna mesta")}</SelectItem>
                 {jobOptions.map((jobTitle) => (
                   <SelectItem key={jobTitle} value={jobTitle}>
                     {jobTitle}
@@ -1035,7 +1038,7 @@ export default function InterviewWorkflow() {
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 className="h-10 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-cyan-500"
-                placeholder="Išči kandidata, vlogo ali email"
+                placeholder={tt("Išči kandidata, vlogo ali email")}
               />
             </label>
           </div>
@@ -1095,8 +1098,7 @@ export default function InterviewWorkflow() {
               Shrani budget pozicije
             </Button>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              Budget velja za izbrano delovno mesto. Kandidatu spodaj vpišeš samo koliko želi;
-              graf takoj pokaže, kdo je znotraj cone in kdo je over budget.
+              {tt("Budget velja za izbrano delovno mesto. Kandidatu spodaj vpišeš samo koliko želi; graf takoj pokaže, kdo je znotraj cone in kdo je over budget.")}
             </p>
           </div>
         </section>
@@ -1125,7 +1127,7 @@ export default function InterviewWorkflow() {
                 <div>
                   <h2 className="text-base font-semibold text-foreground">Akcije po kandidatu</h2>
                   <p className="text-sm text-muted-foreground">
-                    Tu se urejajo ponudbe, plačna pogajanja in zavrnitveni ali sprejemni emaili.
+                    {tt("Tu se urejajo ponudbe, plačna pogajanja in zavrnitveni ali sprejemni emaili.")}
                   </p>
                 </div>
                 <Badge variant="secondary">{filteredCandidates.length} prikazanih</Badge>
@@ -1228,7 +1230,7 @@ export default function InterviewWorkflow() {
                                 />
                               </label>
                               <label className="grid min-w-0 gap-1 text-xs text-muted-foreground">
-                                Kandidat pričakuje bruto
+                                {tt("Kandidat pričakuje bruto")}
                                 <input
                                   value={draft.expected}
                                   onChange={(event) =>
@@ -1246,8 +1248,8 @@ export default function InterviewWorkflow() {
                           ) : (
                             <div className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
                               {candidate.stage === "Interview"
-                                ? "Prvi krog: po razgovoru kandidata premakni v ponudbo ali zavrni z razlogom profila veščin."
-                                : "Končni status je zabeležen. Email lahko pripraviš iz akcij na desni."}
+                                ? tt("Prvi krog: po razgovoru kandidata premakni v ponudbo ali zavrni z razlogom profila veščin.")
+                                : tt("Končni status je zabeležen. Email lahko pripraviš iz akcij na desni.")}
                             </div>
                           )}
                         </div>
@@ -1267,7 +1269,7 @@ export default function InterviewWorkflow() {
                                 ) : (
                                   <Send className="h-4 w-4" />
                                 )}
-                                Pošlji v ponudbo
+                                {tt("Pošlji v ponudbo")}
                               </Button>
                               <Button
                                 type="button"
@@ -1278,7 +1280,7 @@ export default function InterviewWorkflow() {
                                 onClick={() => void rejectCandidateForSkillFit(candidate)}
                               >
                                 <XCircle className="h-4 w-4" />
-                                Zavrni profil
+                                {tt("Zavrni profil")}
                               </Button>
                             </>
                           ) : null}
@@ -1294,7 +1296,7 @@ export default function InterviewWorkflow() {
                                 onClick={() => saveNegotiation(candidate)}
                               >
                                 <DollarSign className="h-4 w-4" />
-                                Shrani rangiranje
+                                {tt("Shrani rangiranje")}
                               </Button>
                               <Button
                                 type="button"
@@ -1304,7 +1306,7 @@ export default function InterviewWorkflow() {
                                 onClick={() => void acceptNegotiatedCandidate(candidate)}
                               >
                                 <CheckCircle2 className="h-4 w-4" />
-                                Sprejmi
+                                {tt("Sprejmi")}
                               </Button>
                               <Button
                                 type="button"
@@ -1315,7 +1317,7 @@ export default function InterviewWorkflow() {
                                 onClick={() => void rejectNegotiatedCandidate(candidate)}
                               >
                                 <XCircle className="h-4 w-4" />
-                                Zavrni budget
+                                {tt("Zavrni budget")}
                               </Button>
                             </>
                           ) : null}
@@ -1325,12 +1327,12 @@ export default function InterviewWorkflow() {
                               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-foreground transition hover:bg-muted"
                               href={getMailto(
                                 candidate,
-                                "Uspešno zaključen izborni postopek",
+                                tt("Uspešno zaključen izborni postopek"),
                                 candidate.offerChecklist.acceptanceEmailBody ?? acceptanceMessage,
                               )}
                             >
                               <Mail className="h-4 w-4" />
-                              Sprejemni email
+                              {tt("Sprejemni email")}
                             </a>
                           ) : null}
 
@@ -1339,13 +1341,13 @@ export default function InterviewWorkflow() {
                               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border px-3 text-sm font-medium text-foreground transition hover:bg-muted"
                               href={getMailto(
                                 candidate,
-                                "Odločitev glede prijave",
+                                tt("Odločitev glede prijave"),
                                 candidate.offerChecklist.rejectionEmailBody ??
                                   skillMismatchRejectionMessage,
                               )}
                             >
                               <Mail className="h-4 w-4" />
-                              Zavrnitveni email
+                              {tt("Zavrnitveni email")}
                             </a>
                           ) : null}
                         </div>
@@ -1354,7 +1356,7 @@ export default function InterviewWorkflow() {
                   })
                 ) : (
                   <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                    Ni kandidatov za izbrane filtre.
+                    {tt("Ni kandidatov za izbrane filtre.")}
                   </div>
                 )}
               </div>

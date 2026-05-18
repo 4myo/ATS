@@ -24,7 +24,7 @@ type SidebarProps = {
 
 export function Sidebar({ collapsed = false, onNavigate, onToggle }: SidebarProps) {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, tt } = useI18n();
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: t("dashboard"), end: true },
     { to: '/applicants', icon: Users, label: t("applicants") },
@@ -77,8 +77,8 @@ export function Sidebar({ collapsed = false, onNavigate, onToggle }: SidebarProp
           type="button"
           className="inline-flex h-10 w-10 items-center justify-center rounded-md text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring"
           onClick={onToggle}
-          aria-label={collapsed ? "Prikaži meni" : "Skrči meni"}
-          title={collapsed ? "Prikaži meni" : "Skrči meni"}
+          aria-label={collapsed ? tt("Prikaži meni") : tt("Skrči meni")}
+          title={collapsed ? tt("Prikaži meni") : tt("Skrči meni")}
         >
           <Menu className="h-5 w-5" />
         </button>

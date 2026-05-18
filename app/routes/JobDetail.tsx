@@ -59,14 +59,14 @@ const jobTypeOptions = [
   { value: "Internship", label: "Pripravništvo" },
 ];
 
-const formatJobType = (type?: string | null) =>
-  jobTypeOptions.find((option) => option.value === type)?.label ?? type ?? "";
+const formatJobType = (type: string | null | undefined, tt: (value: string) => string) =>
+  tt(jobTypeOptions.find((option) => option.value === type)?.label ?? type ?? "");
 
 export default function JobDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { t, stageLabel } = useI18n();
+  const { t, tt, stageLabel } = useI18n();
   const [job, setJob] = useState<JobDetailRecord | null>(null);
   const [jobCandidates, setJobCandidates] = useState<JobCandidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -408,7 +408,7 @@ export default function JobDetail() {
             <div>
               <h1 className="page-title">{job.title}</h1>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                {job.type ? <span>{formatJobType(job.type)}</span> : null}
+                {job.type ? <span>{formatJobType(job.type, tt)}</span> : null}
                 {job.location ? <span>{job.location}</span> : null}
                 <span
                   className={
@@ -432,11 +432,11 @@ export default function JobDetail() {
                 </span>
                 {isOverfilled ? (
                   <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/20">
-                    Preseženo število mest
+                    {tt("Preseženo število mest")}
                   </span>
                 ) : isFilled ? (
                   <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
-                    Delo je zapolnjeno
+                    {tt("Delo je zapolnjeno")}
                   </span>
                 ) : null}
               </div>
@@ -512,7 +512,7 @@ export default function JobDetail() {
                 <SelectContent>
                   {jobTypeOptions.map((type) => (
                     <SelectItem key={type.value} value={type.value}>
-                      {type.label}
+                      {tt(type.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -577,11 +577,11 @@ export default function JobDetail() {
 
       {isOverfilled ? (
         <div className="surface-card border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          To delovno mesto ima {acceptedCount}/{openings} sprejetih kandidatov. Povečajte število mest ali preglejte sprejete kandidate.
+          {tt("To delovno mesto ima")} {acceptedCount}/{openings} {tt("sprejetih kandidatov. Povečajte število mest ali preglejte sprejete kandidate.")}
         </div>
       ) : isFilled ? (
         <div className="surface-card border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          To delovno mesto je zapolnjeno ({acceptedCount}/{openings}). Novi sprejemi zahtevajo povečanje števila mest.
+          {tt("To delovno mesto je zapolnjeno")} ({acceptedCount}/{openings}). {tt("Novi sprejemi zahtevajo povečanje števila mest.")}
         </div>
       ) : null}
 

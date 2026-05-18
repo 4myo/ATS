@@ -81,12 +81,12 @@ const formatGrossAmount = (value: number | null) =>
       }).format(value)
     : null;
 
-const getNegotiationLabel = (candidate: CandidateWithDocument) => {
+const getNegotiationLabel = (candidate: CandidateWithDocument, tt: (value: string) => string) => {
   const status = candidate.offer_checklist?.negotiationStatus;
-  if (status === "in_range") return "Znotraj budgeta";
-  if (status === "borderline") return "Na meji";
-  if (status === "over_budget") return "Presega budget";
-  if (status === "missing") return "Čaka podatke";
+  if (status === "in_range") return tt("Znotraj budgeta");
+  if (status === "borderline") return tt("Na meji");
+  if (status === "over_budget") return tt("Presega budget");
+  if (status === "missing") return tt("Čaka podatke");
   return null;
 };
 
@@ -143,12 +143,14 @@ function OfferActionSlider({
   candidate,
   disabled,
   t,
+  tt,
   onPrepare,
   onSend,
 }: {
   candidate: CandidateWithDocument;
   disabled: boolean;
   t: ReturnType<typeof useI18n>["t"];
+  tt: ReturnType<typeof useI18n>["tt"];
   onPrepare: () => void;
   onSend: () => void;
 }) {
@@ -183,12 +185,12 @@ function OfferActionSlider({
         />
         <div className="pointer-events-none absolute inset-0 grid grid-cols-3 text-xs font-semibold">
           <div className="flex items-center justify-center text-muted-foreground">
-            Priprava
+            {tt("Priprava")}
           </div>
           <div className="flex items-center justify-center text-white/90 drop-shadow">
-            Vnesi podatke
+            {tt("Vnesi podatke")}
           </div>
-          <div className="flex items-center justify-center text-foreground/80">Poslano</div>
+          <div className="flex items-center justify-center text-foreground/80">{tt("Poslano")}</div>
         </div>
         <div
           className="pointer-events-none absolute top-1/2 h-10 w-5 -translate-x-1/2 -translate-y-1/2 rounded-md border border-white/70 bg-background/90 shadow-lg transition-all duration-300"
@@ -197,7 +199,7 @@ function OfferActionSlider({
           <span className="absolute left-1/2 top-1/2 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-b from-fuchsia-500 to-emerald-200" />
         </div>
         <input
-          aria-label="Status ponudbe"
+          aria-label={tt("Status ponudbe")}
           type="range"
           min={0}
           max={2}
@@ -214,14 +216,14 @@ function OfferActionSlider({
         />
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        Primite navpično ročko in povlecite na sredino za pripravo ponudbe ali do konca za poslano.
+        {tt("Primite navpično ročko in povlecite na sredino za pripravo ponudbe ali do konca za poslano.")}
       </p>
     </div>
   );
 }
 
 export default function Offers() {
-  const { t } = useI18n();
+  const { t, tt } = useI18n();
   const restoredViewState = useMemo(() => readOffersViewState(), []);
   const [candidates, setCandidates] = useState<CandidateWithDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -568,11 +570,15 @@ export default function Offers() {
 
       if (capacity && wouldExceedCapacity) {
         const confirmed = window.confirm(
-          `To delo ima trenutno ${capacity.acceptedCount}/${capacity.openings} sprejetih kandidatov. Sprejem tega kandidata bi presegel kapaciteto. Želite povečati število mest na ${nextAcceptedCount} in nadaljevati?`,
+          tt("To delo ima trenutno") +
+            ` ${capacity.acceptedCount}/${capacity.openings} ` +
+            tt("sprejetih kandidatov. Sprejem tega kandidata bi presegel kapaciteto. Želite povečati število mest na") +
+            ` ${nextAcceptedCount} ` +
+            tt("in nadaljevati?"),
         );
 
         if (!confirmed) {
-          setError("Sprejem kandidata je bil preklican, ker je delo zapolnjeno.");
+          setError(tt("Sprejem kandidata je bil preklican, ker je delo zapolnjeno."));
           return;
         }
 
@@ -779,7 +785,7 @@ export default function Offers() {
                     toggleOfferStatusFilter("sent", checked === true)
                   }
                 />
-                Poslana, čaka odgovor
+                {tt("Poslana, čaka odgovor")}
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
                 <Checkbox
@@ -790,7 +796,7 @@ export default function Offers() {
                     toggleOfferStatusFilter("accepted", checked === true)
                   }
                 />
-                Sprejeta ponudba
+                {tt("Sprejeta ponudba")}
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
                 <Checkbox
@@ -801,13 +807,13 @@ export default function Offers() {
                     toggleOfferStatusFilter("declined", checked === true)
                   }
                 />
-                Zavrnjena ponudba
+                {tt("Zavrnjena ponudba")}
               </label>
             </div>
           </div>
         </div>
         <div className="grid min-w-[min(100%,10rem)] flex-1 gap-1.5 sm:ml-auto sm:flex-none">
-          <Label>Prikaz</Label>
+          <Label>{tt("Prikaz")}</Label>
           <label className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm dark:bg-muted/30">
             <Checkbox
               className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
@@ -816,7 +822,7 @@ export default function Offers() {
                 toggleOfferStatusFilter("archived", checked === true)
               }
             />
-            Arhivirano
+            {tt("Arhivirano")}
           </label>
         </div>
       </div>
@@ -850,7 +856,7 @@ export default function Offers() {
                 ? Math.round(Number(candidate.interview_analysis_score))
                 : null;
             const statusLabel = getOfferStatusLabel(candidate, t);
-            const negotiationLabel = getNegotiationLabel(candidate);
+            const negotiationLabel = getNegotiationLabel(candidate, tt);
             const negotiationTone = getNegotiationTone(candidate);
             const expectedGross = formatGrossAmount(
               getNumberChecklistValue(candidate.offer_checklist, "candidateExpectedGross"),
@@ -894,7 +900,7 @@ export default function Offers() {
                     </p>
                     {interviewAnalysisScore != null ? (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        CV + razgovor AI
+                        {tt("CV + razgovor AI")}
                         <span className="ml-2 font-semibold text-cyan-600 dark:text-cyan-300">
                           {interviewAnalysisScore}%
                         </span>
@@ -902,13 +908,13 @@ export default function Offers() {
                     ) : null}
                     {negotiationLabel ? (
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Pogajanja
+                        {tt("Pogajanja")}
                         <span className={`ml-2 font-semibold ${negotiationTone}`}>
                           {negotiationLabel}
                         </span>
                         {expectedGross || maxGross ? (
                           <span className="ml-2 text-muted-foreground">
-                            {expectedGross ? `Želi ${expectedGross} bruto` : ""}
+                            {expectedGross ? `${tt("Želi")} ${expectedGross} ${tt("bruto")}` : ""}
                             {expectedGross && maxGross ? " / " : ""}
                             {maxGross ? `Max ${maxGross}` : ""}
                           </span>
@@ -936,7 +942,7 @@ export default function Offers() {
                         {statusLabel}
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        Končni status ponudbe je zabeležen.
+                        {tt("Končni status ponudbe je zabeležen.")}
                       </p>
                       <Button
                         type="button"
@@ -945,14 +951,14 @@ export default function Offers() {
                         onClick={() => updateOfferArchive(candidate, !isOfferArchived(candidate))}
                         className="mt-3 w-fit"
                       >
-                        {isOfferArchived(candidate) ? "Odstrani iz arhiva" : "Arhiviraj kandidata"}
+                        {isOfferArchived(candidate) ? tt("Odstrani iz arhiva") : tt("Arhiviraj kandidata")}
                       </Button>
                     </div>
                   ) : isSent ? (
                     <div className="grid min-h-[5.5rem] content-center gap-3 rounded-md border border-border bg-muted/25 p-3 transition-all duration-300">
                       <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
                         <Send className="h-4 w-4 text-emerald-500" />
-                        Ponudba je označena kot poslana
+                        {tt("Ponudba je označena kot poslana")}
                       </div>
                       <div className="grid gap-2 sm:grid-cols-2">
                         <Button
@@ -980,6 +986,7 @@ export default function Offers() {
                       candidate={candidate}
                       disabled={isGenerating}
                       t={t}
+                      tt={tt}
                       onPrepare={() => openDraftCandidate(candidate)}
                       onSend={() => {
                         if (candidate.latestDocument) {

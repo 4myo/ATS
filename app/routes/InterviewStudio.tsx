@@ -160,6 +160,7 @@ const recordingBitsPerSecond = 32_000;
 const miniTranscribePricePerMinute = 0.003;
 const defaultDeviceValue = "__default_microphone__";
 const allViewValue = "__all__";
+const maxTranscriptTranscriptConnections = 5;
 const candidateStages: CandidateStage[] = [
   "Applied",
   "Screening",
@@ -179,6 +180,9 @@ const stageLabels: Record<CandidateStage, string> = {
 
 const formatCandidateSubtitle = (candidate: Pick<StudioCandidate, "role" | "stage">) =>
   `${candidate.role} · ${stageLabels[candidate.stage]}`;
+
+const isInterviewCandidate = (candidate: Pick<StudioCandidate, "stage">) =>
+  candidate.stage === "Interview";
 
 const snap = (value: number) => Math.round(value / snapSize) * snapSize;
 
@@ -431,49 +435,99 @@ const getCandidateTranscriptPairFromEdge = (
   };
 };
 
-const keepOneCandidatePerTranscript = (
+const getTranscriptTranscriptPairFromEdge = (
+  edge: StudioEdge,
+  nodeById: Map<string, StudioNode>,
+) => {
+  const left = nodeById.get(edge.fromNodeId);
+  const right = nodeById.get(edge.toNodeId);
+
+  if (
+    left?.type !== "transcript" ||
+    right?.type !== "transcript" ||
+    !left.transcriptId ||
+    !right.transcriptId
+  ) {
+    return null;
+  }
+
+  return {
+    leftTranscriptId: left.transcriptId,
+    rightTranscriptId: right.transcriptId,
+  };
+};
+
+const keepValidStudioEdges = (
   inputEdges: StudioEdge[],
   inputNodes: StudioNode[],
 ) => {
   const nodeById = new Map(inputNodes.map((node) => [node.id, node]));
   const candidateByTranscriptId = new Map<string, string>();
-  const pairKeys = new Set<string>();
+  const transcriptTranscriptKeys = new Set<string>();
+  const transcriptTranscriptCounts = new Map<string, number>();
   const keptEdges: StudioEdge[] = [];
   const candidateTranscriptPairs: Array<{ candidateId: string; transcriptId: string }> = [];
   const removedEdges: StudioEdge[] = [];
   const conflicts: Array<{ transcriptId: string; transcriptTitle: string }> = [];
 
   for (const edge of inputEdges) {
+    const left = nodeById.get(edge.fromNodeId);
+    const right = nodeById.get(edge.toNodeId);
+    if (left?.type === "candidate" && right?.type === "candidate") {
+      removedEdges.push(edge);
+      continue;
+    }
+
     const pair = getCandidateTranscriptPairFromEdge(edge, nodeById);
 
-    if (!pair) {
+    if (pair) {
+      const existingCandidateId = candidateByTranscriptId.get(pair.transcriptId);
+
+      if (existingCandidateId) {
+        removedEdges.push(edge);
+        if (existingCandidateId !== pair.candidateId) {
+          conflicts.push({
+            transcriptId: pair.transcriptId,
+            transcriptTitle: pair.transcriptTitle,
+          });
+        }
+        continue;
+      }
+
+      candidateByTranscriptId.set(pair.transcriptId, pair.candidateId);
+      candidateTranscriptPairs.push({
+        candidateId: pair.candidateId,
+        transcriptId: pair.transcriptId,
+      });
       keptEdges.push(edge);
       continue;
     }
 
-    const existingCandidateId = candidateByTranscriptId.get(pair.transcriptId);
-    const pairKey = `${pair.candidateId}:${pair.transcriptId}`;
+    const transcriptPair = getTranscriptTranscriptPairFromEdge(edge, nodeById);
 
-    if (existingCandidateId && existingCandidateId !== pair.candidateId) {
-      removedEdges.push(edge);
-      conflicts.push({
-        transcriptId: pair.transcriptId,
-        transcriptTitle: pair.transcriptTitle,
-      });
+    if (transcriptPair) {
+      const { leftTranscriptId, rightTranscriptId } = transcriptPair;
+      const pairKey = [leftTranscriptId, rightTranscriptId].sort().join(":");
+      const leftCount = transcriptTranscriptCounts.get(leftTranscriptId) ?? 0;
+      const rightCount = transcriptTranscriptCounts.get(rightTranscriptId) ?? 0;
+
+      if (
+        leftTranscriptId === rightTranscriptId ||
+        transcriptTranscriptKeys.has(pairKey) ||
+        leftCount >= maxTranscriptTranscriptConnections ||
+        rightCount >= maxTranscriptTranscriptConnections
+      ) {
+        removedEdges.push(edge);
+        continue;
+      }
+
+      transcriptTranscriptKeys.add(pairKey);
+      transcriptTranscriptCounts.set(leftTranscriptId, leftCount + 1);
+      transcriptTranscriptCounts.set(rightTranscriptId, rightCount + 1);
+      keptEdges.push(edge);
       continue;
     }
 
-    if (pairKeys.has(pairKey)) {
-      removedEdges.push(edge);
-      continue;
-    }
-
-    candidateByTranscriptId.set(pair.transcriptId, pair.candidateId);
-    pairKeys.add(pairKey);
-    candidateTranscriptPairs.push({
-      candidateId: pair.candidateId,
-      transcriptId: pair.transcriptId,
-    });
     keptEdges.push(edge);
   }
 
@@ -895,7 +949,10 @@ export default function InterviewStudio() {
     if (viewMode === "job") {
       return new Set(
         candidates
-          .filter((candidate) => candidate.role === selectedJobTitle)
+          .filter(
+            (candidate) =>
+              candidate.role === selectedJobTitle && isInterviewCandidate(candidate),
+          )
           .map((candidate) => candidate.id),
       );
     }
@@ -1101,7 +1158,10 @@ export default function InterviewStudio() {
     }
 
     if (viewMode === "job" && selectedJobTitle) {
-      const jobCandidates = candidates.filter((candidate) => candidate.role === selectedJobTitle);
+      const jobCandidates = candidates.filter(
+        (candidate) =>
+          candidate.role === selectedJobTitle && isInterviewCandidate(candidate),
+      );
       const existingCandidateIds = new Set(
         nodes
           .filter((node) => node.type === "candidate" && node.candidateId)
@@ -1125,7 +1185,7 @@ export default function InterviewStudio() {
           }),
         ),
       ]);
-      setMessage("Kandidati za izbrano delovno mesto so dodani na skupno mrežo.");
+      setMessage("Kandidati v fazi razgovora za izbrano delovno mesto so dodani na mrežo.");
     }
   }, [candidates, isLoadingBoard, nodes, selectedCandidateId, selectedJobTitle, viewMode]);
 
@@ -1190,7 +1250,10 @@ export default function InterviewStudio() {
     }
 
     if (viewMode === "job" && selectedJobTitle) {
-      return candidates.filter((candidate) => candidate.role === selectedJobTitle);
+      return candidates.filter(
+        (candidate) =>
+          candidate.role === selectedJobTitle && isInterviewCandidate(candidate),
+      );
     }
 
     return candidates;
@@ -1213,7 +1276,7 @@ export default function InterviewStudio() {
       keptEdges,
       candidateTranscriptPairs,
       removedEdges,
-    } = keepOneCandidatePerTranscript(edges, nodes);
+    } = keepValidStudioEdges(edges, nodes);
 
     if (removedEdges.length) {
       setEdges(keptEdges);
@@ -1300,7 +1363,7 @@ export default function InterviewStudio() {
 
     setMessage(
       removedEdges.length
-        ? `Mreža je shranjena. Odstranjenih je bilo ${removedEdges.length} podvojenih ali napačnih povezav, ker je lahko en transkript vezan samo na enega kandidata.`
+        ? `Mreža je shranjena. Odstranjenih je bilo ${removedEdges.length} podvojenih ali nedovoljenih povezav. En transkript je lahko vezan samo na enega kandidata, med transkripti pa ima lahko največ ${maxTranscriptTranscriptConnections} povezav.`
         : "Mreža razgovorov je shranjena, transkripti pa so vezani na kandidate.",
     );
   };
@@ -1517,7 +1580,7 @@ export default function InterviewStudio() {
     if (existingNode) {
       setSelectedNodeId(existingNode.id);
       setSelectedEdgeId(null);
-      setIsTranscriptPickerOpen(false);
+      setIsCandidatePickerOpen(false);
       setMessage("Kandidat je že na mreži.");
       return;
     }
@@ -1529,7 +1592,7 @@ export default function InterviewStudio() {
     setNodes((current) => [...current, node]);
     setSelectedNodeId(node.id);
     setSelectedEdgeId(null);
-    setIsTranscriptPickerOpen(false);
+    setIsCandidatePickerOpen(false);
   };
 
   const screenToWorld = (clientX: number, clientY: number) => {
@@ -1679,9 +1742,67 @@ export default function InterviewStudio() {
       return;
     }
 
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const exists = edges.some(
+      (edge) =>
+        (edge.fromNodeId === sourceNode.id && edge.toNodeId === targetNode.id) ||
+        (edge.fromNodeId === targetNode.id && edge.toNodeId === sourceNode.id),
+    );
+
     if (sourceNode.type === "transcript" && targetNode.type === "transcript") {
+      if (!sourceNode.transcriptId || !targetNode.transcriptId) {
+        setConnectingFromNodeId(null);
+        setMessage("Povezava med transkriptoma mora imeti dva transkripta iz sistema.");
+        return;
+      }
+
+      if (sourceNode.transcriptId === targetNode.transcriptId) {
+        setConnectingFromNodeId(null);
+        setMessage("Isti transkript ne more biti povezan sam s seboj.");
+        return;
+      }
+
+      const getTranscriptConnectionCount = (transcriptId: string) =>
+        edges
+          .map((edge) => getTranscriptTranscriptPairFromEdge(edge, nodeById))
+          .filter(
+            (pair) =>
+              pair &&
+              (pair.leftTranscriptId === transcriptId ||
+                pair.rightTranscriptId === transcriptId),
+          ).length;
+
+      const sourceCount = getTranscriptConnectionCount(sourceNode.transcriptId);
+      const targetCount = getTranscriptConnectionCount(targetNode.transcriptId);
+
+      if (
+        !exists &&
+        (sourceCount >= maxTranscriptTranscriptConnections ||
+          targetCount >= maxTranscriptTranscriptConnections)
+      ) {
+        setConnectingFromNodeId(null);
+        setMessage(
+          `En transkript ima lahko največ ${maxTranscriptTranscriptConnections} povezav z drugimi transkripti.`,
+        );
+        return;
+      }
+
+      if (!exists) {
+        const edgeId = crypto.randomUUID();
+        setEdges((current) => [
+          ...current,
+          {
+            id: edgeId,
+            fromNodeId: sourceNode.id,
+            toNodeId: targetNode.id,
+          },
+        ]);
+        setSelectedEdgeId(edgeId);
+        setSelectedNodeId(null);
+        setMessage("Povezava med transkriptoma je dodana.");
+      }
+
       setConnectingFromNodeId(null);
-      setMessage("Transkripte povežite s kandidatom, ne neposredno med seboj.");
       return;
     }
 
@@ -1706,16 +1827,9 @@ export default function InterviewStudio() {
       return;
     }
 
-    const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const existingTranscriptConnection = edges
       .map((edge) => getCandidateTranscriptPairFromEdge(edge, nodeById))
-      .find((pair) => {
-        if (!pair) return false;
-        return (
-          pair.transcriptId === transcriptNode.transcriptId &&
-          pair.candidateId !== candidateNode.candidateId
-        );
-      });
+      .find((pair) => pair?.transcriptId === transcriptNode.transcriptId);
 
     if (existingTranscriptConnection) {
       const existingCandidate = candidates.find(
@@ -1727,12 +1841,6 @@ export default function InterviewStudio() {
       );
       return;
     }
-
-    const exists = edges.some(
-      (edge) =>
-        (edge.fromNodeId === fromNodeId && edge.toNodeId === toNodeId) ||
-        (edge.fromNodeId === toNodeId && edge.toNodeId === fromNodeId),
-    );
 
     if (!exists) {
       const edgeId = crypto.randomUUID();
@@ -2031,7 +2139,7 @@ export default function InterviewStudio() {
                 },
                 {
                   title: "4. Poveži in shrani",
-                  body: "Kliknite Poveži na kandidatu, nato Poveži na transkriptu. Povezava kandidat-transkript se prikaže na profilu kandidata šele po kliku Shrani mrežo.",
+                  body: "Kliknite Poveži na kandidatu, nato Poveži na transkriptu. En transkript je lahko vezan samo na enega kandidata; med transkripti pa ima lahko največ pet povezav.",
                   image: "/images/shrani.svg",
                 },
               ].map((step) => (
@@ -2314,7 +2422,7 @@ export default function InterviewStudio() {
                 <CommandList>
                   <CommandEmpty>Ni kandidatov za ta iskalni niz.</CommandEmpty>
                   <CommandGroup heading="Kandidati iz baze">
-                    {candidates.map((candidate) => (
+                    {candidatePickerOptions.map((candidate) => (
                       <CommandItem
                         key={candidate.id}
                         value={`${candidate.name} ${candidate.role} ${stageLabels[candidate.stage]}`}
