@@ -373,7 +373,7 @@ export default function Applicants() {
     const [candidateResult, jobResult] =
       await Promise.allSettled([
         supabase
-          .from("candidates")
+          .from("candidates_secure")
           .select(candidateSelectWithOffer)
           .order("created_at", { ascending: false }),
         fetchJobOptions({ force: true }),
@@ -394,7 +394,7 @@ export default function Applicants() {
         candidateError.details?.includes("offer_"))
     ) {
       const retry = await supabase
-        .from("candidates")
+        .from("candidates_secure")
         .select(candidateSelect)
         .order("created_at", { ascending: false });
 

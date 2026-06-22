@@ -1487,7 +1487,7 @@ export default function Dashboard() {
         existingRequest ??
         (async () => {
           const [candidateResult, jobResult] = await Promise.all([
-            supabase.from("candidates").select(dashboardCandidateSelectWithOffer).order("created_at", { ascending: false }),
+            supabase.from("candidates_secure").select(dashboardCandidateSelectWithOffer).order("created_at", { ascending: false }),
             supabase.from("jobs").select("id, title, status, openings, created_at").order("created_at", { ascending: false }),
           ]);
 
@@ -1499,7 +1499,7 @@ export default function Dashboard() {
             (candidateError.message?.includes("offer_") || candidateError.details?.includes("offer_"))
           ) {
             const retry = await supabase
-              .from("candidates")
+              .from("candidates_secure")
               .select(dashboardCandidateSelectWithAiWriting)
               .order("created_at", { ascending: false });
 
@@ -1512,7 +1512,7 @@ export default function Dashboard() {
             (candidateError.message?.includes("ai_writing") || candidateError.details?.includes("ai_writing"))
           ) {
             const retry = await supabase
-              .from("candidates")
+              .from("candidates_secure")
               .select(dashboardCandidateSelect)
               .order("created_at", { ascending: false });
 

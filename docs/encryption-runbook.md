@@ -50,7 +50,22 @@ Nothing in the app changes yet — it still reads/writes the plaintext columns.
 
 ---
 
-## Phase 2 — cutover (I do the app + Edge Function code, after you confirm Phase 1)
+## Phase 1b — service-role helpers (you run; non-breaking, prerequisite for Phase 2)
+
+The Edge Functions (`analyze-candidate`, `generate-offer`) run as the **service
+role**, which can't use `candidates_secure` (it filters by `auth.uid()`). Phase 1b
+adds the two service-role helpers they need:
+- `candidate_decrypted_admin(p_id)` — decrypted read of one candidate's fields.
+- `candidate_set_interview_analysis_admin(...)` — the interview-analysis admin write
+  RPC that was missing from Phase 1.
+
+Run `supabase/migrations/20260622120000_pii_encryption_phase1b.sql` (same as Phase 1:
+`supabase db push` or paste into the SQL editor). Still non-breaking — plaintext
+columns remain and nothing uses these helpers until Phase 2.
+
+---
+
+## Phase 2 — cutover (I do the app + Edge Function code, after you confirm Phase 1 + 1b)
 
 I will change, in small reviewable commits:
 - **Reads** of sensitive text: `supabase.from('candidates').select(...)` →
@@ -65,6 +80,17 @@ I will change, in small reviewable commits:
     `update({...})` of those fields with the `*_admin` RPCs (service-role).
 - Verify the whole app works against encrypted data with plaintext still present
   (so any miss is caught without data loss).
+
+**Phase 2 is now implemented in code.** Deploy in this exact order:
+1. **Apply Phase 1c** — `supabase/migrations/20260622130000_pii_encryption_phase1c.sql`
+   (extends `candidates_secure` to expose every non-sensitive column). This MUST
+   land before the new app build, or the view-based reads error on missing columns.
+2. **Deploy the web app** (the React build with the cut-over reads/writes).
+3. **Deploy the Edge Functions**: `supabase functions deploy analyze-candidate generate-offer`.
+
+Because plaintext columns still exist, you can verify end-to-end safely: run a CV
+analysis, an interview analysis, and an offer generation, and confirm the raw
+`candidates` table shows fresh `*_enc` blobs while the app still renders the text.
 
 ---
 

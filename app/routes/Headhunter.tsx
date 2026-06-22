@@ -993,6 +993,9 @@ export default function Headhunter() {
       const analysisConcerns = [
         lead.documents.length ? c.candidateDocumentConcern : c.candidateConcern,
       ];
+      const analysisStrengths = [
+        `${c.candidateStrength} ${labelForSource(lead.source, language)}.`,
+      ];
       const initialAnalysisStatus = hasSourceDocuments ? "pending_ai" : "not_analyzed";
 
       const { data: inserted, error } = await supabase
@@ -1007,11 +1010,6 @@ export default function Headhunter() {
           years_experience: 0,
           skills: lead.skills,
           ats_score: null,
-          analysis_summary: summary,
-          analysis_strengths: [
-            `${c.candidateStrength} ${labelForSource(lead.source, language)}.`,
-          ],
-          analysis_concerns: analysisConcerns,
           analysis_status: initialAnalysisStatus,
         })
         .select("id")
@@ -1019,6 +1017,20 @@ export default function Headhunter() {
 
       if (error || !inserted?.id) {
         throw error ?? new Error(c.candidateCreateFailed);
+      }
+
+      // analysis_* are encrypted at rest — set them through the encrypting RPC.
+      const { error: analysisEncError } = await supabase.rpc(
+        "candidate_set_analysis",
+        {
+          p_id: inserted.id,
+          p_summary: summary,
+          p_strengths: analysisStrengths,
+          p_concerns: analysisConcerns,
+        },
+      );
+      if (analysisEncError) {
+        throw analysisEncError;
       }
 
       const nextLeads = updateSourcingLead(lead.id, {
@@ -1044,9 +1056,7 @@ export default function Headhunter() {
           email: contact.email,
           phone: contact.phone,
           summary,
-          analysisStrengths: [
-            `${c.candidateStrength} ${labelForSource(lead.source, language)}.`,
-          ],
+          analysisStrengths,
           analysisConcerns,
           matchAnalysis: { pros: [], cons: [] },
         },

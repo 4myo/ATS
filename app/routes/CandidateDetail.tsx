@@ -203,7 +203,7 @@ export default function CandidateDetail() {
       if (!id) return;
 
       const result = await supabase
-        .from("candidates")
+        .from("candidates_secure")
         .select(candidateSelectWithOfferPreparation)
         .eq("id", id)
         .single();
@@ -215,7 +215,7 @@ export default function CandidateDetail() {
 
       const interviewResult = shouldRetryWithoutOfferPreparation
         ? await supabase
-            .from("candidates")
+            .from("candidates_secure")
             .select(candidateSelectWithInterviewQuestions)
             .eq("id", id)
             .single()
@@ -228,7 +228,7 @@ export default function CandidateDetail() {
 
       const aiWritingResult = shouldRetryWithoutInterviewQuestions
         ? await supabase
-            .from("candidates")
+            .from("candidates_secure")
             .select(candidateSelectWithAiWriting)
             .eq("id", id)
             .single()
@@ -241,7 +241,7 @@ export default function CandidateDetail() {
 
       const fallbackResult = shouldRetryWithoutAiWriting
         ? await supabase
-            .from("candidates")
+            .from("candidates_secure")
             .select(baseCandidateSelect)
             .eq("id", id)
             .single()
@@ -285,7 +285,7 @@ export default function CandidateDetail() {
 
       const { data: interviewAnalysisData, error: interviewAnalysisError } =
         await supabase
-          .from("candidates")
+          .from("candidates_secure")
           .select(
             "interview_analysis_status, interview_analysis_score, interview_analysis_summary, interview_analysis_strengths, interview_analysis_concerns, interview_analysis_questions, interview_analysis_transcript_ids, interview_analysis_updated_at",
           )
@@ -800,7 +800,7 @@ export default function CandidateDetail() {
       }
 
       const { data: refreshed } = await supabase
-        .from("candidates")
+        .from("candidates_secure")
         .select(candidateSelectWithOfferPreparation)
         .eq("id", candidate.id)
         .single();
@@ -1419,7 +1419,7 @@ export default function CandidateDetail() {
       }
 
       const { data: refreshed } = await supabase
-        .from("candidates")
+        .from("candidates_secure")
         .select(candidateSelectWithOfferPreparation)
         .eq("id", candidate.id)
         .single();

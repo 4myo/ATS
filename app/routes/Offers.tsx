@@ -244,7 +244,7 @@ export default function Offers() {
     setError(null);
 
     const candidateResult = await supabase
-      .from("candidates")
+      .from("candidates_secure")
       .select(candidateSelect)
       .in("stage", ["Offer", "Accepted", "Rejected"])
       .order("created_at", { ascending: false });
@@ -257,7 +257,7 @@ export default function Offers() {
         candidateError.details?.includes("interview_analysis"))
     ) {
       const retry = await supabase
-        .from("candidates")
+        .from("candidates_secure")
         .select(candidateSelectWithoutInterviewAnalysis)
         .in("stage", ["Offer", "Accepted", "Rejected"])
         .order("created_at", { ascending: false });

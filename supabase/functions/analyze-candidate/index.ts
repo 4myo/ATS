@@ -399,7 +399,7 @@ Deno.serve(async (req) => {
 
     const { data: candidate, error: fetchError } = await supabase
       .from("candidates")
-      .select("id, user_id, full_name, job_title, email, resume_path, ats_score, skills, analysis_summary, analysis_strengths, analysis_concerns")
+      .select("id, user_id, full_name, job_title, email, resume_path, ats_score, skills")
       .eq("id", payload.candidateId)
       .eq("user_id", authedUserId)
       .single();
@@ -410,6 +410,17 @@ Deno.serve(async (req) => {
         headers: corsHeaders,
       });
     }
+
+    // CV-analysis text is encrypted at rest; read it via the service-role
+    // decrypt RPC (the candidates_secure view is auth.uid()-scoped and returns
+    // nothing under the service role).
+    const { data: decRows } = await supabase.rpc("candidate_decrypted_admin", {
+      p_id: payload.candidateId,
+    });
+    const decrypted = Array.isArray(decRows) ? decRows[0] : decRows;
+    const cvAnalysisSummary = decrypted?.analysis_summary ?? "";
+    const cvAnalysisStrengths = decrypted?.analysis_strengths ?? [];
+    const cvAnalysisConcerns = decrypted?.analysis_concerns ?? [];
 
     let resumeText = payload.resumeText || "";
     const jobTitle = payload.jobTitle || candidate.job_title || "";
@@ -512,9 +523,9 @@ Name: ${candidate.full_name}
 Job title: ${jobTitle}
 CV-only ATS score: ${candidate.ats_score ?? "not available"}
 CV-only skills: ${(candidate.skills ?? []).join(", ") || "not available"}
-CV-only summary: ${limitPromptText(candidate.analysis_summary ?? "", 2500)}
-CV-only strengths: ${(candidate.analysis_strengths ?? []).slice(0, 8).join("; ") || "not available"}
-CV-only concerns: ${(candidate.analysis_concerns ?? []).slice(0, 8).join("; ") || "not available"}
+CV-only summary: ${limitPromptText(cvAnalysisSummary, 2500)}
+CV-only strengths: ${cvAnalysisStrengths.slice(0, 8).join("; ") || "not available"}
+CV-only concerns: ${cvAnalysisConcerns.slice(0, 8).join("; ") || "not available"}
 
 Job Description:
 ${promptJobDescription || "Job description not available."}
@@ -594,13 +605,16 @@ ${aiAgentPreferenceInstructions ? `\n${aiAgentPreferenceInstructions}\n` : ""}`;
       }
 
       const combinedScore = clampScore(parsed.combined_score);
+      const interviewSummary = parsed.summary ?? "";
+      const interviewStrengths = (parsed.strengths ?? []).slice(0, 6);
+      const interviewConcerns = (parsed.concerns ?? []).slice(0, 6);
+      const interviewQuestions = (parsed.follow_up_questions ?? []).slice(0, 4);
+
+      // Non-sensitive interview metadata stays a direct update; the sensitive
+      // text columns are encrypted-at-rest and written through the admin RPC.
       const interviewUpdate = {
         interview_analysis_status: "complete",
         interview_analysis_score: combinedScore,
-        interview_analysis_summary: parsed.summary ?? "",
-        interview_analysis_strengths: (parsed.strengths ?? []).slice(0, 6),
-        interview_analysis_concerns: (parsed.concerns ?? []).slice(0, 6),
-        interview_analysis_questions: (parsed.follow_up_questions ?? []).slice(0, 4),
         interview_analysis_transcript_ids: payload.transcriptIds ?? [],
         interview_analysis_updated_at: new Date().toISOString(),
       };
@@ -611,23 +625,35 @@ ${aiAgentPreferenceInstructions ? `\n${aiAgentPreferenceInstructions}\n` : ""}`;
         .eq("id", payload.candidateId)
         .eq("user_id", authedUserId);
 
-      const missingInterviewColumns =
-        updateError &&
-        (updateError.message?.includes("interview_analysis") ||
-          updateError.details?.includes("interview_analysis"));
+      const { error: encError } = await supabase.rpc(
+        "candidate_set_interview_analysis_admin",
+        {
+          p_id: payload.candidateId,
+          p_summary: interviewSummary,
+          p_strengths: interviewStrengths,
+          p_concerns: interviewConcerns,
+          p_questions: interviewQuestions,
+        },
+      );
 
-      if (updateError && !missingInterviewColumns) {
-        return new Response(`Failed to update candidate: ${updateError.message}`, {
-          status: 500,
-          headers: corsHeaders,
-        });
+      if (updateError || encError) {
+        return new Response(
+          `Failed to update candidate: ${(updateError ?? encError)?.message}`,
+          { status: 500, headers: corsHeaders },
+        );
       }
 
       return new Response(
         JSON.stringify({
           ok: true,
-          stored: !missingInterviewColumns,
-          interviewAnalysis: interviewUpdate,
+          stored: true,
+          interviewAnalysis: {
+            ...interviewUpdate,
+            interview_analysis_summary: interviewSummary,
+            interview_analysis_strengths: interviewStrengths,
+            interview_analysis_concerns: interviewConcerns,
+            interview_analysis_questions: interviewQuestions,
+          },
         }),
         {
           headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -898,14 +924,13 @@ Return JSON only.`;
         }
       : null;
 
+    // analysis_summary / strengths / concerns and offer_summary are encrypted at
+    // rest and written via the admin RPCs below — not part of this direct update.
     const baseUpdate = {
       location: parsed.location ?? null,
       years_experience: parsed.years_experience ?? null,
       skills: parsed.skills ?? [],
       ats_score: calibratedAtsScore,
-      analysis_summary: parsed.summary ?? null,
-      analysis_strengths: parsed.strengths ?? [],
-      analysis_concerns: parsed.concerns ?? [],
       skill_profile: normalizedSkillProfile,
       analysis_status: "complete",
     };
@@ -930,29 +955,11 @@ Return JSON only.`;
       interview_questions: (parsed.interview_questions ?? []).slice(0, 3),
     };
 
-    const updateWithOfferSummary = {
-      ...updateWithInterviewQuestions,
-      offer_summary: parsed.offer_summary ?? null,
-    };
-
     let { error: updateError } = await supabase
       .from("candidates")
-      .update(updateWithOfferSummary)
+      .update(updateWithInterviewQuestions)
       .eq("id", payload.candidateId)
       .eq("user_id", authedUserId);
-
-    if (
-      updateError &&
-      (updateError.message?.includes("offer_summary") ||
-        updateError.details?.includes("offer_summary"))
-    ) {
-      const retry = await supabase
-        .from("candidates")
-        .update(updateWithInterviewQuestions)
-        .eq("id", payload.candidateId)
-        .eq("user_id", authedUserId);
-      updateError = retry.error;
-    }
 
     if (
       updateError &&
@@ -1000,6 +1007,31 @@ Return JSON only.`;
         status: 500,
         headers: corsHeaders,
       });
+    }
+
+    // Encrypt-at-rest the sensitive analysis text + offer summary via admin RPCs.
+    const { error: analysisEncError } = await supabase.rpc(
+      "candidate_set_analysis_admin",
+      {
+        p_id: payload.candidateId,
+        p_summary: parsed.summary ?? null,
+        p_strengths: parsed.strengths ?? [],
+        p_concerns: parsed.concerns ?? [],
+      },
+    );
+    const { error: offerEncError } = await supabase.rpc(
+      "candidate_set_offer_summary_admin",
+      {
+        p_id: payload.candidateId,
+        p_summary: parsed.offer_summary ?? null,
+      },
+    );
+
+    if (analysisEncError || offerEncError) {
+      return new Response(
+        `Failed to update candidate: ${(analysisEncError ?? offerEncError)?.message}`,
+        { status: 500, headers: corsHeaders },
+      );
     }
 
     return new Response(

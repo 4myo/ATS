@@ -207,31 +207,14 @@ Deno.serve(async (req) => {
     }
 
     const authedUserId = authData.user.id;
-    let { data: candidate, error: candidateError } = await supabase
+    const { data: candidate, error: candidateError } = await supabase
       .from("candidates")
       .select(
-        "id, user_id, full_name, job_title, stage, location, years_experience, skills, ats_score, analysis_summary, analysis_strengths, analysis_concerns, offer_summary, interview_analysis_status, interview_analysis_score, interview_analysis_summary, interview_analysis_strengths, interview_analysis_concerns",
+        "id, user_id, full_name, job_title, stage, location, years_experience, skills, ats_score, interview_analysis_status, interview_analysis_score",
       )
       .eq("id", payload.candidateId)
       .eq("user_id", authedUserId)
       .single();
-
-    if (
-      candidateError &&
-      (candidateError.message?.includes("interview_analysis") ||
-        candidateError.details?.includes("interview_analysis"))
-    ) {
-      const retry = await supabase
-        .from("candidates")
-        .select(
-          "id, user_id, full_name, job_title, stage, location, years_experience, skills, ats_score, analysis_summary, analysis_strengths, analysis_concerns, offer_summary",
-        )
-        .eq("id", payload.candidateId)
-        .eq("user_id", authedUserId)
-        .single();
-      candidate = retry.data;
-      candidateError = retry.error;
-    }
 
     if (candidateError || !candidate) {
       return new Response("Candidate not found", {
@@ -239,6 +222,20 @@ Deno.serve(async (req) => {
         headers: corsHeaders,
       });
     }
+
+    // Sensitive analysis text is encrypted at rest; read decrypted via the
+    // service-role RPC (candidates_secure is auth.uid()-scoped, empty here).
+    const { data: decRows } = await supabase.rpc("candidate_decrypted_admin", {
+      p_id: payload.candidateId,
+    });
+    const dec = Array.isArray(decRows) ? decRows[0] : decRows;
+    const analysisSummary = dec?.analysis_summary ?? null;
+    const analysisStrengths = dec?.analysis_strengths ?? [];
+    const analysisConcerns = dec?.analysis_concerns ?? [];
+    const offerSummaryText = dec?.offer_summary ?? null;
+    const interviewSummary = dec?.interview_analysis_summary ?? null;
+    const interviewStrengths = dec?.interview_analysis_strengths ?? [];
+    const interviewConcerns = dec?.interview_analysis_concerns ?? [];
 
     if (candidate.stage !== "Offer") {
       return new Response("Candidate must be in Offer stage", {
@@ -342,23 +339,23 @@ CV + interview AI score: ${
         : "not analyzed"
     }
 Skills: ${(candidate.skills ?? []).join(", ") || "unknown"}
-AI summary: ${limitText(candidate.analysis_summary, 1600)}
-Strengths: ${(candidate.analysis_strengths ?? []).slice(0, 6).join("; ") || "unknown"}
-Concerns for recruiter context only, do not over-emphasize in letter: ${(candidate.analysis_concerns ?? []).slice(0, 4).join("; ") || "none"}
-Offer suitability summary: ${limitText(candidate.offer_summary, 900)}
+AI summary: ${limitText(analysisSummary, 1600)}
+Strengths: ${analysisStrengths.slice(0, 6).join("; ") || "unknown"}
+Concerns for recruiter context only, do not over-emphasize in letter: ${analysisConcerns.slice(0, 4).join("; ") || "none"}
+Offer suitability summary: ${limitText(offerSummaryText, 900)}
 Interview analysis summary, use only if available: ${
       candidate.interview_analysis_status === "complete"
-        ? limitText(candidate.interview_analysis_summary, 900)
+        ? limitText(interviewSummary, 900)
         : "not available"
     }
 Interview-confirmed strengths, use only if available: ${
       candidate.interview_analysis_status === "complete"
-        ? (candidate.interview_analysis_strengths ?? []).slice(0, 4).join("; ") || "none"
+        ? interviewStrengths.slice(0, 4).join("; ") || "none"
         : "not available"
     }
 Interview concerns for recruiter context only, do not over-emphasize in letter: ${
       candidate.interview_analysis_status === "complete"
-        ? (candidate.interview_analysis_concerns ?? []).slice(0, 3).join("; ") || "none"
+        ? interviewConcerns.slice(0, 3).join("; ") || "none"
         : "not available"
     }
 

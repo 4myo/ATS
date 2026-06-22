@@ -909,7 +909,7 @@ export default function InterviewStudio() {
     const loadInitialData = async () => {
       const [candidateResult, { data: userResult }] = await Promise.all([
         supabase
-        .from("candidates")
+        .from("candidates_secure")
         .select("id, full_name, job_title, stage, interview_questions, interview_analysis_questions, interview_analysis_status")
         .order("created_at", { ascending: false })
           .limit(80),
