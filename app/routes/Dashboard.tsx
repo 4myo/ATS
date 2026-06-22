@@ -1,9 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useOutletContext } from "react-router";
+import type { WorkspaceRole } from "../components/Sidebar";
 import * as d3 from "d3";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Funnel,
+  FunnelChart,
+  LabelList,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { Applicant, Stage } from "../store";
-import { Users, Briefcase, TrendingUp, AlertCircle, CalendarDays, Send, Search } from "lucide-react";
+import { Users, Briefcase, TrendingUp, AlertCircle, CalendarDays, Send, Search, SlidersHorizontal, ChevronDown, X, Mic, FileCheck2, UserPlus, Plus, ArrowRight, Clock3 } from "lucide-react";
 import { Badge } from "../components/ui/badge";
+import { ScoreChip } from "../components/ScoreChip";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -32,8 +50,13 @@ type DashboardApplicant = Applicant & {
   offerOutcome?: string | null;
   offerChecklist?: {
     offerSent?: boolean;
+    negotiationStatus?: string;
+    candidateExpectedGross?: number;
+    negotiationMaxGross?: number;
   };
   offerSentAt?: string | null;
+  offerResponseDueAt?: string | null;
+  interviewAnalysisStatus?: string | null;
 };
 
 type DashboardJob = CachedDashboardJob;
@@ -77,7 +100,7 @@ const dashboardCandidateSelectWithAiWriting =
   `${dashboardCandidateSelect}, ai_writing_score`;
 
 const dashboardCandidateSelectWithOffer =
-  `${dashboardCandidateSelectWithAiWriting}, offer_checklist, offer_outcome, offer_sent_at`;
+  `${dashboardCandidateSelectWithAiWriting}, offer_checklist, offer_outcome, offer_sent_at, offer_response_due_at, interview_analysis_status`;
 
 const stageOrder: Stage[] = [
   "Applied",
@@ -105,12 +128,39 @@ const integerTicks = (maxValue: number, desired = 4) => {
   return ticks[ticks.length - 1] === max ? ticks : [...ticks, max];
 };
 
+// Largest-remainder method: integer percentages that always sum to exactly 100.
+const largestRemainderPercents = (values: number[]): number[] => {
+  const safe = values.map((value) => Math.max(0, value));
+  const total = safe.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) return safe.map(() => 0);
+
+  const raw = safe.map((value) => (value / total) * 100);
+  const result = raw.map((value) => Math.floor(value));
+  let remainder = 100 - result.reduce((sum, value) => sum + value, 0);
+
+  const byFraction = raw
+    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
+    .sort((left, right) => right.fraction - left.fraction);
+
+  for (let position = 0; position < byFraction.length && remainder > 0; position += 1) {
+    result[byFraction[position].index] += 1;
+    remainder -= 1;
+  }
+
+  return result;
+};
+
 const shortLabel = (value: string, maxLength = 18) =>
   value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 
 const daysSince = (value: string | null | undefined) => {
   if (!value) return null;
   return Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000));
+};
+
+const daysUntil = (value: string | null | undefined) => {
+  if (!value) return null;
+  return Math.ceil((new Date(value).getTime() - Date.now()) / 86_400_000);
 };
 
 function EmptyChart({ label }: { label: string }) {
@@ -489,8 +539,9 @@ function VerticalBars({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: stri
 }
 
 function DonutChart({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: string }) {
-  const firstActiveKey = data.find((item) => item.value > 0)?.key ?? data[0]?.key ?? "";
-  const [activeKey, setActiveKey] = useState(firstActiveKey);
+  const { tt } = useI18n();
+  // No segment selected by default → the centre shows the total.
+  const [activeKey, setActiveKey] = useState("");
   const width = 360;
   const height = 280;
   const total = d3.sum(data, (item) => item.value);
@@ -499,7 +550,7 @@ function DonutChart({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: string
     .value((item) => item.value)
     .sort(null);
   const arc = d3.arc<d3.PieArcDatum<BarDatum>>().innerRadius(72).outerRadius(108).cornerRadius(8);
-  const activeDatum = data.find((item) => item.key === activeKey) ?? data.find((item) => item.value > 0) ?? data[0];
+  const activeDatum = data.find((item) => item.key === activeKey) ?? null;
 
   if (!total) return <EmptyChart label={emptyLabel} />;
 
@@ -507,7 +558,10 @@ function DonutChart({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: string
     <div>
       <div className="grid h-full min-h-64 gap-3 md:grid-cols-[minmax(0,1fr)_10rem] md:items-center">
         <svg viewBox={`0 0 ${width} ${height}`} className="h-full min-h-56 w-full">
-          <g transform={`translate(${width / 2},${height / 2})`}>
+          <g
+            transform={`translate(${width / 2},${height / 2})`}
+            onMouseLeave={() => setActiveKey("")}
+          >
             {pie(data).map((slice) => {
               const isActive = activeDatum?.key === slice.data.key;
               return (
@@ -530,14 +584,14 @@ function DonutChart({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: string
               );
             })}
             <text textAnchor="middle" y={-4} className="pointer-events-none fill-foreground text-3xl font-semibold">
-              {activeDatum?.value ?? total}
+              {activeDatum ? activeDatum.value : total}
             </text>
             <text textAnchor="middle" y={20} className="pointer-events-none fill-muted-foreground text-[12px]">
-              {activeDatum ? shortLabel(activeDatum.label, 15) : "total"}
+              {activeDatum ? shortLabel(activeDatum.label, 15) : tt("kandidatov")}
             </text>
           </g>
         </svg>
-        <div className="grid content-center gap-2">
+        <div className="grid content-center gap-2" onMouseLeave={() => setActiveKey("")}>
           {data.map((item) => {
             const isActive = activeDatum?.key === item.key;
             return (
@@ -1087,6 +1141,9 @@ function ReadinessFunnel({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: s
 
   if (!total) return <EmptyChart label={emptyLabel} />;
 
+  // Percentages distributed with the largest-remainder method → always sum to 100.
+  const sharePercents = largestRemainderPercents(data.map((item) => item.value));
+
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="mx-auto h-full min-h-72 w-full max-w-5xl overflow-visible">
       <g transform={`translate(${margin.left},${margin.top})`}>
@@ -1100,11 +1157,11 @@ function ReadinessFunnel({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: s
         ))}
         <line x1={0} x2={0} y1={0} y2={chartHeight} stroke="var(--border)" />
         <line x1={0} x2={chartWidth} y1={chartHeight} y2={chartHeight} stroke="var(--border)" />
-        {data.map((item) => {
+        {data.map((item, index) => {
           const xPosition = x(item.key) ?? 0;
           const barHeight = chartHeight - y(item.value);
           const yPosition = y(item.value);
-          const rate = Math.round((item.value / Math.max(1, total)) * 100);
+          const rate = sharePercents[index];
           return (
             <g key={item.key}>
               <rect
@@ -1150,8 +1207,233 @@ function ReadinessFunnel({ data, emptyLabel }: { data: BarDatum[]; emptyLabel: s
   );
 }
 
+const analyticsTooltipStyle = {
+  border: "1px solid var(--border)",
+  borderRadius: "10px",
+  background: "var(--popover)",
+  color: "var(--popover-foreground)",
+  boxShadow: "0 12px 30px rgb(0 0 0 / 0.14)",
+} as const;
+
+function ResponsiveBars({
+  data,
+  emptyLabel,
+  horizontal = false,
+  valueLabel = "Vrednost",
+  onSelect,
+}: {
+  data: BarDatum[];
+  emptyLabel: string;
+  horizontal?: boolean;
+  valueLabel?: string;
+  onSelect?: (item: BarDatum) => void;
+}) {
+  const chartData = data.filter((item) => item.value > 0);
+  if (!chartData.length) return <EmptyChart label={emptyLabel} />;
+
+  const height = horizontal ? Math.max(320, chartData.length * 54) : 360;
+  return (
+    <div className="w-full" style={{ height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={chartData}
+          layout={horizontal ? "vertical" : "horizontal"}
+          margin={horizontal
+            ? { top: 12, right: 44, bottom: 12, left: 24 }
+            : { top: 28, right: 18, bottom: 18, left: 0 }}
+        >
+          <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" horizontal={!horizontal} vertical={horizontal} />
+          {horizontal ? (
+            <>
+              <XAxis type="number" allowDecimals={false} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
+              <YAxis
+                type="category"
+                dataKey="label"
+                width={150}
+                tickFormatter={(value) => shortLabel(String(value), 22)}
+                tick={{ fill: "var(--foreground)", fontSize: 12 }}
+              />
+            </>
+          ) : (
+            <>
+              <XAxis
+                dataKey="label"
+                interval={0}
+                tickFormatter={(value) => shortLabel(String(value), 12)}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+                height={44}
+              />
+              <YAxis allowDecimals={false} width={36} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
+            </>
+          )}
+          <Tooltip
+            cursor={{ fill: "var(--muted)", opacity: 0.35 }}
+            contentStyle={analyticsTooltipStyle}
+            formatter={(value) => [Number(value), valueLabel]}
+            labelFormatter={(label) => String(label)}
+          />
+          <Bar
+            dataKey="value"
+            name={valueLabel}
+            radius={horizontal ? [0, 7, 7, 0] : [7, 7, 0, 0]}
+            maxBarSize={horizontal ? 26 : 64}
+            className={onSelect ? "cursor-pointer" : undefined}
+            onClick={(entry) => {
+              const item = entry.payload as BarDatum | undefined;
+              if (item && onSelect) onSelect(item);
+            }}
+          >
+            {chartData.map((item) => <Cell key={item.key} fill={item.color} />)}
+            <LabelList dataKey="value" position={horizontal ? "right" : "top"} fill="var(--foreground)" fontSize={12} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ResponsiveOfferTrend({ data, emptyLabel }: { data: TrendDatum[]; emptyLabel: string }) {
+  if (!data.some((item) => item.offers || item.sent)) return <EmptyChart label={emptyLabel} />;
+  return (
+    <div className="h-[360px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 18, right: 24, bottom: 14, left: 0 }}>
+          <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" />
+          <XAxis dataKey="label" minTickGap={24} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+          <YAxis allowDecimals={false} width={36} tick={{ fill: "var(--muted-foreground)", fontSize: 12 }} />
+          <Tooltip contentStyle={analyticsTooltipStyle} />
+          <Legend verticalAlign="top" height={34} />
+          <Line type="monotone" dataKey="offers" name="Ustvarjene" stroke="#8b5cf6" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 7 }} />
+          <Line type="monotone" dataKey="sent" name="Poslane" stroke="#14b8a6" strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 7 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ResponsiveDualTrend({
+  data,
+  emptyLabel,
+  primaryLabel,
+  secondaryLabel,
+  primaryColor,
+  secondaryColor,
+  valueSuffix = "",
+}: {
+  data: DualLineDatum[];
+  emptyLabel: string;
+  primaryLabel: string;
+  secondaryLabel: string;
+  primaryColor: string;
+  secondaryColor: string;
+  valueSuffix?: string;
+}) {
+  if (!data.some((item) => item.primary || item.secondary)) return <EmptyChart label={emptyLabel} />;
+  return (
+    <div className="h-[360px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 18, right: 24, bottom: 14, left: 0 }}>
+          <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" />
+          <XAxis dataKey="label" minTickGap={24} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+          <YAxis domain={[0, 100]} width={42} tickFormatter={(value) => `${value}${valueSuffix}`} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+          <Tooltip contentStyle={analyticsTooltipStyle} formatter={(value) => `${value}${valueSuffix}`} />
+          <Legend verticalAlign="top" height={34} />
+          <Line type="monotone" dataKey="primary" name={primaryLabel} stroke={primaryColor} strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 7 }} />
+          <Line type="monotone" dataKey="secondary" name={secondaryLabel} stroke={secondaryColor} strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 7 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ResponsiveFunnel({
+  data,
+  emptyLabel,
+  onSelect,
+}: {
+  data: BarDatum[];
+  emptyLabel: string;
+  onSelect?: (item: BarDatum) => void;
+}) {
+  const chartData = data.filter((item) => item.value > 0).map((item) => ({ ...item, fill: item.color }));
+  if (!chartData.length) return <EmptyChart label={emptyLabel} />;
+  return (
+    <div className="h-[380px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <FunnelChart margin={{ top: 18, right: 80, bottom: 18, left: 80 }}>
+          <Tooltip contentStyle={analyticsTooltipStyle} formatter={(value) => [Number(value), "Kandidati"]} />
+          <Funnel
+            dataKey="value"
+            nameKey="label"
+            data={chartData}
+            isAnimationActive
+            onClick={(item) => onSelect?.(item as BarDatum)}
+            className={onSelect ? "cursor-pointer" : undefined}
+          >
+            <LabelList position="right" fill="var(--foreground)" stroke="none" dataKey="label" fontSize={12} />
+            <LabelList position="center" fill="white" stroke="none" dataKey="value" fontSize={13} fontWeight={700} />
+          </Funnel>
+        </FunnelChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ResponsiveCapacity({ data, emptyLabel }: { data: JobCapacityDatum[]; emptyLabel: string }) {
+  const chartData = data.filter((item) => item.applicants > 0 || item.accepted > 0);
+  if (!chartData.length) return <EmptyChart label={emptyLabel} />;
+  return (
+    <div className="h-[420px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData.slice(0, 8)} layout="vertical" margin={{ top: 20, right: 36, bottom: 14, left: 28 }}>
+          <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" vertical />
+          <XAxis type="number" allowDecimals={false} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+          <YAxis type="category" dataKey="title" width={150} tickFormatter={(value) => shortLabel(String(value), 22)} tick={{ fill: "var(--foreground)", fontSize: 12 }} />
+          <Tooltip contentStyle={analyticsTooltipStyle} />
+          <Legend verticalAlign="top" height={34} />
+          <Bar dataKey="openings" name="Odprta mesta" fill="#8b5cf6" radius={[0, 6, 6, 0]} maxBarSize={18} />
+          <Bar dataKey="accepted" name="Sprejeti" fill="#14b8a6" radius={[0, 6, 6, 0]} maxBarSize={18} />
+          <Bar dataKey="applicants" name="Kandidati" fill="#06b6d4" radius={[0, 6, 6, 0]} maxBarSize={18} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ResponsiveCandidateScores({ data, emptyLabel }: { data: DashboardApplicant[]; emptyLabel: string }) {
+  const chartData = data
+    .filter((item) => typeof item.aiScore === "number")
+    .sort((left, right) => (right.aiScore ?? 0) - (left.aiScore ?? 0))
+    .slice(0, 10);
+  if (!chartData.length) return <EmptyChart label={emptyLabel} />;
+  return (
+    <div className="h-[380px] w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 28, right: 18, bottom: 32, left: 0 }}>
+          <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" />
+          <XAxis dataKey="name" interval={0} tickFormatter={(value) => shortLabel(String(value).split(" ")[0], 9)} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+          <YAxis domain={[0, 100]} width={38} tickFormatter={(value) => `${value}%`} tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} />
+          <Tooltip
+            contentStyle={analyticsTooltipStyle}
+            formatter={(value) => [`${Math.round(Number(value))}%`, "Ujemanje"]}
+            labelFormatter={(_label, payload) => {
+              const applicant = payload?.[0]?.payload as DashboardApplicant | undefined;
+              return applicant ? `${applicant.name} · ${applicant.role}` : "Kandidat";
+            }}
+          />
+          <Bar dataKey="aiScore" name="Ujemanje" radius={[7, 7, 0, 0]} maxBarSize={52}>
+            {chartData.map((item) => <Cell key={item.id} fill={stageColors[item.stage]} />)}
+            <LabelList dataKey="aiScore" position="top" formatter={(value) => `${Math.round(Number(value ?? 0))}%`} fill="var(--foreground)" fontSize={11} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { t, tt, stageLabel } = useI18n();
+  const { workspaceRole = "recruiter" } = useOutletContext<{ workspaceRole?: WorkspaceRole }>();
   const cachedDashboard = getDashboardCache();
   const [applicants, setApplicants] = useState<DashboardApplicant[]>(
     (cachedDashboard?.applicants ?? []) as DashboardApplicant[],
@@ -1164,7 +1446,15 @@ export default function Dashboard() {
   const [scoreFilter, setScoreFilter] = useState("all");
   const [offerFilter, setOfferFilter] = useState("all");
   const [dashboardSearch, setDashboardSearch] = useState("");
+  const [showDashboardFilters, setShowDashboardFilters] = useState(false);
   const [chartFocus, setChartFocus] = useState<DashboardChartFocus>("readiness");
+  const [dashboardView, setDashboardView] = useState<"today" | "analytics">("analytics");
+  const [analyticsRange, setAnalyticsRange] = useState<14 | 30 | 90>(30);
+  const roleLabel = workspaceRole === "hiring_manager"
+    ? tt("Vodja zaposlovanja")
+    : workspaceRole === "interviewer"
+      ? tt("Intervjuvalec")
+      : tt("Rekruter");
 
   useEffect(() => {
     let isMounted = true;
@@ -1253,10 +1543,26 @@ export default function Dashboard() {
             offerOutcome: (row.offer_outcome as string | null | undefined) ?? null,
             offerChecklist: row.offer_checklist
               ? {
-                  offerSent: Boolean((row.offer_checklist as Record<string, boolean>).offerSent),
+                  offerSent: Boolean((row.offer_checklist as Record<string, unknown>).offerSent),
+                  negotiationStatus:
+                    typeof (row.offer_checklist as Record<string, unknown>).negotiationStatus === "string"
+                      ? String((row.offer_checklist as Record<string, unknown>).negotiationStatus)
+                      : undefined,
+                  candidateExpectedGross:
+                    typeof (row.offer_checklist as Record<string, unknown>).candidateExpectedGross === "number"
+                      ? Number((row.offer_checklist as Record<string, unknown>).candidateExpectedGross)
+                      : undefined,
+                  negotiationMaxGross:
+                    typeof (row.offer_checklist as Record<string, unknown>).negotiationMaxGross === "number"
+                      ? Number((row.offer_checklist as Record<string, unknown>).negotiationMaxGross)
+                      : undefined,
                 }
               : undefined,
             offerSentAt: (row.offer_sent_at as string | null | undefined) ?? null,
+            offerResponseDueAt:
+              (row.offer_response_due_at as string | null | undefined) ?? null,
+            interviewAnalysisStatus:
+              (row.interview_analysis_status as string | null | undefined) ?? null,
             matchAnalysis: {
               pros: row.analysis_strengths ?? [],
               cons: row.analysis_concerns ?? [],
@@ -1417,17 +1723,6 @@ export default function Dashboard() {
     (applicant) => applicant.offerChecklist?.offerSent,
   ).length;
 
-  const stageData = useMemo<BarDatum[]>(
-    () =>
-      stageOrder.map((stage) => ({
-        key: stage,
-        label: stageLabel(stage),
-        value: filteredApplicants.filter((applicant) => applicant.stage === stage).length,
-        color: stageColors[stage],
-      })),
-    [filteredApplicants, stageLabel],
-  );
-
   const offerStatusData = useMemo<BarDatum[]>(
     () => [
       {
@@ -1465,9 +1760,9 @@ export default function Dashboard() {
   );
 
   const offerTrendData = useMemo<TrendDatum[]>(() => {
-    const days = Array.from({ length: 14 }, (_item, index) => {
+    const days = Array.from({ length: analyticsRange }, (_item, index) => {
       const date = new Date();
-      date.setDate(date.getDate() - (13 - index));
+      date.setDate(date.getDate() - (analyticsRange - 1 - index));
       const key = date.toISOString().slice(0, 10);
 
       return {
@@ -1493,12 +1788,12 @@ export default function Dashboard() {
     });
 
     return days;
-  }, [offerRelatedApplicants]);
+  }, [analyticsRange, offerRelatedApplicants]);
 
   const matchQualityTrendData = useMemo<DualLineDatum[]>(() => {
-    const days = Array.from({ length: 14 }, (_item, index) => {
+    const days = Array.from({ length: analyticsRange }, (_item, index) => {
       const date = new Date();
-      date.setDate(date.getDate() - (13 - index));
+      date.setDate(date.getDate() - (analyticsRange - 1 - index));
       const key = date.toISOString().slice(0, 10);
 
       return {
@@ -1521,12 +1816,12 @@ export default function Dashboard() {
         secondary: scored.length ? Math.round(d3.max(scored, (applicant) => applicant.aiScore ?? 0) ?? 0) : 0,
       };
     });
-  }, [filteredApplicants]);
+  }, [analyticsRange, filteredApplicants]);
 
   const offerDecisionTrendData = useMemo<DualLineDatum[]>(() => {
-    const days = Array.from({ length: 14 }, (_item, index) => {
+    const days = Array.from({ length: analyticsRange }, (_item, index) => {
       const date = new Date();
-      date.setDate(date.getDate() - (13 - index));
+      date.setDate(date.getDate() - (analyticsRange - 1 - index));
       const key = date.toISOString().slice(0, 10);
 
       return {
@@ -1551,7 +1846,7 @@ export default function Dashboard() {
         secondary: sent.length ? Math.round((pending / sent.length) * 100) : 0,
       };
     });
-  }, [filteredApplicants]);
+  }, [analyticsRange, filteredApplicants]);
 
   const jobCapacityData = useMemo<JobCapacityDatum[]>(
     () =>
@@ -1579,6 +1874,24 @@ export default function Dashboard() {
       })),
     [filteredApplicants, stageLabel],
   );
+
+  // Where candidates pile up: active phases ranked by load, the worst one flagged.
+  const phaseBottleneckData = useMemo<BarDatum[]>(() => {
+    const activePhases: Stage[] = ["Applied", "Screening", "Interview", "Offer"];
+    const rows = activePhases
+      .map((stage) => ({
+        key: stage,
+        label: stageLabel(stage),
+        value: filteredApplicants.filter((applicant) => applicant.stage === stage).length,
+        color: "#06b6d4",
+      }))
+      .sort((left, right) => right.value - left.value);
+
+    return rows.map((row, index) => ({
+      ...row,
+      color: index === 0 && row.value > 0 ? "#f59e0b" : "#06b6d4",
+    }));
+  }, [filteredApplicants, stageLabel]);
 
   const readinessBottleneckData = useMemo<BarDatum[]>(
     () =>
@@ -1741,47 +2054,386 @@ export default function Dashboard() {
     { label: t("sentOffers"), value: sentOffersCount, detail: t("offersSentDetail"), icon: Send, tone: "text-emerald-600 dark:text-emerald-300" },
   ];
 
+  const reviewQueue = applicants
+    .filter((applicant) => applicant.stage === "Applied" || applicant.stage === "Screening")
+    .sort((left, right) => (daysSince(right.createdAt) ?? 0) - (daysSince(left.createdAt) ?? 0));
+  const interviewQueue = applicants
+    .filter(
+      (applicant) =>
+        applicant.stage === "Interview" &&
+        applicant.interviewAnalysisStatus !== "complete",
+    )
+    .sort((left, right) => (daysSince(right.createdAt) ?? 0) - (daysSince(left.createdAt) ?? 0));
+  const offerQueue = applicants
+    .filter((applicant) => {
+      if (
+        !applicant.offerChecklist?.offerSent ||
+        (applicant.offerOutcome ?? "pending") !== "pending"
+      ) {
+        return false;
+      }
+      const dueIn = daysUntil(applicant.offerResponseDueAt);
+      return dueIn != null ? dueIn <= 3 : (daysSince(applicant.offerSentAt) ?? 0) >= 4;
+    })
+    .sort(
+      (left, right) =>
+        (daysUntil(left.offerResponseDueAt) ?? 999) -
+        (daysUntil(right.offerResponseDueAt) ?? 999),
+    );
+
+  const dailyActions = [
+    ...offerQueue.map((applicant) => ({
+      key: `offer-${applicant.id}`,
+      applicant,
+      label: tt("Ponudba potrebuje odziv"),
+      detail:
+        daysUntil(applicant.offerResponseDueAt) == null
+          ? tt("Poslana ponudba čaka odgovor več kot 4 dni")
+          : daysUntil(applicant.offerResponseDueAt)! < 0
+            ? `${tt("Rok je potekel pred")} ${Math.abs(daysUntil(applicant.offerResponseDueAt)!)} ${tt("dnevi")}`
+            : `${tt("Rok za odgovor čez")} ${daysUntil(applicant.offerResponseDueAt)} ${tt("dni")}`,
+      tone: "text-red-600 dark:text-red-400",
+      icon: Send,
+    })),
+    ...interviewQueue.map((applicant) => ({
+      key: `interview-${applicant.id}`,
+      applicant,
+      label: tt("Zaključi razgovor in analizo"),
+      detail: tt("Kandidat je v fazi razgovora brez zaključene CV + razgovor analize"),
+      tone: "text-cyan-600 dark:text-cyan-400",
+      icon: Mic,
+    })),
+    ...reviewQueue.map((applicant) => ({
+      key: `review-${applicant.id}`,
+      applicant,
+      label: tt("Preglej kandidata"),
+      detail: `${stageLabel(applicant.stage)} · ${daysSince(applicant.createdAt) ?? 0} ${tt("dni v procesu")}`,
+      tone: "text-amber-600 dark:text-amber-400",
+      icon: AlertCircle,
+    })),
+  ].slice(0, 8);
+
+  const operationalStats = [
+    {
+      label: tt("Za pregled"),
+      value: reviewQueue.length,
+      detail: tt("Prijavljeni in v pregledu"),
+      icon: Users,
+      tone: "text-amber-600 dark:text-amber-400",
+    },
+    {
+      label: tt("Razgovori brez analize"),
+      value: interviewQueue.length,
+      detail: tt("Potrebna transkripcija ali analiza"),
+      icon: Mic,
+      tone: "text-cyan-600 dark:text-cyan-400",
+    },
+    {
+      label: tt("Ponudbe za odziv"),
+      value: offerQueue.length,
+      detail: tt("Rok v 3 dneh ali že potekel"),
+      icon: FileCheck2,
+      tone: "text-red-600 dark:text-red-400",
+    },
+    {
+      label: tt("Aktivna dela"),
+      value: jobs.filter((job) => (job.status ?? "active") === "active").length,
+      detail: tt("Odprte pozicije"),
+      icon: Briefcase,
+      tone: "text-violet-600 dark:text-violet-400",
+    },
+  ];
+  const quickActions = [
+    { to: "/applicants?add=1", label: tt("Dodaj kandidata"), detail: tt("Uvoz CV-ja in vključitev v pregled"), icon: UserPlus },
+    { to: "/interviews", label: tt("Začni razgovor"), detail: tt("Odpri kandidatov roadmap"), icon: Mic },
+    { to: "/offers", label: tt("Pripravi ponudbo"), detail: tt("Preglej odprte ponudbe"), icon: Send },
+    { to: "/jobs?add=1", label: tt("Ustvari delo"), detail: tt("Odpri novo pozicijo"), icon: Plus },
+  ];
+
+  // Primary filters (search/job/stage) stay visible; the rest collapse behind
+  // "Napredni filtri", with active selections surfaced as removable chips.
+  const dashboardAdvancedCount =
+    (jobStatusFilter !== "all" ? 1 : 0) +
+    (scoreFilter !== "all" ? 1 : 0) +
+    (offerFilter !== "all" ? 1 : 0);
+
+  const scoreFilterLabels: Record<string, string> = {
+    strong: tt("80% ali več"),
+    medium: "60-79%",
+    low: tt("Pod 60%"),
+    unscored: tt("Brez ocene"),
+  };
+  const offerFilterLabels: Record<string, string> = {
+    without_offer: tt("Brez ponudbe"),
+    preparing: tt("V pripravi"),
+    sent: tt("Poslana, čaka odgovor"),
+    accepted: tt("Sprejeta"),
+    declined: tt("Zavrnjena"),
+  };
+
+  type DashboardChip = { key: string; label: string; onRemove: () => void };
+  const dashboardChips: DashboardChip[] = [];
+  if (dashboardSearch.trim()) {
+    dashboardChips.push({ key: "search", label: `${tt("Iskanje")}: ${dashboardSearch.trim()}`, onRemove: () => setDashboardSearch("") });
+  }
+  if (jobFilter !== "all") {
+    dashboardChips.push({ key: "job", label: jobFilter, onRemove: () => setJobFilter("all") });
+  }
+  if (stageFilter !== "all") {
+    dashboardChips.push({ key: "stage", label: stageLabel(stageFilter as Stage), onRemove: () => setStageFilter("all") });
+  }
+  if (jobStatusFilter !== "all") {
+    dashboardChips.push({ key: "jobStatus", label: jobStatusFilter === "active" ? tt("Aktivna dela") : tt("Neaktivna dela"), onRemove: () => setJobStatusFilter("all") });
+  }
+  if (scoreFilter !== "all") {
+    dashboardChips.push({ key: "score", label: scoreFilterLabels[scoreFilter] ?? scoreFilter, onRemove: () => setScoreFilter("all") });
+  }
+  if (offerFilter !== "all") {
+    dashboardChips.push({ key: "offer", label: offerFilterLabels[offerFilter] ?? offerFilter, onRemove: () => setOfferFilter("all") });
+  }
+
+  const clearAllDashboardFilters = () => {
+    setDashboardSearch("");
+    setJobFilter("all");
+    setJobStatusFilter("all");
+    setStageFilter("all");
+    setScoreFilter("all");
+    setOfferFilter("all");
+  };
+
   return (
     <div className="page-container">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <h1 className="page-title">{t("dashboardOverview")}</h1>
-          <p className="text-sm subtle-text">{t("dashboardSubtitle")}</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="page-title">
+              {dashboardView === "today" ? tt("Moj delovni dan") : t("dashboardOverview")}
+            </h1>
+            <Badge variant="secondary">{roleLabel}</Badge>
+          </div>
+          <p className="text-sm subtle-text">
+            {dashboardView === "today"
+              ? tt("Prioritete, ki danes potrebujejo tvojo odločitev ali naslednji korak.")
+              : t("dashboardSubtitle")}
+          </p>
+        </div>
+        <div className="inline-flex w-fit rounded-full border border-border p-0.5" role="tablist" aria-label={tt("Pogled nadzorne plošče")}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={dashboardView === "today"}
+            aria-controls="dashboard-today-panel"
+            onClick={() => setDashboardView("today")}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              dashboardView === "today"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tt("Moj dan")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={dashboardView === "analytics"}
+            aria-controls="dashboard-analytics-panel"
+            onClick={() => setDashboardView("analytics")}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              dashboardView === "analytics"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tt("Analitika")}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-        {isLoading
-          ? Array.from({ length: 6 }, (_item, index) => (
-              <div key={index} className="surface-card overflow-hidden p-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-9 w-9 animate-pulse rounded-md bg-muted" />
+      {dashboardView === "today" ? (
+        <div id="dashboard-today-panel" role="tabpanel" className="grid gap-6">
+          <section className="border-y border-border py-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground">{tt("Hitra dejanja")}</h2>
+                <p className="text-xs text-muted-foreground">{tt("Začni najpogostejši naslednji korak brez iskanja po menijih.")}</p>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {quickActions.map((action) => (
+                <Link
+                  key={action.to}
+                  to={action.to}
+                  className="group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/40"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground">
+                    <action.icon className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-foreground">{action.label}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{action.detail}</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid grid-cols-2 divide-x divide-y divide-border border-y border-border lg:grid-cols-4">
+            {isLoading
+              ? Array.from({ length: 4 }, (_item, index) => (
+                  <div key={index} className="h-24 animate-pulse bg-muted/30" />
+                ))
+              : operationalStats.map((stat) => (
+                  <div key={stat.label} className="flex items-start gap-3 p-4">
+                    <stat.icon className={`mt-0.5 h-5 w-5 shrink-0 ${stat.tone}`} />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{stat.label}</p>
+                      <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{stat.value}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{stat.detail}</p>
+                    </div>
+                  </div>
+                ))}
+          </section>
+
+          <div className="grid gap-8 xl:grid-cols-[minmax(0,1.15fr)_minmax(22rem,0.85fr)]">
+            <section>
+              <div className="mb-3 flex items-end justify-between gap-3 border-b border-border pb-3">
+                <div>
+                  <h2 className="text-base font-semibold text-foreground">{tt("Danes zahteva pozornost")}</h2>
+                  <p className="text-sm text-muted-foreground">{tt("Razvrščeno po nujnosti: ponudbe, razgovori in pregledi kandidatov.")}</p>
+                </div>
+                <span className="text-sm font-semibold tabular-nums text-foreground">{dailyActions.length}</span>
+              </div>
+              <div className="divide-y divide-border">
+                {dailyActions.map((action) => (
+                  <Link
+                    key={action.key}
+                    to={`/applicants/${action.applicant.id}?returnTo=/`}
+                    className="group grid gap-2 py-3 transition-colors hover:bg-muted/25 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center sm:px-2"
+                  >
+                    <action.icon className={`h-5 w-5 ${action.tone}`} />
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">{action.applicant.name}</span>
+                        <span className="text-xs text-muted-foreground">{action.applicant.role}</span>
+                      </span>
+                      <span className="mt-0.5 block text-sm text-foreground">{action.label}</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{action.detail}</span>
+                    </span>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </Link>
+                ))}
+                {!isLoading && !dailyActions.length ? (
+                  <div className="py-12 text-center">
+                    <Clock3 className="mx-auto h-8 w-8 text-emerald-500" />
+                    <p className="mt-3 text-sm font-semibold text-foreground">{tt("Ni nujnih nalog")}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{tt("Pipeline je trenutno brez odprtih opozoril.")}</p>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            <section>
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Kje je trenutno največ dela")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Klikni Analitika za globlje trende in primerjave.")}</p>
+              {isLoading ? (
+                <LoadingChart variant="bars" />
+              ) : (
+                <ResponsiveFunnel
+                  data={readinessFunnelData}
+                  emptyLabel={t("noApplicants")}
+                  onSelect={(item) => {
+                    setStageFilter(item.key);
+                    setChartFocus("readiness");
+                    setDashboardView("analytics");
+                  }}
+                />
+              )}
+            </section>
+          </div>
+
+          <section className="border-t border-border pt-5">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">{tt("Zdravje delovnih mest")}</h2>
+                <p className="text-sm text-muted-foreground">{tt("Kapaciteta, število kandidatov in zapolnjenost odprtih pozicij.")}</p>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/jobs">{tt("Odpri vsa dela")}</Link>
+              </Button>
+            </div>
+            {isLoading ? (
+              <LoadingChart variant="capacity" />
+            ) : (
+              <ResponsiveCapacity data={jobCapacityData} emptyLabel={t("noJobs")} />
+            )}
+          </section>
+        </div>
+      ) : (
+        <div id="dashboard-analytics-panel" role="tabpanel" className="grid gap-6">
+      <div className="overflow-hidden rounded-xl bg-card shadow-sm dark:shadow-none dark:ring-1 dark:ring-border/60">
+        <div className="grid grid-cols-2 divide-x divide-y divide-border sm:grid-cols-3 2xl:grid-cols-6">
+          {isLoading
+            ? Array.from({ length: 6 }, (_item, index) => (
+                <div key={index} className="flex items-center gap-3 p-4">
+                  <div className="h-8 w-8 animate-pulse rounded-lg bg-muted" />
                   <div className="min-w-0 flex-1 space-y-2">
-                    <div className="h-3 w-24 animate-pulse rounded bg-muted" />
-                    <div className="h-7 w-16 animate-pulse rounded bg-muted" />
-                    <div className="h-3 w-28 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                    <div className="h-6 w-10 animate-pulse rounded bg-muted" />
                   </div>
                 </div>
-              </div>
-            ))
-          : stats.map((stat) => (
-              <div key={stat.label} className="surface-card overflow-hidden p-4 transition-all hover:-translate-y-0.5 hover:shadow-md">
-                <div className="flex items-start gap-3">
-                  <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center ${stat.tone}`}>
+              ))
+            : stats.map((stat) => (
+                <div key={stat.label} className="flex items-center gap-3 p-4">
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center ${stat.tone}`}>
                     <stat.icon className="h-5 w-5 stroke-[2.25]" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium uppercase tracking-wide subtle-text">{stat.label}</div>
-                    <div className="mt-1 text-2xl font-semibold text-foreground">{stat.value}</div>
-                    <div className="mt-1 truncate text-xs text-muted-foreground">{stat.detail}</div>
+                    <div className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{stat.label}</div>
+                    <div className="text-xl font-semibold tabular-nums text-foreground">{stat.value}</div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+        </div>
       </div>
 
-      <div className="surface-card grid gap-2.5 p-3">
-        <div className="grid items-end gap-2 lg:grid-cols-3 2xl:grid-cols-[minmax(14rem,1.35fr)_minmax(11.5rem,0.95fr)_minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(10rem,0.8fr)_minmax(11.5rem,0.9fr)]">
+      <section className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border px-4 py-3">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">{tt("Moje prioritete")}</h2>
+            <p className="text-xs text-muted-foreground">{tt("Odločitve in naslednji koraki, razvrščeni po nujnosti.")}</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => setDashboardView("today")}>
+            {tt("Odpri moj delovni dan")}
+          </Button>
+        </div>
+        <div className="divide-y divide-border">
+          {dailyActions.slice(0, 5).map((action) => (
+            <Link
+              key={action.key}
+              to={`/applicants/${action.applicant.id}?returnTo=/`}
+              className="grid gap-2 px-4 py-3 transition-colors hover:bg-muted/35 sm:grid-cols-[5rem_minmax(0,1.2fr)_minmax(0,1fr)_auto] sm:items-center"
+            >
+              <span className={`text-xs font-semibold ${action.tone}`}>{tt("Visoka")}</span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold text-foreground">{action.label}</span>
+                <span className="block truncate text-xs text-muted-foreground">{action.applicant.name} · {action.applicant.role}</span>
+              </span>
+              <span className="truncate text-xs text-muted-foreground">{action.detail}</span>
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
+                {tt("Odpri")} <ArrowRight className="h-3.5 w-3.5" />
+              </span>
+            </Link>
+          ))}
+          {!isLoading && dailyActions.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">{tt("Ni odprtih prioritet.")}</div>
+          ) : null}
+        </div>
+      </section>
+
+      <div className="grid gap-2.5 border-b border-border pb-4">
+        {/* Primary filters: search + job + phase + advanced toggle */}
+        <div className="grid items-end gap-2 lg:grid-cols-[minmax(14rem,1.5fr)_minmax(11rem,1fr)_minmax(10rem,1fr)_auto]">
           <label className="grid gap-1">
             <span className="text-xs font-medium text-muted-foreground">Iskanje</span>
             <span className="relative">
@@ -1812,19 +2464,6 @@ export default function Dashboard() {
             </Select>
           </div>
           <div className="grid gap-1">
-            <Label className="text-xs text-muted-foreground">Status dela</Label>
-            <Select value={jobStatusFilter} onValueChange={setJobStatusFilter}>
-              <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Vsa dela</SelectItem>
-                <SelectItem value="active">Aktivna dela</SelectItem>
-                <SelectItem value="inactive">Neaktivna dela</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1">
             <Label className="text-xs text-muted-foreground">Faza</Label>
             <Select value={stageFilter} onValueChange={setStageFilter}>
               <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
@@ -1840,89 +2479,152 @@ export default function Dashboard() {
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1">
-            <Label className="text-xs text-muted-foreground">Ujemanje</Label>
-            <Select value={scoreFilter} onValueChange={setScoreFilter}>
-              <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Vse ocene</SelectItem>
-                <SelectItem value="strong">{tt("80% ali več")}</SelectItem>
-                <SelectItem value="medium">60-79%</SelectItem>
-                <SelectItem value="low">Pod 60%</SelectItem>
-                <SelectItem value="unscored">Brez ocene</SelectItem>
-              </SelectContent>
-            </Select>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 gap-2"
+            onClick={() => setShowDashboardFilters((value) => !value)}
+            aria-expanded={showDashboardFilters}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            {tt("Napredni filtri")}
+            {dashboardAdvancedCount > 0 ? (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1 text-xs font-semibold text-foreground">
+                {dashboardAdvancedCount}
+              </span>
+            ) : null}
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${showDashboardFilters ? "rotate-180" : ""}`}
+            />
+          </Button>
+        </div>
+
+        {/* Advanced filters (collapsed by default) */}
+        {showDashboardFilters ? (
+          <div className="grid gap-2 rounded-lg bg-muted/30 p-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-1">
+              <Label className="text-xs text-muted-foreground">Status dela</Label>
+              <Select value={jobStatusFilter} onValueChange={setJobStatusFilter}>
+                <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Vsa dela</SelectItem>
+                  <SelectItem value="active">Aktivna dela</SelectItem>
+                  <SelectItem value="inactive">Neaktivna dela</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-xs text-muted-foreground">Ujemanje</Label>
+              <Select value={scoreFilter} onValueChange={setScoreFilter}>
+                <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Vse ocene</SelectItem>
+                  <SelectItem value="strong">{tt("80% ali več")}</SelectItem>
+                  <SelectItem value="medium">60-79%</SelectItem>
+                  <SelectItem value="low">Pod 60%</SelectItem>
+                  <SelectItem value="unscored">Brez ocene</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1">
+              <Label className="text-xs text-muted-foreground">Ponudbe</Label>
+              <Select value={offerFilter} onValueChange={setOfferFilter}>
+                <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Vsi kandidati</SelectItem>
+                  <SelectItem value="without_offer">Brez ponudbe</SelectItem>
+                  <SelectItem value="preparing">V pripravi</SelectItem>
+                  <SelectItem value="sent">{tt("Poslana, čaka odgovor")}</SelectItem>
+                  <SelectItem value="accepted">Sprejeta</SelectItem>
+                  <SelectItem value="declined">Zavrnjena</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
-          <div className="grid gap-1">
-            <Label className="text-xs text-muted-foreground">Ponudbe</Label>
-            <Select value={offerFilter} onValueChange={setOfferFilter}>
-              <SelectTrigger className="h-9 border-border bg-background shadow-sm dark:bg-muted/30">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Vsi kandidati</SelectItem>
-                <SelectItem value="without_offer">Brez ponudbe</SelectItem>
-                <SelectItem value="preparing">V pripravi</SelectItem>
-                <SelectItem value="sent">{tt("Poslana, čaka odgovor")}</SelectItem>
-                <SelectItem value="accepted">Sprejeta</SelectItem>
-                <SelectItem value="declined">Zavrnjena</SelectItem>
-              </SelectContent>
-            </Select>
+        ) : null}
+
+        {/* Active filter chips */}
+        {dashboardChips.length ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {dashboardChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.onRemove}
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/70"
+              >
+                {chip.label}
+                <X className="h-3 w-3" />
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={clearAllDashboardFilters}
+              className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              {tt("Počisti vse")}
+            </button>
+          </div>
+        ) : null}
+
+        <div className="grid gap-1">
+          <Label className="text-xs text-muted-foreground">{tt("Obdobje trendov")}</Label>
+          <div className="inline-flex w-fit rounded-full border border-border p-0.5">
+            {([14, 30, 90] as const).map((days) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => setAnalyticsRange(days)}
+                aria-pressed={analyticsRange === days}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                  analyticsRange === days
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {days} {tt("dni")}
+              </button>
+            ))}
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-          <div className="grid gap-1">
-            <Label className="text-xs text-muted-foreground">{tt("Grafični pregled")}</Label>
-            <div className="grid gap-1 sm:grid-cols-3 lg:w-[28rem]">
-              {[
-                { key: "readiness" as const, label: "Pripravljenost" },
-                { key: "match" as const, label: "Ujemanje" },
-                { key: "offers" as const, label: "Ponudbe" },
-              ].map((item) => (
-                <Button
-                  key={item.key}
-                  type="button"
-                  size="sm"
-                  className="h-9 px-2 text-sm"
-                  variant={chartFocus === item.key ? "default" : "outline"}
-                  onClick={() => setChartFocus(item.key)}
-                >
-                  {item.label}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div className="grid gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-9 whitespace-nowrap"
-              onClick={() => {
-                setDashboardSearch("");
-                setJobFilter("all");
-                setJobStatusFilter("all");
-                setStageFilter("all");
-                setScoreFilter("all");
-                setOfferFilter("all");
-              }}
-            >
-              Ponastavi filtre
-            </Button>
+        {/* Chart focus is a view toggle, not a filter */}
+        <div className="grid gap-1">
+          <Label className="text-xs text-muted-foreground">{tt("Grafični pregled")}</Label>
+          <div className="grid gap-1 sm:grid-cols-3 lg:w-[28rem]">
+            {[
+              { key: "readiness" as const, label: "Pripravljenost" },
+              { key: "match" as const, label: "Ujemanje" },
+              { key: "offers" as const, label: "Ponudbe" },
+            ].map((item) => (
+              <Button
+                key={item.key}
+                type="button"
+                size="sm"
+                className="h-9 px-2 text-sm"
+                variant={chartFocus === item.key ? "default" : "outline"}
+                onClick={() => setChartFocus(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))}
           </div>
         </div>
       </div>
 
       {isLoading ? (
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <section className="surface-card p-5">
+          <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
             <div className="mb-4 h-5 w-44 animate-pulse rounded bg-muted" />
             <LoadingChart variant="bars" />
           </section>
-          <section className="surface-card p-5">
+          <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
             <div className="mb-4 h-5 w-48 animate-pulse rounded bg-muted" />
             <LoadingChart variant="donut" />
           </section>
@@ -1930,59 +2632,69 @@ export default function Dashboard() {
       ) : chartFocus === "readiness" ? (
         <>
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Status pripravljenosti")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">
                 {tt("Uravnotežen prikaz trenutne razporeditve kandidatov po fazah izbranega pogleda.")}
               </p>
-              <ReadinessFunnel data={readinessFunnelData} emptyLabel={t("noApplicants")} />
+              <ResponsiveFunnel
+                data={readinessFunnelData}
+                emptyLabel={t("noApplicants")}
+                onSelect={(item) => setStageFilter(item.key)}
+              />
             </section>
 
-            <section className="surface-card p-5">
-              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Kandidati po fazah")}</h2>
-              <p className="mb-4 text-sm text-muted-foreground">{tt("Operativni pogled za trenutno obremenitev faz.")}</p>
-              <DonutChart data={stageData} emptyLabel={t("noApplicants")} />
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
+              <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Ozka grla po fazah")}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{tt("Aktivne faze, razvrščene po obremenitvi — najbolj zasedena faza je označena.")}</p>
+              <ResponsiveBars
+                data={phaseBottleneckData}
+                emptyLabel={t("noApplicants")}
+                horizontal
+                valueLabel={tt("Kandidati")}
+                onSelect={(item) => setStageFilter(item.key)}
+              />
             </section>
           </div>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Ozka grla po vlogah")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{tt("Vloge z največ kandidati v začetnih fazah potrebujejo pregled ali odločitev.")}</p>
-              <HorizontalBars data={readinessBottleneckData} emptyLabel={t("noApplicants")} />
+              <ResponsiveBars data={readinessBottleneckData} emptyLabel={t("noApplicants")} horizontal valueLabel={tt("Kandidati")} />
             </section>
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Povprečna starost faze")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{tt("Koliko dni so kandidati v povprečju v procesu glede na trenutni status.")}</p>
-              <VerticalBars data={stageAgeData} emptyLabel={t("noApplicants")} />
+              <ResponsiveBars data={stageAgeData} emptyLabel={t("noApplicants")} valueLabel={tt("Dni")} />
             </section>
           </div>
         </>
       ) : chartFocus === "match" ? (
         <>
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Porazdelitev ujemanja")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{tt("Pokaže, ali ima izbrani pogled dovolj močnih kandidatov ali preveč neocenjenih profilov.")}</p>
-              <VerticalBars data={scoreBucketData} emptyLabel={t("noApplicants")} />
+              <ResponsiveBars data={scoreBucketData} emptyLabel={t("noApplicants")} valueLabel={tt("Kandidati")} />
             </section>
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Povprečno ujemanje po vlogah")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{tt("Najhitrejši način za odkritje vlog z najmočnejšim naborom kandidatov.")}</p>
-              <HorizontalBars data={roleMatchData} emptyLabel={t("noApplicants")} />
+              <ResponsiveBars data={roleMatchData} emptyLabel={t("noApplicants")} horizontal valueLabel={tt("Povprečno ujemanje")} />
             </section>
           </div>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{t("topCandidateMatches")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{t("topCandidateMatchesSubtitle")}</p>
-              <CandidateScoreStrip data={filteredApplicants} emptyLabel={t("noApplicants")} />
+              <ResponsiveCandidateScores data={filteredApplicants} emptyLabel={t("noApplicants")} />
             </section>
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Trend kakovosti ujemanja")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{tt("Povprečno in najboljše ujemanje novo dodanih kandidatov po dnevih.")}</p>
-              <DualLineTrend
+              <ResponsiveDualTrend
                 data={matchQualityTrendData}
                 emptyLabel={t("noApplicants")}
                 primaryLabel={tt("Povprečje")}
@@ -1990,8 +2702,6 @@ export default function Dashboard() {
                 primaryColor="#14b8a6"
                 secondaryColor="#8b5cf6"
                 valueSuffix="%"
-                fixedMax={100}
-                detail={tt("Povprečno ujemanje / najvišje ujemanje za kandidate dodane na izbrani dan.")}
               />
             </section>
           </div>
@@ -1999,32 +2709,32 @@ export default function Dashboard() {
       ) : (
         <>
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Status ponudb")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{tt("Prikazuje disjunktne statuse ponudb, brez podvajanja sprejetih in poslanih kandidatov.")}</p>
-              <ReadinessFunnel data={offerFunnelData} emptyLabel={t("noOfferCandidates")} />
+              <ResponsiveFunnel data={offerFunnelData} emptyLabel={t("noOfferCandidates")} />
             </section>
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Starost odprtih ponudb")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{tt("Ponudbe brez odgovora po 8+ dneh so kandidati za follow-up.")}</p>
-              <VerticalBars data={offerAgingData} emptyLabel={t("noOfferCandidates")} />
+              <ResponsiveBars data={offerAgingData} emptyLabel={t("noOfferCandidates")} valueLabel={tt("Ponudbe")} />
             </section>
           </div>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1fr_1fr]">
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{t("offerTracking")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{t("offerTrackingSubtitle")}</p>
-              <TrendLines data={offerTrendData} emptyLabel={t("noOfferCandidates")} />
+              <ResponsiveOfferTrend data={offerTrendData} emptyLabel={t("noOfferCandidates")} />
               <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-violet-500" />{t("offersCreated")}</span>
                 <span className="inline-flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" />{t("offersSent")}</span>
               </div>
             </section>
-            <section className="surface-card p-5">
+            <section className="rounded-xl bg-card p-5 dark:ring-1 dark:ring-border/60">
               <h2 className="mb-1 text-base font-semibold text-foreground">{tt("Odziv na poslane ponudbe")}</h2>
               <p className="mb-4 text-sm text-muted-foreground">{tt("Primerja sprejete ponudbe in ponudbe, ki še čakajo odgovor po datumu pošiljanja.")}</p>
-              <DualLineTrend
+              <ResponsiveDualTrend
                 data={offerDecisionTrendData}
                 emptyLabel={t("noOfferCandidates")}
                 primaryLabel="Sprejete"
@@ -2032,60 +2742,57 @@ export default function Dashboard() {
                 primaryColor="#14b8a6"
                 secondaryColor="#f59e0b"
                 valueSuffix="%"
-                fixedMax={100}
-                detail={tt("Delež sprejetih / čakajočih ponudb med ponudbami poslanimi na izbrani dan.")}
               />
             </section>
           </div>
         </>
       )}
 
-      <section className="surface-card p-5">
-        <div className="mb-4 flex items-center justify-between">
+      <section className="overflow-hidden rounded-xl bg-card shadow-sm dark:shadow-none dark:ring-1 dark:ring-border/60">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
-            <h2 className="text-base font-semibold text-foreground">{t("topCandidateMatches")}</h2>
-            <p className="text-sm text-muted-foreground">{t("topCandidateMatchesSubtitle")}</p>
+            <h2 className="text-sm font-semibold text-foreground">{t("topCandidateMatches")}</h2>
+            <p className="text-xs text-muted-foreground">{t("topCandidateMatchesSubtitle")}</p>
           </div>
-          <Link to="/applicants" className="text-sm font-medium text-foreground underline-offset-4 hover:underline">
+          <Link to="/applicants" className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
             {t("viewAll")}
           </Link>
         </div>
-        <div className="space-y-3">
+        <div className="divide-y divide-border">
           {recentApplicants.map((applicant) => (
             <div
               key={applicant.id}
-              className="grid gap-4 rounded-md border border-border bg-muted/35 p-4 transition-colors hover:bg-muted/60 lg:grid-cols-[1.2fr_1fr_0.7fr_0.8fr_0.9fr_1.4fr_auto] lg:items-center"
+              className="grid gap-3 px-5 py-3 transition-colors hover:bg-accent/40 lg:grid-cols-[1.4fr_1fr_5rem_6rem_6rem_1.6fr_auto] lg:items-center"
             >
               <div>
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("candidate")}</div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("candidate")}</p>
                 <p className="text-sm font-semibold text-foreground">{applicant.name}</p>
               </div>
               <div>
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("job")}</div>
-                <p className="text-sm text-muted-foreground">{applicant.role}</p>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("job")}</p>
+                <p className="truncate text-sm text-muted-foreground">{applicant.role}</p>
               </div>
               <div>
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("match")}</div>
-                <span className="text-lg font-semibold text-emerald-500">
-                  {typeof applicant.aiScore === "number"
-                    ? `${Math.round(applicant.aiScore)}%`
-                    : t("notScored")}
-                </span>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("match")}</p>
+                <ScoreChip
+                  score={typeof applicant.aiScore === "number" ? applicant.aiScore : null}
+                  emptyLabel={t("notScored")}
+                />
               </div>
               <div>
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("stage")}</div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("stage")}</p>
                 <Badge variant="secondary">{stageLabel(applicant.stage)}</Badge>
               </div>
               <div>
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("aiWriting")}</div>
-                <span className="text-sm font-medium text-foreground">
-                  {applicant.aiWritingScore == null ? t("notScored") : `${Math.round(applicant.aiWritingScore)}%`}
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{tt("Pregled")}</p>
+                <span className="text-sm tabular-nums text-muted-foreground">
+                  {applicant.aiWritingScore == null ? "—" : `${Math.round(applicant.aiWritingScore)}%`}
                 </span>
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{t("aiSummary")}</div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground lg:hidden">{tt("Povzetek")}</p>
                 <p className="truncate text-sm text-muted-foreground">
-                  {applicant.summary || applicant.matchAnalysis.pros[0] || t("aiAnalysisPending")}
+                  {applicant.summary || applicant.matchAnalysis.pros[0] || tt("Pregled še ni zaključen")}
                 </p>
               </div>
               <div className="flex justify-start lg:justify-end">
@@ -2096,12 +2803,14 @@ export default function Dashboard() {
             </div>
           ))}
           {!recentApplicants.length ? (
-            <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+            <div className="px-5 py-10 text-center text-sm text-muted-foreground">
               {t("noApplicants")}
             </div>
           ) : null}
         </div>
       </section>
+        </div>
+      )}
     </div>
   );
 }

@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
+import { StatStrip } from "../components/shell/StatStrip";
 import {
   Accordion,
   AccordionContent,
@@ -141,8 +142,13 @@ const copy = {
       "Paste CV text, public profile content, or consented notes that should travel with this lead...",
     leadFindings: "Talent findings",
     leadFindingsPlaceholder: "Add new findings, response after contact, consent, or application context...",
+    noFindingsYet: "No findings yet",
+    addFinding: "Add finding",
+    addContact: "Add contact",
     addLead: "Add lead",
     editLead: "Edit lead",
+    deleteLead: "Delete lead",
+    openProfile: "Open profile",
     saveLead: "Save lead",
     cancelEdit: "Cancel",
     documents: "Documents",
@@ -167,13 +173,15 @@ const copy = {
     githubQueryUsed: "Query used",
     importLead: "Import lead",
     createCandidate: "Create candidate",
+    openCandidate: "Open candidate →",
+    convertedToCandidate: "Converted to candidate",
     candidateCreated: "Candidate created.",
     candidateCreatedFromSource:
-      "Candidate created from the sourcing profile link. AI analysis was not started because no CV or pasted source document is attached.",
+      "Candidate created from the sourcing profile link. Attach a CV or source document to complete the review.",
     candidateCreatedFromLinkedIn:
-      "Candidate created from a LinkedIn profile link. AI analysis was not started because no CV or pasted LinkedIn content is attached.",
+      "Candidate created from a LinkedIn profile link. Attach a CV or profile evidence to complete the review.",
     candidateCreatedAnalysisQueued:
-      "Candidate created. AI analysis was queued from attached source documents.",
+      "Candidate created. The attached source documents were queued for review.",
     candidateCreateFailed: "Candidate could not be created.",
     candidateAlreadyCreated: "Candidate already created",
     candidateJob: "Candidate job",
@@ -256,8 +264,13 @@ const copy = {
       "Prilepi CV besedilo, javno dostopno vsebino profila ali zapiske s privolitvijo, ki naj ostanejo pri talentu...",
     leadFindings: "Ugotovitve o talentu",
     leadFindingsPlaceholder: "Dodaj nove ugotovitve, odziv po kontaktu, soglasje ali kontekst prijave...",
+    noFindingsYet: "Še ni ugotovitev",
+    addFinding: "Dodaj ugotovitev",
+    addContact: "Dodaj kontakt",
     addLead: "Dodaj talent",
     editLead: "Uredi talent",
+    deleteLead: "Izbriši talent",
+    openProfile: "Odpri profil",
     saveLead: "Shrani talent",
     cancelEdit: "Prekliči",
     documents: "Dokumenti",
@@ -282,13 +295,15 @@ const copy = {
     githubQueryUsed: "Uporabljen iskalni niz",
     importLead: "Uvozi talent",
     createCandidate: "Ustvari kandidata",
+    openCandidate: "Odpri kandidata →",
+    convertedToCandidate: "Pretvorjen v kandidata",
     candidateCreated: "Kandidat je ustvarjen.",
     candidateCreatedFromSource:
-      "Kandidat je ustvarjen iz povezave vira. AI analiza ni zagnana, ker ni dodanega CV-ja ali prilepljenega dokazila.",
+      "Kandidat je ustvarjen iz povezave vira. Za zaključek pregleda dodaj CV ali dokazilo.",
     candidateCreatedFromLinkedIn:
-      "Kandidat je ustvarjen iz LinkedIn povezave. AI analiza ni zagnana, ker ni dodanega CV-ja ali prilepljene LinkedIn vsebine.",
+      "Kandidat je ustvarjen iz LinkedIn povezave. Za zaključek pregleda dodaj CV ali vsebino profila.",
     candidateCreatedAnalysisQueued:
-      "Kandidat je ustvarjen. AI analiza iz dodanih dokazil je dodana v čakalno vrsto.",
+      "Kandidat je ustvarjen. Dodana dokazila čakajo na pregled.",
     candidateCreateFailed: "Kandidata ni bilo mogoče ustvariti.",
     candidateAlreadyCreated: "Kandidat je že ustvarjen",
     candidateJob: "Delovno mesto kandidata",
@@ -491,7 +506,7 @@ const buildSourcingSummary = (
 
 export default function Headhunter() {
   const navigate = useNavigate();
-  const { language } = useI18n();
+  const { language, tt } = useI18n();
   const c = copy[language];
   const csvInputRef = useRef<HTMLInputElement | null>(null);
   const cachedJobOptions = getCachedJobOptions();
@@ -584,6 +599,8 @@ export default function Headhunter() {
           Boolean(lead.evidence.trim()) ||
           Boolean(lead.notes.trim()),
       ).length,
+      reviewed: leads.filter((lead) => lead.status === "reviewed").length,
+      contacted: leads.filter((lead) => lead.status === "contacted").length,
       ready: leads.filter((lead) => Boolean(lead.candidateId)).length,
     }),
     [leads],
@@ -1136,22 +1153,17 @@ export default function Headhunter() {
           <h1 className="page-title">{c.title}</h1>
           <p className="max-w-3xl text-sm subtle-text">{c.subtitle}</p>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:min-w-[34rem]">
-          {[
-            { label: c.total, value: stats.total },
-            { label: c.linkedinLeads, value: stats.linkedin },
-            { label: c.documented, value: stats.documented },
-            { label: c.ready, value: stats.ready },
-          ].map((item) => (
-            <div key={item.label} className="surface-card px-4 py-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {item.label}
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-foreground">{item.value}</p>
-            </div>
-          ))}
-        </div>
       </div>
+
+      <StatStrip
+        items={[
+          { label: c.total, value: stats.total, detail: tt("Vsi viri") },
+          { label: c.reviewed, value: stats.reviewed, detail: tt("Pregledani profili") },
+          { label: c.contacted, value: stats.contacted, detail: tt("Vzpostavljen stik") },
+          { label: c.ready, value: stats.ready, detail: tt("Pretvorjeni v kandidate") },
+          { label: c.documented, value: stats.documented, detail: tt("Z dokazili") },
+        ]}
+      />
 
       {message ? (
         <div className="surface-card flex items-center justify-between gap-3 px-4 py-3 text-sm text-muted-foreground">
@@ -1755,9 +1767,16 @@ export default function Headhunter() {
                           <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                             {labelForSource(lead.source, language)}
                           </span>
-                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
-                            {labelForStatus(lead.status, language)}
-                          </span>
+                          {lead.candidateId ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-500">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {c.convertedToCandidate}
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-500">
+                              {labelForStatus(lead.status, language)}
+                            </span>
+                          )}
                           {lead.documents.length ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-600">
                               <FileText className="h-3 w-3" />
@@ -1765,12 +1784,6 @@ export default function Headhunter() {
                               {lead.documents.length === 1
                                 ? c.documentAttached
                                 : c.documentsAttached}
-                            </span>
-                          ) : null}
-                          {lead.candidateId ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-medium text-cyan-500">
-                              <CheckCircle2 className="h-3 w-3" />
-                              {c.candidateAlreadyCreated}
                             </span>
                           ) : null}
                         </div>
@@ -1790,15 +1803,22 @@ export default function Headhunter() {
                         {lead.location ? (
                           <p className="mt-3 text-sm text-muted-foreground">{lead.location}</p>
                         ) : null}
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          {lead.email || lead.phone ? (
-                            <>
-                              {c.contactExtracted}: {[lead.email, lead.phone].filter(Boolean).join(" · ")}
-                            </>
-                          ) : (
-                            c.contactMissing
-                          )}
-                        </p>
+                        {lead.email || lead.phone ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            {c.contactExtracted}: {[lead.email, lead.phone].filter(Boolean).join(" · ")}
+                          </p>
+                        ) : (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <span>{c.contactMissing}</span>
+                            <button
+                              type="button"
+                              onClick={() => startEditingLead(lead)}
+                              className="font-medium text-foreground underline-offset-4 hover:underline"
+                            >
+                              {c.addContact}
+                            </button>
+                          </div>
+                        )}
                         {lead.documents.length ? (
                           <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/25 p-3">
                             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1816,15 +1836,28 @@ export default function Headhunter() {
                         ) : null}
                         <div className="mt-4 grid gap-2">
                           <Label htmlFor={`lead-notes-${lead.id}`}>{c.leadFindings}</Label>
-                          <Textarea
-                            id={`lead-notes-${lead.id}`}
-                            value={lead.notes}
-                            placeholder={c.leadFindingsPlaceholder}
-                            className="min-h-24"
-                            onChange={(event) =>
-                              handleLeadNotesChange(lead.id, event.target.value)
-                            }
-                          />
+                          {lead.notes.trim() ? (
+                            <Textarea
+                              id={`lead-notes-${lead.id}`}
+                              value={lead.notes}
+                              placeholder={c.leadFindingsPlaceholder}
+                              className="min-h-24"
+                              onChange={(event) =>
+                                handleLeadNotesChange(lead.id, event.target.value)
+                              }
+                            />
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+                              <span>{c.noFindingsYet}</span>
+                              <button
+                                type="button"
+                                onClick={() => startEditingLead(lead)}
+                                className="font-medium text-foreground underline-offset-4 hover:underline"
+                              >
+                                {c.addFinding}
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </>
                     )}
@@ -1927,7 +1960,8 @@ export default function Headhunter() {
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
-                        aria-label={lead.profileUrl}
+                        aria-label={c.openProfile}
+                        title={lead.profileUrl}
                       >
                         <LinkIcon className="h-4 w-4" />
                       </a>
@@ -1950,7 +1984,7 @@ export default function Headhunter() {
                           {creatingCandidateId === lead.id
                             ? "..."
                             : lead.candidateId
-                              ? c.candidateAlreadyCreated
+                              ? c.openCandidate
                               : c.createCandidate}
                         </Button>
                         <Button
@@ -1959,6 +1993,7 @@ export default function Headhunter() {
                           size="icon"
                           className="text-red-600 hover:text-red-700"
                           onClick={() => handleDeleteLead(lead.id)}
+                          aria-label={c.deleteLead}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

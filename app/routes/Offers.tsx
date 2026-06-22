@@ -4,6 +4,9 @@ import { clsx } from "clsx";
 import { CheckCircle2, Eye, FileText, Loader2, Send, UserRound, XCircle } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { StatStrip } from "../components/shell/StatStrip";
+import { scoreBand, scoreBandText } from "../lib/score";
+import { useConfirm } from "../lib/confirm";
 import { Checkbox } from "../components/ui/checkbox";
 import { Label } from "../components/ui/label";
 import {
@@ -24,6 +27,16 @@ import { OfferDraftDialog } from "../components/OfferDraftDialog";
 import { OfferPreviewDialog } from "../components/OfferPreviewDialog";
 import { type OfferDocument, type OfferInputs } from "../lib/offerDocument";
 import { logActivityEvent } from "../lib/activityLog";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 type OfferCandidate = {
   id: string;
@@ -139,7 +152,7 @@ const getOfferStatusLabel = (
   return t("offerStatusPreparing");
 };
 
-function OfferActionSlider({
+function OfferActionSteps({
   candidate,
   disabled,
   t,
@@ -155,75 +168,62 @@ function OfferActionSlider({
   onSend: () => void;
 }) {
   const currentStep = getOfferProgressStep(candidate);
-  const [draftStep, setDraftStep] = useState(currentStep);
-
-  useEffect(() => {
-    setDraftStep(currentStep);
-  }, [currentStep]);
-
-  const handlePosition =
-    draftStep === 0 ? "10px" : draftStep === 2 ? "calc(100% - 10px)" : "50%";
-
-  const commitStep = (step = draftStep) => {
-    if (disabled) return;
-    if (step <= currentStep) return;
-    if (step === 1) onPrepare();
-    if (step === 2) onSend();
-  };
+  const steps = [t("offerStatusPreparing"), t("offerDraftReady"), t("offerStatusSent")];
 
   return (
-    <div className="relative min-h-[5.5rem] rounded-md border border-border bg-muted/25 p-3">
-      <div className="mb-2 flex items-center justify-between text-xs font-medium text-muted-foreground">
-        <span>{t("offerStatusPreparing")}</span>
-        <span>{t("offerDraftReady")}</span>
-        <span>{t("offerStatusSent")}</span>
-      </div>
-      <div className="relative h-12 overflow-hidden rounded-md border border-border bg-background shadow-inner">
-        <div
-          className="absolute inset-y-0 left-0 rounded-md bg-gradient-to-r from-fuchsia-500 to-emerald-200 transition-all duration-300"
-          style={{ width: `${(draftStep / 2) * 100}%` }}
-        />
-        <div className="pointer-events-none absolute inset-0 grid grid-cols-3 text-xs font-semibold">
-          <div className="flex items-center justify-center text-muted-foreground">
-            {tt("Priprava")}
-          </div>
-          <div className="flex items-center justify-center text-white/90 drop-shadow">
-            {tt("Vnesi podatke")}
-          </div>
-          <div className="flex items-center justify-center text-foreground/80">{tt("Poslano")}</div>
+    <div className="grid min-h-[5.5rem] content-center gap-3 rounded-xl bg-muted/30 p-3">
+      <ol className="flex items-center">
+        {steps.map((label, index) => {
+          const isDone = index < currentStep;
+          const isCurrent = index === currentStep;
+          const isLast = index === steps.length - 1;
+          return (
+            <li key={label} className="flex min-w-0 flex-1 items-center">
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${
+                    isCurrent
+                      ? "bg-primary text-primary-foreground"
+                      : isDone
+                        ? "bg-emerald-500 text-white"
+                        : "border border-border text-muted-foreground"
+                  }`}
+                >
+                  {isDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : index + 1}
+                </span>
+                <span
+                  className={`truncate text-xs font-medium ${
+                    isCurrent ? "text-foreground" : "text-muted-foreground"
+                  }`}
+                >
+                  {label}
+                </span>
+              </div>
+              {!isLast ? (
+                <span
+                  className={`mx-2 h-px min-w-3 flex-1 ${
+                    index < currentStep ? "bg-emerald-500/50" : "bg-border"
+                  }`}
+                />
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+      {!disabled && currentStep < 2 ? (
+        <div className="flex justify-end">
+          <Button type="button" size="sm" onClick={currentStep === 0 ? onPrepare : onSend}>
+            {currentStep === 0 ? tt("Pripravi osnutek") : tt("Označi kot poslano")}
+          </Button>
         </div>
-        <div
-          className="pointer-events-none absolute top-1/2 h-10 w-5 -translate-x-1/2 -translate-y-1/2 rounded-md border border-white/70 bg-background/90 shadow-lg transition-all duration-300"
-          style={{ left: handlePosition }}
-        >
-          <span className="absolute left-1/2 top-1/2 h-6 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-b from-fuchsia-500 to-emerald-200" />
-        </div>
-        <input
-          aria-label={tt("Status ponudbe")}
-          type="range"
-          min={0}
-          max={2}
-          step={1}
-          value={draftStep}
-          disabled={disabled}
-          onChange={(event) => setDraftStep(Number(event.target.value))}
-          onMouseUp={() => commitStep()}
-          onTouchEnd={() => commitStep()}
-          onKeyUp={(event) => {
-            if (event.key === "Enter" || event.key === " ") commitStep();
-          }}
-          className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-        />
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        {tt("Primite navpično ročko in povlecite na sredino za pripravo ponudbe ali do konca za poslano.")}
-      </p>
+      ) : null}
     </div>
   );
 }
 
 export default function Offers() {
   const { t, tt } = useI18n();
+  const confirm = useConfirm();
   const restoredViewState = useMemo(() => readOffersViewState(), []);
   const [candidates, setCandidates] = useState<CandidateWithDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -423,6 +423,38 @@ export default function Offers() {
     [candidates, jobFilter, offerStatusFilters],
   );
 
+  const budgetChartData = useMemo(
+    () =>
+      filteredCandidates
+        .map((candidate) => ({
+          id: candidate.id,
+          name: candidate.full_name,
+          expected:
+            getNumberChecklistValue(candidate.offer_checklist, "candidateExpectedGross") ?? 0,
+          max: getNumberChecklistValue(candidate.offer_checklist, "negotiationMaxGross") ?? 0,
+          status: String(candidate.offer_checklist?.negotiationStatus ?? "missing"),
+        }))
+        .filter((item) => item.expected > 0 || item.max > 0)
+        .slice(0, 10),
+    [filteredCandidates],
+  );
+
+  const budgetStatusStats = useMemo(
+    () => ({
+      inRange: filteredCandidates.filter((candidate) => {
+        const status = candidate.offer_checklist?.negotiationStatus;
+        return status === "in_range" || status === "borderline";
+      }).length,
+      overBudget: filteredCandidates.filter(
+        (candidate) => candidate.offer_checklist?.negotiationStatus === "over_budget",
+      ).length,
+      missing: filteredCandidates.filter(
+        (candidate) => !candidate.offer_checklist?.negotiationStatus || candidate.offer_checklist?.negotiationStatus === "missing",
+      ).length,
+    }),
+    [filteredCandidates],
+  );
+
   const generateOffer = async (candidate: OfferCandidate, offerInputs: OfferInputs) => {
     setGeneratingCandidateId(candidate.id);
     setError(null);
@@ -569,13 +601,16 @@ export default function Offers() {
         : false;
 
       if (capacity && wouldExceedCapacity) {
-        const confirmed = window.confirm(
-          tt("To delo ima trenutno") +
+        const confirmed = await confirm({
+          title: tt("Delo je zapolnjeno"),
+          description:
+            tt("To delo ima trenutno") +
             ` ${capacity.acceptedCount}/${capacity.openings} ` +
             tt("sprejetih kandidatov. Sprejem tega kandidata bi presegel kapaciteto. Želite povečati število mest na") +
             ` ${nextAcceptedCount} ` +
             tt("in nadaljevati?"),
-        );
+          confirmLabel: tt("Poveči in nadaljuj"),
+        });
 
         if (!confirmed) {
           setError(tt("Sprejem kandidata je bil preklican, ker je delo zapolnjeno."));
@@ -700,27 +735,82 @@ export default function Offers() {
           <h1 className="page-title">{t("offers")}</h1>
           <p className="text-sm subtle-text">{t("offersSubtitle")}</p>
         </div>
+        <Badge variant="secondary">{tt("Komercialna odločitev")}</Badge>
       </div>
 
-      <div className="grid max-w-5xl grid-cols-[repeat(auto-fit,minmax(8.75rem,1fr))] gap-3">
-        {[
+      <StatStrip
+        items={[
           { label: t("offerWorkspaceTotal"), value: stats.total },
           { label: t("offerWorkspaceDue"), value: stats.due },
           { label: t("offerWorkspaceDrafts"), value: stats.withDraft },
           { label: t("offerWorkspaceSent"), value: stats.sent },
           { label: t("offerOutcomeAccepted"), value: stats.accepted },
           { label: t("offerOutcomeDeclined"), value: stats.declined },
-        ].map((stat) => (
-          <div key={stat.label} className="surface-card min-h-24 p-3">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {stat.label}
-            </p>
-            <p className="mt-2 text-2xl font-semibold text-foreground">
-              {stat.value}
-            </p>
+        ]}
+      />
+
+      <section className="grid gap-4 rounded-lg border border-border bg-card p-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(18rem,0.45fr)]">
+        <div className="min-w-0">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-foreground">{tt("Budget kandidatov")}</h2>
+              <p className="text-sm text-muted-foreground">
+                {tt("Primerjava bruto pričakovanja kandidata z največjim budgetom pozicije.")}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-blue-500" />{tt("Pričakovanje")}</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-slate-300 dark:bg-slate-600" />{tt("Max budget")}</span>
+            </div>
           </div>
-        ))}
-      </div>
+          {budgetChartData.length ? (
+            <div className="h-[300px] min-w-0">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={300}>
+                <BarChart data={budgetChartData} layout="vertical" margin={{ top: 0, right: 24, bottom: 10, left: 18 }}>
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: "var(--muted-foreground)", fontSize: 11 }} tickFormatter={(value) => `${Math.round(Number(value) / 100) / 10}k`} />
+                  <YAxis type="category" dataKey="name" width={112} tick={{ fill: "var(--foreground)", fontSize: 11 }} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(value) => `${new Intl.NumberFormat("sl-SI").format(Number(value))} €`} />
+                  <Bar dataKey="max" name={tt("Max budget")} fill="#cbd5e1" radius={[0, 3, 3, 0]} maxBarSize={14} />
+                  <Bar dataKey="expected" name={tt("Pričakovanje")} radius={[0, 3, 3, 0]} maxBarSize={14}>
+                    {budgetChartData.map((item) => (
+                      <Cell
+                        key={item.id}
+                        fill={item.status === "over_budget" ? "#ef4444" : item.status === "missing" ? "#94a3b8" : "#10b981"}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-[220px] items-center justify-center rounded-md bg-muted/25 text-sm text-muted-foreground">
+              {tt("Dodaj pričakovanje kandidata in budget pozicije za prikaz grafa.")}
+            </div>
+          )}
+        </div>
+
+        <div className="grid content-start gap-3 border-t border-border pt-4 xl:border-l xl:border-t-0 xl:pl-4 xl:pt-0">
+          <h3 className="text-sm font-semibold text-foreground">{tt("Budget status")}</h3>
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between rounded-md bg-emerald-500/10 px-3 py-2.5">
+              <span className="text-sm font-medium text-emerald-700 dark:text-emerald-300">{tt("Znotraj budgeta")}</span>
+              <span className="text-lg font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{budgetStatusStats.inRange}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-md bg-red-500/10 px-3 py-2.5">
+              <span className="text-sm font-medium text-red-700 dark:text-red-300">{tt("Presega budget")}</span>
+              <span className="text-lg font-semibold tabular-nums text-red-700 dark:text-red-300">{budgetStatusStats.overBudget}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2.5">
+              <span className="text-sm font-medium text-muted-foreground">{tt("Manjkajo podatki")}</span>
+              <span className="text-lg font-semibold tabular-nums text-foreground">{budgetStatusStats.missing}</span>
+            </div>
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {tt("Rdeče vrstice zahtevajo odločitev ali novo pogajanje. Zelene so znotraj potrjenega razpona.")}
+          </p>
+        </div>
+      </section>
 
       {error ? (
         <div className="surface-card border-red-200 bg-red-50 p-4 text-sm text-red-700">
@@ -841,7 +931,14 @@ export default function Offers() {
           {t("noApplicants")}
         </div>
       ) : (
-        <div className="grid gap-4">
+        <div className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="hidden grid-cols-[minmax(15rem,1.2fr)_8rem_minmax(12rem,0.9fr)_minmax(10rem,0.75fr)_minmax(19rem,1.25fr)] items-center border-b border-border bg-muted/35 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
+            <span>{tt("Kandidat")}</span>
+            <span>{tt("Ocena")}</span>
+            <span>{tt("Budget")}</span>
+            <span>{tt("Status")}</span>
+            <span className="text-right">{tt("Akcije")}</span>
+          </div>
           {filteredCandidates.map((candidate) => {
             const isSent = Boolean(candidate.offer_checklist?.offerSent);
             const outcome = candidate.offer_outcome ?? "pending";
@@ -868,157 +965,86 @@ export default function Offers() {
             return (
               <div
                 key={candidate.id}
-                className="surface-card grid gap-4 overflow-hidden p-4 xl:grid-cols-[minmax(19rem,0.9fr)_minmax(28rem,1.25fr)_minmax(13rem,0.45fr)]"
+                className="grid gap-3 border-b border-border px-4 py-3 last:border-b-0 lg:grid-cols-[minmax(15rem,1.2fr)_8rem_minmax(12rem,0.9fr)_minmax(10rem,0.75fr)_minmax(19rem,1.25fr)] lg:items-center"
               >
-                <div className="flex min-w-0 items-center gap-4">
-                  <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-gradient-to-br from-cyan-500/20 via-violet-500/20 to-emerald-500/20 text-lg font-semibold text-foreground">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold uppercase text-primary">
                     {candidate.full_name ? getInitials(candidate.full_name) : (
-                      <UserRound className="h-8 w-8 text-muted-foreground" />
+                      <UserRound className="h-4 w-4 text-muted-foreground" />
                     )}
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="truncate text-base font-semibold text-foreground">
-                        {candidate.full_name}
-                      </h2>
-                      <Badge
-                        variant={
-                          outcome === "accepted" || isSent ? "secondary" : "default"
-                        }
+                      <Link
+                        to={`/applicants/${candidate.id}?returnTo=${encodeURIComponent("/offers")}`}
+                        className="truncate text-sm font-semibold text-foreground hover:text-primary hover:underline"
                       >
-                        {statusLabel}
-                      </Badge>
+                        {candidate.full_name}
+                      </Link>
                     </div>
-                    <p className="mt-1 truncate text-sm font-medium text-muted-foreground">
-                      {candidate.job_title}
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {t("atsMatchScore")}
-                      <span className="ml-2 font-semibold text-foreground">
-                        {atsScore == null ? "-" : `${atsScore}%`}
-                      </span>
-                    </p>
-                    {interviewAnalysisScore != null ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {tt("CV + razgovor AI")}
-                        <span className="ml-2 font-semibold text-cyan-600 dark:text-cyan-300">
-                          {interviewAnalysisScore}%
-                        </span>
-                      </p>
-                    ) : null}
-                    {negotiationLabel ? (
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {tt("Pogajanja")}
-                        <span className={`ml-2 font-semibold ${negotiationTone}`}>
-                          {negotiationLabel}
-                        </span>
-                        {expectedGross || maxGross ? (
-                          <span className="ml-2 text-muted-foreground">
-                            {expectedGross ? `${tt("Želi")} ${expectedGross} ${tt("bruto")}` : ""}
-                            {expectedGross && maxGross ? " / " : ""}
-                            {maxGross ? `Max ${maxGross}` : ""}
-                          </span>
-                        ) : null}
-                      </p>
-                    ) : null}
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{candidate.job_title}</p>
                   </div>
                 </div>
 
-                <div className="min-w-0">
-                  {outcome === "accepted" || outcome === "declined" ? (
-                    <div
-                      className={`grid min-h-[5.5rem] content-center rounded-md border p-3 transition-all duration-300 ${
-                        outcome === "accepted"
-                          ? "border-emerald-500/30 bg-emerald-500/10"
-                          : "border-red-500/30 bg-red-500/10"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                        {outcome === "accepted" ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                        ) : (
-                          <XCircle className="h-4 w-4 text-red-500" />
-                        )}
-                        {statusLabel}
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {tt("Končni status ponudbe je zabeležen.")}
-                      </p>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => updateOfferArchive(candidate, !isOfferArchived(candidate))}
-                        className="mt-3 w-fit"
-                      >
-                        {isOfferArchived(candidate) ? tt("Odstrani iz arhiva") : tt("Arhiviraj kandidata")}
-                      </Button>
-                    </div>
-                  ) : isSent ? (
-                    <div className="grid min-h-[5.5rem] content-center gap-3 rounded-md border border-border bg-muted/25 p-3 transition-all duration-300">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                        <Send className="h-4 w-4 text-emerald-500" />
-                        {tt("Ponudba je označena kot poslana")}
-                      </div>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => updateOfferOutcome(candidate, "accepted")}
-                          className="gap-2 border-emerald-500/40 text-emerald-600 hover:text-emerald-700"
-                        >
-                          <CheckCircle2 className="h-4 w-4" />
-                          {t("markOfferAccepted")}
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => updateOfferOutcome(candidate, "declined")}
-                          className="gap-2 border-red-500/40 text-red-600 hover:text-red-700"
-                        >
-                          <XCircle className="h-4 w-4" />
-                          {t("markOfferDeclined")}
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <OfferActionSlider
-                      candidate={candidate}
-                      disabled={isGenerating}
-                      t={t}
-                      tt={tt}
-                      onPrepare={() => openDraftCandidate(candidate)}
-                      onSend={() => {
-                        if (candidate.latestDocument) {
-                          void markOfferSent(candidate);
-                        } else {
-                          openDraftCandidate(candidate);
-                        }
-                      }}
-                    />
-                  )}
+                <div className="grid gap-0.5 text-xs">
+                  <span className={`font-semibold ${atsScore == null ? "text-muted-foreground" : scoreBandText[scoreBand(atsScore)]}`}>
+                    ATS {atsScore == null ? "—" : `${atsScore}%`}
+                  </span>
+                  <span className={interviewAnalysisScore == null ? "text-muted-foreground" : `font-semibold ${scoreBandText[scoreBand(interviewAnalysisScore)]}`}>
+                    {tt("CV + razgovor")} {interviewAnalysisScore == null ? "—" : `${interviewAnalysisScore}%`}
+                  </span>
                 </div>
 
-                <div className="grid content-center gap-2">
+                <div className="min-w-0 text-xs">
+                  <p className={`font-semibold ${negotiationTone}`}>{negotiationLabel ?? tt("Čaka podatke")}</p>
+                  <p className="mt-0.5 truncate text-muted-foreground">
+                    {expectedGross ? `${tt("Želi")} ${expectedGross} €` : tt("Pričakovanje ni vneseno")}
+                    {maxGross ? ` · Max ${maxGross} €` : ""}
+                  </p>
+                </div>
+
+                <Badge
+                  variant={outcome === "accepted" ? "success" : outcome === "declined" ? "destructive" : isSent ? "secondary" : "outline"}
+                  className="w-fit"
+                >
+                  {statusLabel}
+                </Badge>
+
+                <div className="flex flex-wrap items-center justify-start gap-1 lg:justify-end">
+                  {isSent && outcome === "pending" ? (
+                    <>
+                      <Button type="button" variant="outline" size="sm" onClick={() => updateOfferOutcome(candidate, "accepted")} className="gap-1.5 text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5" /> {tt("Sprejmi")}
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => updateOfferOutcome(candidate, "declined")} className="gap-1.5 text-red-700">
+                        <XCircle className="h-3.5 w-3.5" /> {tt("Zavrni")}
+                      </Button>
+                    </>
+                  ) : null}
+                  {!isSent && candidate.latestDocument ? (
+                    <Button type="button" variant="outline" size="sm" onClick={() => void markOfferSent(candidate)} className="gap-1.5">
+                      <Send className="h-3.5 w-3.5" /> {tt("Označi poslano")}
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={() => openDraftCandidate(candidate)}
                     disabled={isGenerating}
-                    className="justify-start gap-2"
+                    className="gap-1.5"
                   >
                     {isGenerating ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
-                      <FileText className="h-4 w-4" />
+                      <FileText className="h-3.5 w-3.5" />
                     )}
-                    {candidate.latestDocument ? t("editOfferData") : t("enterOfferData")}
+                    {candidate.latestDocument ? tt("Uredi") : tt("Vnesi ponudbo")}
                   </Button>
                   {candidate.latestDocument ? (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="ghost"
                       size="sm"
                       onClick={() =>
                         setSelectedDocument({
@@ -1026,18 +1052,23 @@ export default function Offers() {
                           candidateName: candidate.full_name,
                         })
                       }
-                      className="justify-start gap-2"
+                      className="gap-1.5"
                     >
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-3.5 w-3.5" />
                       {t("preview")}
                     </Button>
                   ) : null}
-                  <Button asChild type="button" variant="ghost" size="sm" className="justify-start">
+                  {outcome === "accepted" || outcome === "declined" ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={() => updateOfferArchive(candidate, !isOfferArchived(candidate))}>
+                      {isOfferArchived(candidate) ? tt("Odstrani iz arhiva") : tt("Arhiviraj")}
+                    </Button>
+                  ) : null}
+                  <Button asChild type="button" variant="ghost" size="sm" className="px-2">
                     <Link
                       to={`/applicants/${candidate.id}?returnTo=${encodeURIComponent("/offers")}`}
                       state={{ returnTo: "/offers" }}
                     >
-                      {t("review")}
+                      {tt("Odpri")}
                     </Link>
                   </Button>
                 </div>

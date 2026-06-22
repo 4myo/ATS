@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
-import { Sidebar } from "../components/Sidebar";
-import { AiAnalysisQueueBar } from "../components/AiAnalysisQueueBar";
+import { Sidebar, type WorkspaceRole } from "../components/Sidebar";
 import { CandidateImportProgressBar } from "../components/CandidateImportProgressBar";
-import { Briefcase, LogOut, Search, Moon, Sun, Users } from "lucide-react";
+import { Briefcase, LogOut, Search, Moon, Sun, Users, UserCog } from "lucide-react";
 import { Link } from "react-router";
 import { clsx } from "clsx";
 import { supabase } from "../lib/supabase";
@@ -27,6 +26,8 @@ type SearchResult = {
 };
 
 const sidebarStorageKey = "smart-ats-sidebar-collapsed";
+const workspaceRoleStorageKey = "smart-ats-workspace-role";
+const sessionCheckTimeoutMs = 10_000;
 
 const normalizeSearchForIlike = (value: string) =>
   value
@@ -48,7 +49,15 @@ export function Layout() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isCompactSidebar, setIsCompactSidebar] = useState(false);
+  const [workspaceRole, setWorkspaceRole] = useState<WorkspaceRole>("recruiter");
   const { language, setLanguage, t } = useI18n();
+
+  useEffect(() => {
+    const savedRole = window.localStorage.getItem(workspaceRoleStorageKey);
+    if (savedRole === "recruiter" || savedRole === "hiring_manager" || savedRole === "interviewer") {
+      setWorkspaceRole(savedRole);
+    }
+  }, []);
 
   useEffect(() => {
     recordAppNavigationPath(getLocationPath(location));
@@ -75,52 +84,79 @@ export function Layout() {
   useEffect(() => {
     let isMounted = true;
 
-    const verifySession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!isMounted) return;
-
-      if (!data.session) {
-        navigate("/auth", { replace: true });
-        return;
-      }
-
-      const user = data.session.user;
-      const metadata = user.user_metadata ?? {};
+    const applySession = (
+      session: NonNullable<
+        Awaited<ReturnType<typeof supabase.auth.getSession>>["data"]["session"]
+      >,
+    ) => {
+      const metadata = session.user.user_metadata ?? {};
       const name =
         metadata.full_name ||
         metadata.name ||
-        user.email ||
+        session.user.email ||
         "Account";
       const avatarUrl = metadata.avatar_url || metadata.picture || null;
 
       setProfile({ name, avatarUrl });
-      prefetchJobList();
-
       setCheckingSession(false);
+      void prefetchJobList();
     };
 
-    verifySession();
+    const redirectToAuth = () => {
+      clearCandidateListCache();
+      clearDashboardCache();
+      clearJobCache();
+      setProfile(null);
+      setCheckingSession(false);
+      navigate("/auth", { replace: true });
+    };
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (!session) {
-          clearCandidateListCache();
-          clearDashboardCache();
-          clearJobCache();
-          setProfile(null);
-          navigate("/auth", { replace: true });
+    const verifySession = async () => {
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+      try {
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(
+              () => reject(new Error("Session check timed out")),
+              sessionCheckTimeoutMs,
+            );
+          }),
+        ]);
+
+        if (!isMounted) return;
+
+        if (sessionResult.error) {
+          throw sessionResult.error;
+        }
+
+        if (!sessionResult.data.session) {
+          redirectToAuth();
           return;
         }
 
-        const metadata = session.user.user_metadata ?? {};
-        const name =
-          metadata.full_name ||
-          metadata.name ||
-          session.user.email ||
-          "Account";
-        const avatarUrl = metadata.avatar_url || metadata.picture || null;
-        setProfile({ name, avatarUrl });
-        prefetchJobList();
+        applySession(sessionResult.data.session);
+      } catch (error) {
+        console.error("[auth] Session verification failed", error);
+        if (isMounted) redirectToAuth();
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    };
+
+    void verifySession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (!isMounted) return;
+
+        if (!session) {
+          redirectToAuth();
+          return;
+        }
+
+        applySession(session);
       },
     );
 
@@ -270,7 +306,6 @@ export function Layout() {
 
   return (
     <div className="relative flex h-screen w-full overflow-hidden bg-background">
-      <AiAnalysisQueueBar />
       <CandidateImportProgressBar />
       {isCompactSidebar && !isSidebarCollapsed ? (
         <button
@@ -287,18 +322,19 @@ export function Layout() {
             ? "w-[4.5rem]"
             : isSidebarCollapsed
               ? "w-[4.5rem]"
-              : "w-56",
+              : "w-60",
         )}
       >
         <div
           className={clsx(
             "h-screen transition-[width] duration-300 ease-in-out",
             isCompactSidebar && "fixed inset-y-0 left-0",
-            isSidebarCollapsed ? "w-[4.5rem]" : "w-56",
+            isSidebarCollapsed ? "w-[4.5rem]" : "w-60",
           )}
         >
           <Sidebar
             collapsed={isSidebarCollapsed}
+            role={workspaceRole}
             onToggle={toggleSidebar}
             onNavigate={() => {
               if (isCompactSidebar) {
@@ -310,7 +346,7 @@ export function Layout() {
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden transition-[width] duration-300 ease-in-out">
-        <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-3 py-3 shadow-sm dark:bg-sidebar dark:shadow-none sm:px-6 sm:py-0">
+        <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-3 py-3 sm:px-5 sm:py-0">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <form className="relative min-w-0 flex-1 sm:flex-none" onSubmit={handleSearchSubmit}>
               <div className="flex w-full min-w-[9rem] items-center rounded-md border border-border bg-muted/60 px-3 py-2 transition-all focus-within:bg-card focus-within:ring-2 focus-within:ring-ring sm:w-72 lg:w-96">
@@ -381,6 +417,24 @@ export function Layout() {
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-4">
+            <label className="hidden items-center gap-2 text-sm text-muted-foreground md:flex">
+              <UserCog className="h-4 w-4" />
+              <span className="sr-only">Workspace role</span>
+              <select
+                value={workspaceRole}
+                onChange={(event) => {
+                  const nextRole = event.target.value as WorkspaceRole;
+                  setWorkspaceRole(nextRole);
+                  window.localStorage.setItem(workspaceRoleStorageKey, nextRole);
+                }}
+                className="h-9 rounded-md border border-border bg-card px-2.5 text-sm font-medium text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/20"
+                aria-label="Workspace role"
+              >
+                <option value="recruiter">Recruiter</option>
+                <option value="hiring_manager">Hiring manager</option>
+                <option value="interviewer">Interviewer</option>
+              </select>
+            </label>
             <button
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted hover:text-foreground dark:bg-background dark:hover:bg-accent"
@@ -426,8 +480,8 @@ export function Layout() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto bg-background p-4 sm:p-6">
-          <Outlet />
+        <main className="app-scrollbar flex-1 overflow-auto bg-background">
+          <Outlet context={{ workspaceRole }} />
         </main>
       </div>
     </div>

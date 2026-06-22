@@ -23,6 +23,10 @@ import {
 } from "recharts";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
+import { ScoreChip } from "../components/ScoreChip";
+import { scoreBand, scoreBandText } from "../lib/score";
+import { ListReportShell } from "../components/shell/ListReportShell";
+import { StatStrip } from "../components/shell/StatStrip";
 import {
   Select,
   SelectContent,
@@ -136,6 +140,17 @@ const negotiationLabels: Record<NegotiationStatus, string> = {
   missing: "Čaka podatke",
 };
 
+// Budget status as one semantic accent, reusing the shared Badge variants.
+const negotiationBadgeVariant: Record<
+  NegotiationStatus,
+  "success" | "warning" | "destructive" | "outline"
+> = {
+  in_range: "success",
+  borderline: "warning",
+  over_budget: "destructive",
+  missing: "outline",
+};
+
 const jobBudgetStorageKey = "smart-ats-interview-workflow-job-budgets";
 
 const skillMismatchRejectionMessage =
@@ -223,341 +238,6 @@ const readStoredJobBudgets = () => {
     return {};
   }
 };
-
-function StatCard({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string | number;
-  detail?: string;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-card p-4">
-      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-2 text-3xl font-semibold tabular-nums text-foreground">{value}</div>
-      {detail ? <p className="mt-1 text-sm text-muted-foreground">{detail}</p> : null}
-    </div>
-  );
-}
-
-function CandidateNode({ candidate }: { candidate: WorkflowCandidate }) {
-  const { tt } = useI18n();
-  const status = getCandidateStatus(candidate);
-  const score = getCandidateScore(candidate);
-
-  return (
-    <Link
-      to={`/applicants/${candidate.id}`}
-      className="block rounded-md border border-border bg-background p-3 transition hover:border-cyan-500/60 hover:bg-muted/30 dark:bg-muted/15"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-foreground">{candidate.name}</div>
-          <div className="truncate text-xs text-muted-foreground">{candidate.role}</div>
-        </div>
-        <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold text-foreground">
-          {score == null ? "-" : `${score}%`}
-        </span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-muted-foreground">
-        <span>{candidate.transcriptCount} {tt("transkriptov")}</span>
-        <span className="text-right">{tt(negotiationLabels[status])}</span>
-      </div>
-    </Link>
-  );
-}
-
-function WorkflowGraph({ candidates }: { candidates: WorkflowCandidate[] }) {
-  const { tt } = useI18n();
-  return (
-    <section className="rounded-md border border-border bg-card p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">{tt("Graf procesa razgovorov")}</h2>
-          <p className="text-sm text-muted-foreground">
-            {tt("Kandidati so razporejeni po fazah, od prvega kroga do končne odločitve.")}
-          </p>
-        </div>
-        <Badge variant="secondary">{candidates.length} {tt("kandidatov")}</Badge>
-      </div>
-
-      <div className="grid gap-3 xl:grid-cols-4">
-        {workflowStages.map((stage) => {
-          const stageCandidates = candidates.filter((candidate) => candidate.stage === stage);
-          return (
-            <div key={stage} className="rounded-md border border-border bg-muted/20 p-3">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: stageColors[stage] }}
-                  />
-                  <h3 className="text-sm font-semibold text-foreground">{stageLabels[stage]}</h3>
-                </div>
-                <span className="text-sm font-semibold text-muted-foreground">
-                  {stageCandidates.length}
-                </span>
-              </div>
-              <div className="grid max-h-[26rem] gap-2 overflow-y-auto pr-1">
-                {stageCandidates.length ? (
-                  stageCandidates.map((candidate) => (
-                    <CandidateNode key={candidate.id} candidate={candidate} />
-                  ))
-                ) : (
-                  <div className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-                    Ni kandidatov v tej fazi.
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function BudgetZoneOverview({
-  candidates,
-  jobTitle,
-  jobBudget,
-  salaryDrafts,
-}: {
-  candidates: WorkflowCandidate[];
-  jobTitle: string;
-  jobBudget?: JobBudgetDraft;
-  salaryDrafts: Record<string, SalaryDraft>;
-}) {
-  const minGross = parseGrossAmount(jobBudget?.min ?? "");
-  const maxGross = parseGrossAmount(jobBudget?.max ?? "");
-  const rows = candidates
-    .filter((candidate) => candidate.stage === "Offer")
-    .map((candidate) => {
-      const draft = salaryDrafts[candidate.id];
-      const expectedGross =
-        parseGrossAmount(draft?.expected ?? "") ?? candidate.offerChecklist.candidateExpectedGross;
-      const status = getLiveNegotiationStatus(candidate, salaryDrafts, jobBudget);
-      return {
-        candidate,
-        expectedGross,
-        status,
-      };
-    })
-    .sort((left, right) => (right.expectedGross ?? -1) - (left.expectedGross ?? -1));
-
-  const maxScale = Math.max(
-    maxGross ? maxGross * 1.25 : 0,
-    minGross ? minGross * 1.4 : 0,
-    ...rows.map((row) => row.expectedGross ?? 0),
-    1,
-  );
-  const minLeft = minGross ? Math.min(100, Math.max(0, (minGross / maxScale) * 100)) : 0;
-  const maxLeft = maxGross ? Math.min(100, Math.max(0, (maxGross / maxScale) * 100)) : 0;
-  const zoneWidth = Math.max(0, maxLeft - minLeft);
-  const inRange = rows.filter((row) => row.status === "in_range" || row.status === "borderline").length;
-  const overBudget = rows.filter((row) => row.status === "over_budget").length;
-  const missing = rows.filter((row) => row.status === "missing").length;
-
-  return (
-    <section className="rounded-md border border-border bg-card p-4">
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">Budget cona za pozicijo</h2>
-          <p className="text-sm text-muted-foreground">
-            {jobTitle === "all"
-              ? "Izberi eno delovno mesto, nastavi bruto min/max in primerjaj kandidate."
-              : `${jobTitle}: zelena cona je bruto budget podjetja, točke so pričakovanja kandidatov.`}
-          </p>
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-            <div className="font-semibold text-emerald-500">{inRange}</div>
-            <div className="text-muted-foreground">v coni</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-            <div className="font-semibold text-red-500">{overBudget}</div>
-            <div className="text-muted-foreground">over</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
-            <div className="font-semibold text-muted-foreground">{missing}</div>
-            <div className="text-muted-foreground">manjka</div>
-          </div>
-        </div>
-      </div>
-
-      {jobTitle === "all" ? (
-        <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Budget graf deluje po delovni poziciji. Izberi pozicijo v filtru zgoraj.
-        </div>
-      ) : rows.length ? (
-        <div className="grid gap-3">
-          <div className="relative h-12 rounded-md border border-border bg-muted/20 px-3">
-            {maxGross ? (
-              <div
-                className="absolute top-2 h-8 rounded-md border border-emerald-500/40 bg-emerald-500/15"
-                style={{ left: `${minLeft}%`, width: `${zoneWidth}%` }}
-              />
-            ) : null}
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-              0
-            </div>
-            {minGross ? (
-              <div
-                className="absolute top-0 h-full border-l border-emerald-500"
-                style={{ left: `${minLeft}%` }}
-              >
-                <span className="absolute left-1 top-1 text-[11px] font-semibold text-emerald-500">
-                  min {formatGrossAmount(minGross)}
-                </span>
-              </div>
-            ) : null}
-            {maxGross ? (
-              <div
-                className="absolute top-0 h-full border-l border-emerald-500"
-                style={{ left: `${maxLeft}%` }}
-              >
-                <span className="absolute left-1 bottom-1 text-[11px] font-semibold text-emerald-500">
-                  max {formatGrossAmount(maxGross)}
-                </span>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="grid gap-2">
-            {rows.map(({ candidate, expectedGross, status }) => {
-              const left = expectedGross ? Math.min(100, Math.max(0, (expectedGross / maxScale) * 100)) : 0;
-              return (
-                <div
-                  key={candidate.id}
-                  className="grid gap-2 rounded-md border border-border bg-background p-3 dark:bg-muted/15 md:grid-cols-[15rem_minmax(0,1fr)_10rem]"
-                >
-                  <div className="min-w-0">
-                    <Link
-                      to={`/applicants/${candidate.id}`}
-                      className="truncate text-sm font-semibold text-foreground hover:text-cyan-500"
-                    >
-                      {candidate.name}
-                    </Link>
-                    <div className="truncate text-xs text-muted-foreground">{candidate.role}</div>
-                  </div>
-                  <div className="relative h-8 rounded-md bg-muted/25">
-                    {maxGross ? (
-                      <div
-                        className="absolute top-1 h-6 rounded bg-emerald-500/10"
-                        style={{ left: `${minLeft}%`, width: `${zoneWidth}%` }}
-                      />
-                    ) : null}
-                    {expectedGross ? (
-                      <div
-                        className={
-                          status === "over_budget"
-                            ? "absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-red-500 shadow"
-                            : "absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-background bg-emerald-500 shadow"
-                        }
-                        style={{ left: `${left}%` }}
-                        title={`${candidate.name}: ${formatGrossAmount(expectedGross)} bruto`}
-                      />
-                    ) : null}
-                  </div>
-                  <div
-                    className={
-                      status === "over_budget"
-                        ? "text-right text-sm font-semibold text-red-500"
-                        : status === "missing"
-                          ? "text-right text-sm font-semibold text-muted-foreground"
-                          : "text-right text-sm font-semibold text-emerald-500"
-                    }
-                  >
-                    {expectedGross ? `${formatGrossAmount(expectedGross)} bruto` : "manjka vnos"}
-                    <div className="text-[11px] font-medium text-muted-foreground">
-                      {negotiationLabels[status]}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ) : (
-        <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Za to pozicijo še ni kandidatov v fazi ponudbe/pogajanj.
-        </div>
-      )}
-    </section>
-  );
-}
-
-function CandidateCharts({
-  candidates,
-  salaryDrafts,
-  jobBudget,
-}: {
-  candidates: WorkflowCandidate[];
-  salaryDrafts: Record<string, SalaryDraft>;
-  jobBudget?: JobBudgetDraft;
-}) {
-  const stageData = workflowStages.map((stage) => ({
-    stage: stageLabels[stage],
-    count: candidates.filter((candidate) => candidate.stage === stage).length,
-    fill: stageColors[stage],
-  }));
-
-  const statusData = (["in_range", "borderline", "over_budget", "missing"] as NegotiationStatus[]).map(
-    (status) => ({
-      status: negotiationLabels[status],
-      count: candidates.filter((candidate) => getLiveNegotiationStatus(candidate, salaryDrafts, jobBudget) === status)
-        .length,
-      fill:
-        status === "over_budget"
-          ? "#ef4444"
-          : status === "missing"
-            ? "#64748b"
-            : "#22c55e",
-    }),
-  );
-
-  return (
-    <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-      <section className="min-w-0 rounded-md border border-border bg-card p-4">
-        <h2 className="text-base font-semibold text-foreground">Kandidati po fazah</h2>
-        <div className="mt-4 h-72 min-h-72 min-w-0 overflow-hidden">
-          <ResponsiveContainer width="100%" height={288} minWidth={0} minHeight={288}>
-            <BarChart data={stageData} margin={{ left: 0, right: 8, top: 8, bottom: 24 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="stage" interval={0} angle={-12} textAnchor="end" height={56} />
-              <YAxis allowDecimals={false} width={32} />
-              <Tooltip cursor={{ fill: "rgba(148, 163, 184, 0.14)" }} />
-              <Bar dataKey="count" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-
-      <section className="min-w-0 rounded-md border border-border bg-card p-4">
-        <h2 className="text-base font-semibold text-foreground">Budget status</h2>
-        <div className="mt-4 h-72 min-h-72 min-w-0 overflow-hidden">
-          <ResponsiveContainer width="100%" height={288} minWidth={0} minHeight={288}>
-            <BarChart data={statusData} margin={{ left: 0, right: 8, top: 8, bottom: 24 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="status" interval={0} angle={-12} textAnchor="end" height={56} />
-              <YAxis allowDecimals={false} width={32} />
-              <Tooltip cursor={{ fill: "rgba(148, 163, 184, 0.14)" }} />
-              <Bar dataKey="count" radius={[6, 6, 0, 0]}>
-                {statusData.map((entry) => (
-                  <Cell key={entry.status} fill={entry.fill} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-    </div>
-  );
-}
 
 export default function InterviewWorkflow() {
   const { tt } = useI18n();
@@ -959,47 +639,38 @@ export default function InterviewWorkflow() {
     });
 
   return (
-    <main className="min-h-full overflow-y-auto bg-background p-4 sm:p-6">
-      <div className="mx-auto grid max-w-7xl gap-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <Briefcase className="h-4 w-4" />
-              {tt("Razgovori")}
-            </div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
-              {tt("Potek razgovorov")}
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              {tt("Ločena stran za prvi krog, ponudbe in plačna pogajanja. Faze kandidata ostanejo usklajene z vsemi stranmi, vključno s Ponudbami.")}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => void loadCandidates()}>
-              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {tt("Osveži")}
-            </Button>
-            <Button asChild type="button" variant="outline">
-              <Link to="/interviews">
-                <FileText className="mr-2 h-4 w-4" />
-                {tt("Studio razgovorov")}
-              </Link>
-            </Button>
-          </div>
-        </div>
-
+    <ListReportShell
+      title={tt("Potek razgovorov")}
+      subtitle={tt("Operativni pregled prvega kroga, odločitev, ponudb in plačnih pogajanj z jasnim lastništvom naslednjega koraka.")}
+      actions={
+        <>
+          <Button type="button" variant="outline" onClick={() => void loadCandidates()}>
+            {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            {tt("Osveži")}
+          </Button>
+          <Button asChild type="button" variant="outline">
+            <Link to="/interviews">
+              <FileText className="mr-2 h-4 w-4" />
+              {tt("Studio razgovorov")}
+            </Link>
+          </Button>
+        </>
+      }
+    >
         {message ? (
           <div className="rounded-md border border-border bg-card px-4 py-3 text-sm text-foreground">
             {message}
           </div>
         ) : null}
 
-        <div className="grid gap-3 md:grid-cols-4">
-          <StatCard label={tt("Prvi krog")} value={stats.interview} detail={tt("Kandidati v razgovoru")} />
-          <StatCard label={tt("Pogajanja")} value={stats.offer} detail={tt("Aktivne ponudbe")} />
-          <StatCard label={tt("Presega budget")} value={stats.overBudget} detail={tt("Potrebna odločitev")} />
-          <StatCard label={tt("Sprejeti")} value={stats.accepted} detail={tt("Zaključen proces")} />
-        </div>
+        <StatStrip
+          items={[
+            { label: tt("Prvi krog"), value: stats.interview, detail: tt("Kandidati v razgovoru") },
+            { label: tt("Pogajanja"), value: stats.offer, detail: tt("Aktivne ponudbe") },
+            { label: tt("Presega budget"), value: stats.overBudget, detail: tt("Potrebna odločitev") },
+            { label: tt("Sprejeti"), value: stats.accepted, detail: tt("Zaključen proces") },
+          ]}
+        />
 
         <section className="rounded-md border border-border bg-card p-4">
           <div className="grid gap-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(14rem,1fr)_minmax(18rem,1.3fr)]">
@@ -1110,18 +781,6 @@ export default function InterviewWorkflow() {
           </div>
         ) : (
           <>
-            <BudgetZoneOverview
-              candidates={filteredCandidates}
-              jobTitle={jobFilter}
-              jobBudget={selectedJobBudget}
-              salaryDrafts={salaryDrafts}
-            />
-            <CandidateCharts
-              candidates={filteredCandidates}
-              jobBudget={selectedJobBudget}
-              salaryDrafts={salaryDrafts}
-            />
-
             <section className="rounded-md border border-border bg-card p-4">
               <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -1169,7 +828,13 @@ export default function InterviewWorkflow() {
                           <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                             <div className="rounded-md border border-border bg-muted/20 p-2">
                               <div className="text-muted-foreground">Ocena</div>
-                              <div className="font-semibold text-foreground">
+                              <div
+                                className={
+                                  score == null
+                                    ? "font-semibold text-muted-foreground"
+                                    : `font-semibold ${scoreBandText[scoreBand(score)]}`
+                                }
+                              >
                                 {score == null ? "-" : `${score}%`}
                               </div>
                             </div>
@@ -1363,7 +1028,6 @@ export default function InterviewWorkflow() {
             </section>
           </>
         )}
-      </div>
-    </main>
+    </ListReportShell>
   );
 }

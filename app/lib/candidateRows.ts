@@ -12,15 +12,17 @@ const stageRank = {
 const normalizeText = (value: unknown) =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
 
+// Identity is scoped to a single job: the same person applying to a DIFFERENT
+// job stays as a separate, job-labelled row, but the same person + same job is
+// treated as one application even when résumés were uploaded twice (different
+// resume_path). This is why job is part of every key and resume_path is not.
 const candidateIdentityKey = (row: Record<string, unknown>) => {
-  const resumePath = normalizeText(row.resume_path);
-  if (resumePath) return `resume:${resumePath}`;
+  const jobTitle = normalizeText(row.job_title);
 
   const email = normalizeText(row.email);
-  if (email) return `email:${email}`;
+  if (email) return `email-job:${email}:${jobTitle}`;
 
   const name = normalizeText(row.full_name);
-  const jobTitle = normalizeText(row.job_title);
   return `name-job:${name}:${jobTitle}`;
 };
 
@@ -43,7 +45,16 @@ const shouldReplaceCandidateRow = (
 
   const currentStage = current.stage as Stage;
   const nextStage = next.stage as Stage;
-  return (stageRank[nextStage] ?? 0) > (stageRank[currentStage] ?? 0);
+  const currentRank = stageRank[currentStage] ?? 0;
+  const nextRank = stageRank[nextStage] ?? 0;
+  if (nextRank !== currentRank) {
+    return nextRank > currentRank;
+  }
+
+  // Same recency and stage: keep the better-scored application.
+  const currentScore = typeof current.ats_score === "number" ? current.ats_score : -1;
+  const nextScore = typeof next.ats_score === "number" ? next.ats_score : -1;
+  return nextScore > currentScore;
 };
 
 export const dedupeCandidateRows = <TRow extends Record<string, unknown>>(

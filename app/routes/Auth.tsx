@@ -18,6 +18,36 @@ const termsVersion = "2026-05-07";
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
+type AuthErrorDetails = {
+  code?: unknown;
+  message?: unknown;
+  name?: unknown;
+  status?: unknown;
+};
+
+const isAuthServiceUnavailable = (error: unknown) => {
+  const details = (error ?? {}) as AuthErrorDetails;
+  const message = typeof details.message === "string" ? details.message : "";
+  const status = typeof details.status === "number" ? details.status : 0;
+
+  return (
+    status === 0 ||
+    status >= 500 ||
+    details.name === "AuthRetryableFetchError" ||
+    /fetch|network|timeout|failed to connect/i.test(message)
+  );
+};
+
+const logAuthError = (error: unknown) => {
+  const details = (error ?? {}) as AuthErrorDetails;
+  console.error("[auth] Sign-in failed", {
+    name: details.name,
+    status: details.status,
+    code: details.code,
+    message: details.message,
+  });
+};
+
 const getPasswordIssues = (password: string) => {
   const issues: string[] = [];
   if (password.length < minPasswordLength) issues.push("najmanj 10 znakov");
@@ -174,19 +204,32 @@ function AuthContent() {
     resetMessages();
 
     if (isSignin) {
-      const { error } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password,
-      });
+      try {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
 
-      if (error) {
+        if (!error) {
+          navigate("/", { replace: true });
+          return;
+        }
+
+        logAuthError(error);
         setIsLoading(false);
-        setErrorMessage(t("authGenericError"));
+        setErrorMessage(
+          t(
+            isAuthServiceUnavailable(error)
+              ? "authServiceUnavailable"
+              : "authGenericError",
+          ),
+        );
+      } catch (error) {
+        logAuthError(error);
+        setIsLoading(false);
+        setErrorMessage(t("authServiceUnavailable"));
         return;
       }
-
-      navigate("/", { replace: true });
-      return;
     }
 
     const { data: rateLimitData, error: rateLimitError } = await supabase.functions.invoke(

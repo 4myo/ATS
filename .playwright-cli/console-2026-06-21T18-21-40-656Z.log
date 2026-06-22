@@ -1,0 +1,20 @@
+[     221ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5190/node_modules/.vite/deps/react-dom_client.js?v=712dae83:20102
+[     442ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5190/auth:0
+[   85108ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_RESET @ http://localhost:5190/app/routes/Applicants.tsx?t=1782066185668:0
+[   85108ms] [ERROR] [vite] Failed to reload /app/routes/Applicants.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5190/@vite/client:808
+[   87444ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5190/styles/index.css?t=1782066185645:0
+[   87445ms] [ERROR] [vite] Failed to reload /styles/index.css. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5190/@vite/client:808
+[   87445ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5190/app/routes/Applicants.tsx?t=1782066185645:0
+[   87445ms] [ERROR] [vite] Failed to reload /app/routes/Applicants.tsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5190/@vite/client:808
+[   87445ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5190/@vite/client:864
+[  460367ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5190/node_modules/.vite/deps/react-dom_client.js?v=712dae83:20102
+[  460529ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5190/auth:0
+[  640456ms] Error: [react-router:hmr] No module update found for route routes/CandidateDetail
+    at http://localhost:5190/@id/__x00__virtual:react-router/hmr-runtime:476:15
+[ 2884030ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5190/@vite/client:864
+[ 2936685ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5190/node_modules/.vite/deps/react-dom_client.js?v=712dae83:20102
+[ 2936840ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5190/auth:0
+[ 3057704ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5190/@vite/client:864
+[ 3766754ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5190/node_modules/.vite/deps/react-dom_client.js?v=712dae83:20102
+[ 3766899ms] [VERBOSE] [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5190/auth:0
+[ 3772222ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:5190/@vite/client:864

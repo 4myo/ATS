@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { Archive, ArrowLeft, Briefcase, CalendarDays, Pencil, RotateCcw, Trash2, Users } from "lucide-react";
 import type { Stage } from "../store";
 import { Button } from "../components/ui/button";
+import { scoreBand, scoreBandText } from "../lib/score";
 import { Badge } from "../components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
@@ -20,6 +21,7 @@ import { dedupeCandidateRows } from "../lib/candidateRows";
 import { updateCachedApplicants } from "../lib/candidateListCache";
 import { syncJobStatusForTitle, updateCachedJobList } from "../lib/jobCache";
 import { useI18n } from "../lib/i18n";
+import { useConfirm } from "../lib/confirm";
 import { logActivityEvent } from "../lib/activityLog";
 import {
   fetchLinkedCandidateTranscripts,
@@ -67,6 +69,7 @@ export default function JobDetail() {
   const navigate = useNavigate();
   const location = useLocation();
   const { t, tt, stageLabel } = useI18n();
+  const confirm = useConfirm();
   const [job, setJob] = useState<JobDetailRecord | null>(null);
   const [jobCandidates, setJobCandidates] = useState<JobCandidate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -200,7 +203,11 @@ export default function JobDetail() {
   const handleDeleteJob = async () => {
     if (!job) return;
 
-    const confirmed = window.confirm(t("deleteJobConfirm"));
+    const confirmed = await confirm({
+      description: t("deleteJobConfirm"),
+      confirmLabel: t("deleteJob"),
+      destructive: true,
+    });
     if (!confirmed) return;
 
     setIsDeleting(true);
@@ -635,9 +642,16 @@ export default function JobDetail() {
                       </p>
                       <div className="mt-1 grid gap-0.5 text-xs text-muted-foreground">
                         <span>
-                          {typeof candidate.aiScore === "number"
-                            ? `${Math.round(candidate.aiScore)}% CV ${t("match")}`
-                            : t("notScored")}
+                          {typeof candidate.aiScore === "number" ? (
+                            <>
+                              <span className={`font-semibold ${scoreBandText[scoreBand(candidate.aiScore)]}`}>
+                                {Math.round(candidate.aiScore)}%
+                              </span>{" "}
+                              CV {t("match")}
+                            </>
+                          ) : (
+                            t("notScored")
+                          )}
                         </span>
                         {candidate.combinedScore != null ? (
                           <span>{candidate.combinedScore}% CV + razgovor AI</span>

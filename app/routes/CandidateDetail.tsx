@@ -3,20 +3,14 @@ import { useParams, Link, useLocation, useNavigate } from "react-router";
 import type { Stage } from "../store";
 import { supabase } from "../lib/supabase";
 import { ScoreRing } from '../components/ScoreRing';
-import { 
+import {
   ArrowLeft, ThumbsUp, ThumbsDown,
   CheckCircle, XCircle, Clock, Bot, FileText, Eye, Loader2, Upload,
-  Link as LinkIcon, Mail, MapPin, Phone, Wrench
+  Link as LinkIcon, Mail, MapPin, Phone, Wrench, ChevronDown, AlertTriangle, Save
 } from 'lucide-react';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer 
 } from 'recharts';
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "../components/ui/accordion";
 import {
   Select,
   SelectContent,
@@ -38,6 +32,15 @@ import {
   OfferDraftDialog,
 } from "../components/OfferDraftDialog";
 import { OfferPreviewDialog } from "../components/OfferPreviewDialog";
+import { ObjectPageShell, type ObjectPageAnchor } from "../components/shell/ObjectPageShell";
+import { WorkflowStepper } from "../components/shell/WorkflowStepper";
+import {
+  checkTransition,
+  isTerminalStage,
+  nextStage as getNextStage,
+} from "../lib/candidateWorkflow";
+import { scoreBand, scoreBandText, scoreBandChip } from "../lib/score";
+import { useConfirm } from "../lib/confirm";
 import { useI18n } from "../lib/i18n";
 import { updateCachedApplicants } from "../lib/candidateListCache";
 import { enqueueAiAnalysisRetry } from "../lib/aiAnalysisQueue";
@@ -140,7 +143,8 @@ export default function CandidateDetail() {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { t, stageLabel } = useI18n();
+  const { t, tt, stageLabel } = useI18n();
+  const confirm = useConfirm();
   const resumeInputRef = useRef<HTMLInputElement | null>(null);
   const [candidate, setCandidate] = useState<CandidateDetailRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -164,6 +168,10 @@ export default function CandidateDetail() {
   const [pendingOfferSentAfterDraft, setPendingOfferSentAfterDraft] = useState(false);
   const [canRenderDesktopAside, setCanRenderDesktopAside] = useState(false);
   const [isReanalyzingCandidate, setIsReanalyzingCandidate] = useState(false);
+  const [showFullAnalysis, setShowFullAnalysis] = useState(false);
+  const [activeCandidateSection, setActiveCandidateSection] = useState("overview");
+  const [isSavingCandidateWork, setIsSavingCandidateWork] = useState(false);
+  const [isCandidateWorkSaved, setIsCandidateWorkSaved] = useState(false);
   const returnToFromState =
     typeof location.state?.returnTo === "string" ? location.state.returnTo : null;
   const returnToFromQuery = new URLSearchParams(location.search).get("returnTo");
@@ -272,6 +280,7 @@ export default function CandidateDetail() {
       } as CandidateDetailRecord;
 
       setCandidate(nextCandidate);
+      setIsCandidateWorkSaved(false);
       setIsLoading(false);
 
       const { data: interviewAnalysisData, error: interviewAnalysisError } =
@@ -467,6 +476,21 @@ export default function CandidateDetail() {
   const displayedCombinedScore = hasStoredInterviewAnalysis
     ? candidate?.interview_analysis_score ?? null
     : null;
+  // Single source of truth for the headline score: prefer the most complete
+  // basis (CV + interview) once it exists, otherwise the CV-only score. The
+  // delta turns a lower post-interview score into an insight, not a conflict.
+  const cvOnlyScore =
+    hasCandidateAiScore && typeof candidate?.ats_score === "number"
+      ? Math.round(candidate.ats_score)
+      : null;
+  const headlineScore =
+    displayedCombinedScore != null ? Math.round(displayedCombinedScore) : cvOnlyScore;
+  const headlineScoreBasis =
+    displayedCombinedScore != null ? tt("CV + razgovor") : tt("Samo CV");
+  const headlineScoreDelta =
+    displayedCombinedScore != null && cvOnlyScore != null
+      ? Math.round(displayedCombinedScore) - cvOnlyScore
+      : null;
   const displayedInterviewSummary =
     candidate?.interview_analysis_summary || "";
   const displayedInterviewStrengths =
@@ -481,6 +505,48 @@ export default function CandidateDetail() {
     candidate?.interview_analysis_questions?.length
       ? candidate.interview_analysis_questions
       : [];
+
+  // --- Decision surface: verdict + merged (de-duplicated) strengths/concerns ---
+  const normalizeText = (value: string) => value.trim().toLowerCase();
+  const firstSentence = (text: string) => {
+    const trimmed = text.trim();
+    const match = trimmed.match(/^.*?[.!?](\s|$)/);
+    return match ? match[0].trim() : trimmed;
+  };
+  const interviewConfirmedSet = new Set(displayedInterviewStrengths.map(normalizeText));
+  const interviewOpenSet = new Set(displayedInterviewConcerns.map(normalizeText));
+  const mergedStrengths = (() => {
+    const cv = candidate?.analysis_strengths ?? [];
+    const seen = new Set(cv.map(normalizeText));
+    const extra = displayedInterviewStrengths.filter((item) => !seen.has(normalizeText(item)));
+    return [...cv, ...extra].map((text) => ({
+      text,
+      confirmed: interviewConfirmedSet.has(normalizeText(text)),
+    }));
+  })();
+  const mergedConcerns = (() => {
+    const cv = candidate?.analysis_concerns ?? [];
+    const seen = new Set(cv.map(normalizeText));
+    const extra = displayedInterviewConcerns.filter((item) => !seen.has(normalizeText(item)));
+    return [...cv, ...extra].map((text) => ({
+      text,
+      open: interviewOpenSet.has(normalizeText(text)),
+    }));
+  })();
+  const verdictBand = headlineScore == null ? null : scoreBand(headlineScore);
+  const verdictLabel =
+    verdictBand === "strong"
+      ? tt("Primeren za razgovor")
+      : verdictBand === "medium"
+        ? tt("Potrebuje dodatno potrditev")
+        : verdictBand === "weak"
+          ? tt("Pod pragom")
+          : null;
+  const verdictReason =
+    (verdictBand === "weak"
+      ? candidate?.analysis_concerns?.[0] ?? mergedConcerns[0]?.text
+      : candidate?.analysis_strengths?.[0] ?? mergedStrengths[0]?.text) ??
+    (candidate?.analysis_summary ? firstSentence(candidate.analysis_summary) : null);
   const offerChecklist = useMemo(
     () => ({
       ...defaultOfferChecklist,
@@ -496,8 +562,15 @@ export default function CandidateDetail() {
     () => extractPhone(candidate?.analysis_summary),
     [candidate?.analysis_summary],
   );
-  const isInterviewStage = candidate?.stage === "Interview";
   const isOfferStage = candidate?.stage === "Offer" || candidate?.stage === "Accepted";
+  useEffect(() => {
+    if (
+      (activeCandidateSection === "offer" && !isOfferStage) ||
+      (activeCandidateSection === "signal" && !canRenderDesktopAside)
+    ) {
+      setActiveCandidateSection("overview");
+    }
+  }, [activeCandidateSection, canRenderDesktopAside, isOfferStage]);
   const defaultInterviewTranscriptTitle = candidate
     ? `${candidate.full_name} razgovor ${linkedTranscripts.length + 1}`
     : "Razgovor 1";
@@ -517,6 +590,33 @@ export default function CandidateDetail() {
     { key: "internalApproval", label: t("offerChecklistInternalApproval") },
     { key: "offerSent", label: t("offerChecklistOfferSent") },
   ];
+
+  const saveCandidateWork = async () => {
+    if (!candidate) return;
+
+    setIsSavingCandidateWork(true);
+    setStageError(null);
+    setOfferError(null);
+
+    const { error } = await supabase
+      .from("candidates")
+      .update({
+        stage: candidate.stage,
+        offer_checklist: offerChecklist,
+        offer_outcome: candidate.offer_outcome ?? "pending",
+        offer_sent_at: candidate.offer_sent_at,
+        offer_response_due_at: candidate.offer_response_due_at,
+      })
+      .eq("id", candidate.id);
+
+    setIsSavingCandidateWork(false);
+    if (error) {
+      setStageError(`Dela ni bilo mogoče shraniti: ${error.message}`);
+      return;
+    }
+
+    setIsCandidateWorkSaved(true);
+  };
 
   const analyzeCvWithInterview = async () => {
     if (!candidate) return;
@@ -790,6 +890,7 @@ export default function CandidateDetail() {
       const result = await response.json();
       const nextDocument = result.document as OfferDocument;
       setOfferDocument(nextDocument);
+      setIsCandidateWorkSaved(false);
       void logActivityEvent({
         action: "offer_document_created",
         entityType: "offer_document",
@@ -822,6 +923,10 @@ export default function CandidateDetail() {
     generatedOfferDocument?: OfferDocument,
   ) => {
     if (!candidate) return;
+    if (key === "offerSent" && checked && !isCandidateWorkSaved) {
+      setOfferError("Pred pošiljanjem ponudbe klikni »Shrani delo«.");
+      return;
+    }
     if (key === "offerSent" && checked && isJobClosedForCandidate) {
       setOfferError(
         "Ponudbe ni mogoče poslati, ker je delovno mesto zaprto ali zapolnjeno.",
@@ -847,6 +952,7 @@ export default function CandidateDetail() {
       offer_checklist: nextChecklist,
       ...datePatch,
     });
+    setIsCandidateWorkSaved(false);
     setOfferError(null);
 
     const { error } = await supabase
@@ -918,6 +1024,7 @@ export default function CandidateDetail() {
 
     const previousCandidate = candidate;
     setCandidate({ ...candidate, [field]: value || null });
+    setIsCandidateWorkSaved(false);
     setOfferError(null);
 
     const { error } = await supabase
@@ -945,6 +1052,10 @@ export default function CandidateDetail() {
 
   const updateOfferOutcome = async (outcome: "accepted" | "declined") => {
     if (!candidate) return;
+    if (!isCandidateWorkSaved) {
+      setOfferError("Pred potrditvijo izida ponudbe klikni »Shrani delo«.");
+      return;
+    }
 
     let nextJobCapacity = jobCapacity;
     if (outcome === "accepted") {
@@ -961,9 +1072,11 @@ export default function CandidateDetail() {
         : false;
 
       if (latestCapacity && wouldExceedCapacity) {
-        const confirmed = window.confirm(
-          `To delo ima trenutno ${latestCapacity.acceptedCount}/${latestCapacity.openings} sprejetih kandidatov. Sprejem tega kandidata bi presegel kapaciteto. Želite povečati število mest na ${nextAcceptedCount} in nadaljevati?`,
-        );
+        const confirmed = await confirm({
+          title: tt("Delo je zapolnjeno"),
+          description: `To delo ima trenutno ${latestCapacity.acceptedCount}/${latestCapacity.openings} sprejetih kandidatov. Sprejem tega kandidata bi presegel kapaciteto. Želite povečati število mest na ${nextAcceptedCount} in nadaljevati?`,
+          confirmLabel: tt("Poveči in nadaljuj"),
+        });
 
         if (!confirmed) {
           setOfferError("Sprejem kandidata je bil preklican, ker je delo zapolnjeno.");
@@ -990,6 +1103,7 @@ export default function CandidateDetail() {
       offer_checklist: nextChecklist,
       offer_sent_at: sentDate,
     });
+    setIsCandidateWorkSaved(false);
     setOfferError(null);
 
     const [{ error: candidateError }, { error: documentError }] = await Promise.all([
@@ -1085,6 +1199,7 @@ export default function CandidateDetail() {
       setCandidate({ ...candidate, stage: previousStage });
       setStageError(error.message || t("failedStageUpdate"));
     } else {
+      setIsCandidateWorkSaved(false);
       updateCachedApplicants((applicants) =>
         applicants.map((applicant) =>
           applicant.id === candidate.id
@@ -1109,6 +1224,48 @@ export default function CandidateDetail() {
     }
 
     setIsUpdatingStage(false);
+  };
+
+  // Guarded entry point used by the stepper + footer: enforces the strict-guided
+  // transition rules and confirms backward / reject / reopen moves before
+  // delegating to handleStageChange.
+  const attemptStageChange = async (target: Stage) => {
+    if (!candidate) return;
+    if (!isCandidateWorkSaved) {
+      setStageError(tt("Pred spremembo faze klikni »Shrani delo«."));
+      return;
+    }
+
+    const check = checkTransition(candidate.stage, target);
+    if (!check.allowed) {
+      if (check.kind === "blocked") {
+        setStageError(tt("Faze ni mogoče preskočiti — premikaj po korakih."));
+      }
+      return;
+    }
+
+    if (target === "Offer" && isJobClosedForCandidate) {
+      setStageError(
+        "Kandidata ni mogoče premakniti v fazo ponudbe, ker je delovno mesto zaprto ali zapolnjeno.",
+      );
+      return;
+    }
+
+    if (check.requiresConfirm) {
+      const message =
+        check.kind === "reopen"
+          ? tt("Ponovno odpreti tega kandidata in spremeniti fazo?")
+          : check.kind === "reject"
+            ? tt("Označiti kandidata kot zavrnjenega?")
+            : tt("Premakniti kandidata nazaj v prejšnjo fazo?");
+      if (!(await confirm({ description: message }))) return;
+    }
+
+    setStageError(null);
+    await handleStageChange(target);
+    if (target === "Interview") setActiveCandidateSection("interview");
+    else if (target === "Offer") setActiveCandidateSection("offer");
+    else setActiveCandidateSection("overview");
   };
 
   const handleOpenCv = async () => {
@@ -1366,10 +1523,94 @@ export default function CandidateDetail() {
     return <div className="p-8 text-center text-muted-foreground">{t("candidateNotFound")}</div>;
   }
 
-   return (
-    <div className="flex min-h-full flex-col bg-background">
-      {/* Header */}
-      <div className="flex-none border-b border-border bg-card px-4 py-4 sm:px-6 lg:px-8">
+   const candidateAnchors: ObjectPageAnchor[] = [
+      { id: "overview", label: tt("Pregled") },
+      { id: "skills", label: t("skillsProfile") },
+      { id: "interview", label: tt("Razgovor") },
+      ...(canRenderDesktopAside
+        ? [{ id: "signal", label: t("cvAiWritingSignal") }]
+        : []),
+      ...(isOfferStage
+        ? [{ id: "offer", label: t("offerPreparation") }]
+        : []),
+    ];
+
+    return (
+    <ObjectPageShell
+      anchors={candidateAnchors}
+      navigationMode="tabs"
+      activeSection={activeCandidateSection}
+      onSectionChange={setActiveCandidateSection}
+      stepper={
+        <WorkflowStepper
+          current={candidate.stage}
+          getLabel={(stage) => stageLabel(stage)}
+          onSelect={attemptStageChange}
+        />
+      }
+      footer={
+        <div className="flex flex-1 flex-wrap items-center justify-between gap-2">
+          <div className="min-h-5 text-xs">
+            {stageError ? (
+              <span className="text-red-500">{stageError}</span>
+            ) : isUpdatingStage ? (
+              <span className="text-muted-foreground">{t("updatingStage")}</span>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={isCandidateWorkSaved ? "outline" : "default"}
+              onClick={() => void saveCandidateWork()}
+              disabled={isSavingCandidateWork}
+              className="gap-2"
+            >
+              {isSavingCandidateWork ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {isSavingCandidateWork
+                ? tt("Shranjevanje …")
+                : isCandidateWorkSaved
+                  ? tt("Delo shranjeno")
+                  : tt("Shrani delo")}
+            </Button>
+            {isTerminalStage(candidate.stage) ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => attemptStageChange("Screening")}
+                disabled={isUpdatingStage}
+              >
+                {tt("Ponovno odpri")}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-red-600 hover:text-red-700"
+                  onClick={() => attemptStageChange("Rejected")}
+                  disabled={isUpdatingStage}
+                >
+                  {tt("Zavrni")}
+                </Button>
+                {getNextStage(candidate.stage) ? (
+                  <Button
+                    type="button"
+                    onClick={() => attemptStageChange(getNextStage(candidate.stage)!)}
+                    disabled={isUpdatingStage}
+                  >
+                    {tt("Premakni v")}: {stageLabel(getNextStage(candidate.stage)!)}
+                  </Button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
+      }
+      header={
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 items-start gap-3 sm:gap-4">
             <button
@@ -1456,40 +1697,6 @@ export default function CandidateDetail() {
                 {isUploadingCv ? t("uploadingResume") : t("uploadResumePdf")}
               </Button>
             ) : null}
-            <div className="min-w-[11rem] flex-1 sm:flex-none">
-              <p className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
-                {t("currentStage")}
-              </p>
-              <Select
-                value={candidate.stage}
-                onValueChange={(value) => handleStageChange(value as Stage)}
-                disabled={isUpdatingStage}
-              >
-                <SelectTrigger className="bg-background">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(["Screening", "Interview", "Offer", "Accepted", "Rejected"] as Stage[]).map(
-                    (stageOption) => (
-                      <SelectItem
-                        key={stageOption}
-                        value={stageOption}
-                        disabled={stageOption === "Offer" && isJobClosedForCandidate}
-                      >
-                        {stageLabel(stageOption)}
-                      </SelectItem>
-                    ),
-                  )}
-                </SelectContent>
-              </Select>
-              {stageError ? (
-                <p className="mt-1 text-xs text-red-500">{stageError}</p>
-              ) : isUpdatingStage ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("updatingStage")}
-                </p>
-              ) : null}
-            </div>
             <div className="max-w-64 text-left sm:text-right">
               <div className="flex flex-col gap-2 sm:items-end">
                 <div>
@@ -1525,8 +1732,25 @@ export default function CandidateDetail() {
                   "..."
                 )}
               </span>
-            ) : hasCandidateAiScore ? (
-              <ScoreRing score={candidate.ats_score ?? 0} size="md" />
+            ) : headlineScore != null ? (
+              <div className="flex flex-col items-center gap-1">
+                <ScoreRing score={headlineScore} size="md" />
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {headlineScoreBasis}
+                </p>
+                {headlineScoreDelta != null && headlineScoreDelta !== 0 ? (
+                  <p
+                    className={`text-[10px] font-semibold ${
+                      headlineScoreDelta < 0
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-emerald-600 dark:text-emerald-400"
+                    }`}
+                  >
+                    {headlineScoreDelta > 0 ? "+" : "−"}
+                    {Math.abs(headlineScoreDelta)} {tt("po razgovoru")}
+                  </p>
+                ) : null}
+              </div>
             ) : (
               <span className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-border bg-muted px-2 text-center text-[10px] font-semibold text-muted-foreground">
                 {t("notScored")}
@@ -1534,240 +1758,319 @@ export default function CandidateDetail() {
             )}
           </div>
         </div>
-      </div>
+      }
+    >
+      {/* Verdict hero strip — the focal point under the stepper */}
+      {headlineScore != null ? (
+        <section className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-center lg:gap-6">
+          <div className="flex shrink-0 flex-col">
+            <div className="flex items-baseline gap-1">
+              <span
+                className={`text-4xl font-bold tabular-nums ${verdictBand ? scoreBandText[verdictBand] : ""}`}
+              >
+                {headlineScore}
+              </span>
+              <span className="text-sm text-muted-foreground">/ 100</span>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {headlineScoreBasis}
+              {headlineScoreDelta != null && headlineScoreDelta !== 0
+                ? ` · ${headlineScoreDelta > 0 ? "+" : "−"}${Math.abs(headlineScoreDelta)} ${tt("po razgovoru")}`
+                : ""}
+            </span>
+          </div>
+          <div className="hidden h-12 w-px shrink-0 bg-border lg:block" />
+          <div className="min-w-0 flex-1">
+            {verdictLabel && verdictBand ? (
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${scoreBandChip[verdictBand]}`}
+              >
+                {verdictLabel}
+              </span>
+            ) : null}
+            {verdictReason ? (
+              <p className="mt-2 text-sm text-muted-foreground">{verdictReason}</p>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
-      <div className="flex min-h-0 flex-1 flex-col xl:flex-row xl:overflow-hidden">
-        {/* Main Content (Scrollable) */}
-        <div className="flex-1 space-y-6 overflow-visible p-4 sm:p-6 xl:overflow-y-auto xl:p-8">
-          {isJobClosedForCandidate ? (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-              To delovno mesto je zaprto ali zapolnjeno
-              {jobCapacity
-                ? ` (${jobCapacity.acceptedCount}/${jobCapacity.openings} sprejetih).`
-                : "."}{" "}
-              Za novo ponudbo povečajte število mest ali kandidata prestavite na drugo aktivno delo.
+      {isJobClosedForCandidate ? (
+            <div className="flex items-start gap-2 rounded-lg border border-border border-l-2 border-l-amber-500 bg-muted/30 p-3 text-sm text-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <span>
+                To delovno mesto je zaprto ali zapolnjeno
+                {jobCapacity
+                  ? ` (${jobCapacity.acceptedCount}/${jobCapacity.openings} sprejetih).`
+                  : "."}{" "}
+                Za novo ponudbo povečajte število mest ali kandidata prestavite na drugo aktivno delo.
+              </span>
             </div>
           ) : jobCapacity && jobCapacity.acceptedCount > jobCapacity.openings ? (
-            <div className="rounded-md border border-red-300 bg-red-50 p-4 text-sm text-red-800">
-              Delovno mesto presega kapaciteto: {jobCapacity.acceptedCount}/{jobCapacity.openings} sprejetih kandidatov.
+            <div className="flex items-start gap-2 rounded-lg border border-border border-l-2 border-l-red-500 bg-muted/30 p-3 text-sm text-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+              <span>
+                Delovno mesto presega kapaciteto: {jobCapacity.acceptedCount}/{jobCapacity.openings} sprejetih kandidatov.
+              </span>
             </div>
           ) : null}
           {!candidate.resume_path ? (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              Ta kandidat še nima naloženega CV-ja. Analiza iz Lov na talente lahko upošteva
-              samo priložena dokazila, javno dostopne/profile podatke ali opombe s privolitvijo,
-              zato je CV + razgovor primerjava omejena, dokler ne naložite CV PDF-ja.
+            <div className="flex items-start gap-2 rounded-lg border border-border border-l-2 border-l-amber-500 bg-muted/30 p-3 text-sm text-foreground">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <span>
+                Ta kandidat še nima naloženega CV-ja. Analiza iz Lov na talente lahko upošteva
+                samo priložena dokazila, javno dostopne/profile podatke ali opombe s privolitvijo,
+                zato je CV + razgovor primerjava omejena, dokler ne naložite CV PDF-ja.
+              </span>
             </div>
           ) : null}
            
-           {/* Top Stats */}
-           <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 lg:gap-6">
-              <div className="surface-card p-6 lg:col-span-2">
-                 <h2 className="mb-4 flex items-center text-lg font-semibold text-foreground">
-                   <div className="mr-3 rounded-md bg-muted p-1.5 text-foreground">
-                     <Clock className="h-5 w-5" />
-                   </div>
-                   {t("aiAnalysisSummary")}
-                 </h2>
-                 <p className="mb-6 leading-relaxed text-muted-foreground">
-                  {candidate.analysis_summary ?? t("aiAnalysisPending")}
-                </p>
-                 
-                  <Accordion
-                    type="multiple"
-                    defaultValue={["strengths", "concerns"]}
-                    className="grid grid-cols-1 md:grid-cols-2 gap-6"
-                  >
-                    <AccordionItem value="strengths" className="border-none">
-                      <div className="bg-emerald-50 rounded-lg p-4 border border-emerald-100">
-                        <AccordionTrigger className="py-0 hover:no-underline">
-                          <span className="text-sm font-bold text-emerald-800 flex items-center">
-                            <ThumbsUp className="h-4 w-4 mr-2" />
-                            {t("strengths")}
-                          </span>
-                        </AccordionTrigger>
-                        <AccordionContent className="pt-3">
-                          <ul className="space-y-2">
-                            {(candidate.analysis_strengths ?? []).map((pro, i) => (
-                              <li key={i} className="flex items-start text-sm text-emerald-700">
-                                <CheckCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 opacity-70" />
-                                {pro}
-                              </li>
-                            ))}
-                          </ul>
-                        </AccordionContent>
-                      </div>
-                    </AccordionItem>
-                    <AccordionItem value="concerns" className="border-none">
-                      <div className="bg-red-50 rounded-lg p-4 border border-red-100">
-                        <AccordionTrigger className="py-0 hover:no-underline">
-                          <span className="text-sm font-bold text-red-800 flex items-center">
-                            <ThumbsDown className="h-4 w-4 mr-2" />
-                            {t("potentialConcerns")}
-                          </span>
-                        </AccordionTrigger>
-                        <AccordionContent className="pt-3">
-                          <ul className="space-y-2">
-                            {(candidate.analysis_concerns ?? []).map((con, i) => (
-                              <li key={i} className="flex items-start text-sm text-red-700">
-                                <XCircle className="h-4 w-4 mr-2 mt-0.5 flex-shrink-0 opacity-70" />
-                                {con}
-                              </li>
-                            ))}
-                          </ul>
-                        </AccordionContent>
-                      </div>
-                    </AccordionItem>
-                  </Accordion>
-                  {hasLinkedTranscripts ? (
-                  <div className="mt-6 rounded-md border border-border bg-muted/25 p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h3 className="text-sm font-semibold text-foreground">
-                          CV + razgovor analiza
-                        </h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Rezultat se prikaže po AI re-analizi CV dokazil in povezanega transkripta.
-                        </p>
-                      </div>
-                      <Link
-                        to="/interviews"
-                        className="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-medium text-foreground transition hover:bg-muted"
-                      >
-                        Odpri razgovore
-                      </Link>
-                      <Button
-                        type="button"
-                        size="sm"
-                        onClick={() => void analyzeCvWithInterview()}
-                        disabled={
-                          isAnalyzingInterview ||
-                          !hasLinkedTranscripts ||
-                          !hasCvAnalysis ||
-                          !candidate.resume_path
-                        }
-                      >
-                        {isAnalyzingInterview ? (
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Bot className="mr-2 h-4 w-4" />
-                        )}
-                        Analiziraj CV + razgovor
-                      </Button>
-                    </div>
+      {activeCandidateSection === "overview" ? (
+      <section
+        id="overview"
+        role="tabpanel"
+        aria-labelledby="overview-tab"
+        className="scroll-mt-4 px-1 py-2 sm:px-2"
+      >
+        <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold text-foreground">
+          <Clock className="h-5 w-5 text-muted-foreground" />
+          {t("aiAnalysisSummary")}
+        </h2>
+        <p className="mb-5 text-sm text-muted-foreground">
+          {tt("Prednosti, pomisleki in primerjava ocen CV ↔ razgovor.")}
+        </p>
 
-                    {hasStoredInterviewAnalysis ? (
-                    <>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-md border border-border bg-background p-3">
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          Samo CV
-                        </p>
-                        <p className="mt-1 text-2xl font-semibold text-foreground">
-                          {candidate.ats_score == null ? "..." : `${Math.round(candidate.ats_score)}%`}
-                        </p>
-                      </div>
-                      <div className="rounded-md border border-border bg-background p-3">
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                          CV + razgovor AI
-                        </p>
-                        <p className="mt-1 text-2xl font-semibold text-foreground">
-                          {displayedCombinedScore == null
-                            ? "..."
-                            : `${displayedCombinedScore}%`}
-                        </p>
-                      </div>
-                    </div>
+        {/* CV → CV+razgovor comparison */}
+        {hasStoredInterviewAnalysis && cvOnlyScore != null && displayedCombinedScore != null ? (
+          <div className="mb-6 rounded-lg border border-border bg-muted/25 p-4">
+            <div className="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <span>{tt("Samo CV")}</span>
+              <span>{tt("CV + razgovor")}</span>
+            </div>
+            <div className="mt-2 flex items-center gap-3">
+              <span className="shrink-0 text-2xl font-bold tabular-nums text-muted-foreground">
+                {cvOnlyScore}%
+              </span>
+              <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/30"
+                  style={{ width: `${cvOnlyScore}%` }}
+                />
+                <div
+                  className={`absolute inset-y-0 left-0 rounded-full ${
+                    headlineScoreDelta != null && headlineScoreDelta < 0
+                      ? "bg-amber-500"
+                      : "bg-emerald-500"
+                  }`}
+                  style={{ width: `${Math.round(displayedCombinedScore)}%` }}
+                />
+              </div>
+              <span
+                className={`shrink-0 text-2xl font-bold tabular-nums ${
+                  scoreBandText[scoreBand(Math.round(displayedCombinedScore))]
+                }`}
+              >
+                {Math.round(displayedCombinedScore)}%
+              </span>
+            </div>
+            {headlineScoreDelta != null && headlineScoreDelta !== 0 ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                <span
+                  className={`font-semibold ${
+                    headlineScoreDelta < 0
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }`}
+                >
+                  {headlineScoreDelta > 0 ? "+" : "−"}
+                  {Math.abs(headlineScoreDelta)} {tt("po razgovoru")}
+                </span>
+                {displayedInterviewSummary
+                  ? ` — ${firstSentence(displayedInterviewSummary)}`
+                  : ` — ${tt("Ocena je posodobljena po analizi razgovora.")}`}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
-                    <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+        {/* Merged, calm strengths / concerns — accent on neutral surface */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg border border-border border-l-2 border-l-emerald-500 bg-card p-4">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <ThumbsUp className="h-4 w-4 text-emerald-500" />
+              {t("strengths")}
+            </h3>
+            <ul className="space-y-2">
+              {mergedStrengths.length ? (
+                mergedStrengths.map((item, index) => (
+                  <li key={index} className="flex items-start gap-2 text-sm text-foreground">
+                    <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                    <span>
+                      {item.text}
+                      {item.confirmed ? (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-emerald-500/10 px-1.5 py-px text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                          ✓ {tt("potrjeno v razgovoru")}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                ))
+              ) : (
+                <li className="text-sm text-muted-foreground">{t("aiAnalysisPending")}</li>
+              )}
+            </ul>
+          </div>
+          <div className="rounded-lg border border-border border-l-2 border-l-red-500 bg-card p-4">
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <ThumbsDown className="h-4 w-4 text-red-500" />
+              {t("potentialConcerns")}
+            </h3>
+            <ul className="space-y-2">
+              {mergedConcerns.length ? (
+                mergedConcerns.map((item, index) => (
+                  <li key={index} className="flex items-start gap-2 text-sm text-foreground">
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+                    <span>
+                      {item.text}
+                      {item.open ? (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-amber-500/10 px-1.5 py-px text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                          {tt("odprto v razgovoru")}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                ))
+              ) : (
+                <li className="text-sm text-muted-foreground">{t("aiAnalysisPending")}</li>
+              )}
+            </ul>
+          </div>
+        </div>
+
+        {/* Prompt to run combined analysis when a transcript is linked but unscored */}
+        {hasLinkedTranscripts && !hasStoredInterviewAnalysis ? (
+          <div className="mt-4 flex flex-col gap-2 rounded-lg border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              {tt("Transkript je povezan, vendar CV + razgovor ocena še ni izračunana.")}
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void analyzeCvWithInterview()}
+              disabled={isAnalyzingInterview || !hasCvAnalysis || !candidate.resume_path}
+            >
+              {isAnalyzingInterview ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Bot className="mr-2 h-4 w-4" />
+              )}
+              {tt("Analiziraj CV + razgovor")}
+            </Button>
+          </div>
+        ) : null}
+
+        {interviewAnalysisError ? (
+          <p className="mt-3 text-sm text-red-500">{interviewAnalysisError}</p>
+        ) : null}
+
+        {/* Progressive disclosure — full narrative, follow-ups, transcripts */}
+        {candidate.analysis_summary ||
+        displayedInterviewSummary ||
+        displayedInterviewQuestions.length ||
+        linkedTranscripts.length ? (
+          <div className="mt-5 border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={() => setShowFullAnalysis((value) => !value)}
+              aria-expanded={showFullAnalysis}
+              className="inline-flex items-center gap-1 text-sm font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              {showFullAnalysis ? tt("Pokaži manj") : tt("Pokaži več")}
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${showFullAnalysis ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {showFullAnalysis ? (
+              <div className="mt-4 space-y-4">
+                {candidate.analysis_summary ? (
+                  <div>
+                    <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {tt("Povzetek profila (CV)")}
+                    </h4>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {candidate.analysis_summary}
+                    </p>
+                  </div>
+                ) : null}
+                {displayedInterviewSummary ? (
+                  <div>
+                    <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {tt("Povzetek razgovora")}
+                    </h4>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
                       {displayedInterviewSummary}
                     </p>
-                    </>
-                    ) : (
-                      <div className="mt-4 rounded-md border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
-                        Transkript je povezan, vendar CV + razgovor ocena še ni izračunana.
-                        {!candidate.resume_path
-                          ? " Najprej naloži CV PDF, ker primerjava brez CV dokazila ostane le delna."
-                          : hasCvAnalysis
-                          ? " Klikni Analiziraj CV + razgovor za ločeno AI re-analizo."
-                          : " Najprej mora biti pripravljena CV analiza kandidata."}
-                      </div>
-                    )}
-
-                    {hasStoredInterviewAnalysis ? (
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <div className="rounded-md border border-emerald-100 bg-emerald-50 p-3">
-                          <h4 className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
-                            Potrjeno z razgovorom
-                          </h4>
-                          <ul className="mt-2 space-y-1 text-sm text-emerald-700">
-                            {displayedInterviewStrengths.map((item) => (
-                              <li key={item}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="rounded-md border border-amber-100 bg-amber-50 p-3">
-                          <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-800">
-                            Odprta vprašanja
-                          </h4>
-                          <ul className="mt-2 space-y-1 text-sm text-amber-800">
-                            {displayedInterviewConcerns.map((item) => (
-                              <li key={item}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {displayedInterviewQuestions.length ? (
-                      <div className="mt-4 rounded-md border border-border bg-background p-3">
-                        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Nadaljnja vprašanja
-                        </h4>
-                        <ol className="mt-2 space-y-2 text-sm text-foreground">
-                          {displayedInterviewQuestions.map((question, index) => (
-                            <li key={question}>
-                              {index + 1}. {question}
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    ) : null}
-
-                    {interviewAnalysisError ? (
-                      <p className="mt-3 text-sm text-red-500">{interviewAnalysisError}</p>
-                    ) : null}
-
-                    <div className="mt-4 space-y-3">
-                      {linkedTranscripts.length ? (
-                        linkedTranscripts.map((transcript) => (
-                          <details
-                            key={transcript.id}
-                            className="rounded-md border border-border bg-background p-3"
-                          >
-                            <summary className="cursor-pointer text-sm font-medium text-foreground">
-                              {transcript.title}
-                              <span className="ml-2 text-xs font-normal text-muted-foreground">
-                                {transcript.status}
-                              </span>
-                            </summary>
-                            <p className="mt-3 max-h-48 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                              {transcript.transcriptText || "Transkript še nima besedila."}
-                            </p>
-                          </details>
-                        ))
-                      ) : (
-                        <div className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground">
-                          Ni povezanih transkriptov. V Razgovorih dodajte kandidata in transkript na mrežo, ju povežite ter shranite mrežo.
-                        </div>
-                      )}
-                    </div>
                   </div>
-                  ) : null}
+                ) : null}
+                {displayedInterviewQuestions.length ? (
+                  <div>
+                    <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {tt("Nadaljnja vprašanja")}
+                    </h4>
+                    <ol className="space-y-1.5 text-sm text-foreground">
+                      {displayedInterviewQuestions.map((question, index) => (
+                        <li key={question}>
+                          {index + 1}. {question}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ) : null}
+                {linkedTranscripts.length ? (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {tt("Povezani transkripti")}
+                    </h4>
+                    {linkedTranscripts.map((transcript) => (
+                      <details
+                        key={transcript.id}
+                        className="rounded-md border border-border bg-background p-3"
+                      >
+                        <summary className="cursor-pointer text-sm font-medium text-foreground">
+                          {transcript.title}
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            {transcript.status}
+                          </span>
+                        </summary>
+                        <p className="mt-3 max-h-48 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                          {transcript.transcriptText || tt("Transkript še nima besedila.")}
+                        </p>
+                      </details>
+                    ))}
+                  </div>
+                ) : null}
+                <Link
+                  to="/interviews"
+                  className="inline-flex h-9 items-center justify-center rounded-full border border-border px-4 text-sm font-medium text-foreground transition hover:bg-muted"
+                >
+                  {tt("Odpri razgovore")}
+                </Link>
               </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+      ) : null}
 
-              <div className="surface-card p-6">
-                {isInterviewStage ? (
+      {["skills", "interview", "offer"].includes(activeCandidateSection) ? (
+      <section
+        id={activeCandidateSection}
+        role="tabpanel"
+        aria-labelledby={`${activeCandidateSection}-tab`}
+        className="scroll-mt-4 px-1 py-2 sm:px-2"
+      >
+                {activeCandidateSection === "interview" ? (
                   <>
                     <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold text-foreground">
                       <Bot className="h-5 w-5 text-cyan-500" />
@@ -1845,7 +2148,7 @@ export default function CandidateDetail() {
                       </div>
                     </div>
                   </>
-                ) : isOfferStage ? (
+                ) : activeCandidateSection === "offer" ? (
                   <>
                     <h2 className="mb-2 flex items-center gap-2 text-lg font-semibold text-foreground">
                       <Bot className="h-5 w-5 text-emerald-500" />
@@ -1855,7 +2158,7 @@ export default function CandidateDetail() {
                       {t("offerPreparationSubtitle")}
                     </p>
 
-                    <div className="rounded-md border border-border bg-muted/35 p-4">
+                    <div className="border-l-2 border-emerald-500 pl-4">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {t("offerSuitabilitySummary")}
                       </h3>
@@ -1868,11 +2171,11 @@ export default function CandidateDetail() {
                       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {t("offerChecklist")}
                       </h3>
-                      <div className="space-y-2">
+                      <div className="divide-y divide-border border-y border-border">
                         {offerChecklistItems.map((item) => (
                           <label
                             key={item.key}
-                            className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground dark:bg-muted/30"
+                            className="flex cursor-pointer items-center gap-3 px-1 py-3 text-sm text-foreground transition-colors hover:bg-muted/25"
                           >
                             <input
                               type="checkbox"
@@ -1892,7 +2195,7 @@ export default function CandidateDetail() {
                       </div>
                     </div>
 
-                    <div className="mt-5 rounded-md border border-border bg-muted/35 p-4">
+                    <div className="mt-7 border-t border-border pt-5">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {t("offerDocument")}
                       </h3>
@@ -1934,7 +2237,7 @@ export default function CandidateDetail() {
                       </div>
                     </div>
 
-                    <div className="mt-5 grid gap-3">
+                    <div className="mt-7 grid gap-4 border-t border-border pt-5 sm:grid-cols-2">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {t("offerDatesAndReminder")}
                       </h3>
@@ -1964,7 +2267,7 @@ export default function CandidateDetail() {
                       </label>
                     </div>
 
-                    <div className="mt-5 rounded-md border border-border bg-muted/35 p-4">
+                    <div className="mt-7 border-t border-border pt-5">
                       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         {t("offerOutcome")}
                       </h3>
@@ -2040,16 +2343,11 @@ export default function CandidateDetail() {
                     </div>
                   </>
                 )}
-              </div>
+      </section>
+      ) : null}
 
-           </div>
-
-
-        </div>
-
-        {canRenderDesktopAside && !isInterviewStage && !isOfferStage ? (
-        <aside className="w-[22rem] overflow-y-auto border-l border-border bg-card p-6">
-          <div className="surface-card bg-background/45 p-6">
+      {activeCandidateSection === "signal" && candidateAnchors.some((anchor) => anchor.id === "signal") ? (
+        <section id="signal" role="tabpanel" aria-labelledby="signal-tab" className="scroll-mt-4 px-1 py-2 sm:px-2">
             <>
               <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
@@ -2073,9 +2371,15 @@ export default function CandidateDetail() {
 
               {aiWritingSignal ? (
                 <>
-                  <div className="h-3 overflow-hidden rounded-full bg-muted">
+                  <div className="h-2 overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500"
+                      className={`h-full rounded-full ${
+                        aiWritingSignal.tone === "high"
+                          ? "bg-red-500"
+                          : aiWritingSignal.tone === "medium"
+                            ? "bg-amber-500"
+                            : "bg-emerald-500"
+                      }`}
                       style={{ width: `${aiWritingSignal.score}%` }}
                     />
                   </div>
@@ -2084,10 +2388,10 @@ export default function CandidateDetail() {
                     <span
                       className={
                         aiWritingSignal.tone === "high"
-                          ? "font-medium text-pink-500"
+                          ? "font-medium text-red-600 dark:text-red-400"
                           : aiWritingSignal.tone === "medium"
-                            ? "font-medium text-purple-500"
-                            : "font-medium text-green-500"
+                            ? "font-medium text-amber-600 dark:text-amber-400"
+                            : "font-medium text-emerald-600 dark:text-emerald-400"
                       }
                     >
                       {aiWritingSignal.label}
@@ -2102,7 +2406,7 @@ export default function CandidateDetail() {
                     <ul className="space-y-3 text-sm text-muted-foreground">
                       {aiWritingSignal.notes.map((note) => (
                         <li key={note} className="flex gap-2">
-                          <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-cyan-400" />
+                          <span className="mt-2 h-1.5 w-1.5 flex-none rounded-full bg-muted-foreground/40" />
                           <span>{note}</span>
                         </li>
                       ))}
@@ -2124,10 +2428,8 @@ export default function CandidateDetail() {
                 </div>
               )}
             </>
-          </div>
-        </aside>
-        ) : null}
-      </div>
+        </section>
+      ) : null}
       <OfferDraftDialog
         candidateName={candidate.full_name}
         draftKey={`smart-ats-offer-draft-${candidate.id}`}
@@ -2198,6 +2500,6 @@ export default function CandidateDetail() {
         onDocumentChange={setOfferDocument}
         onOpenChange={setIsOfferPreviewOpen}
       />
-    </div>
+    </ObjectPageShell>
   );
 }

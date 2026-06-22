@@ -3,11 +3,10 @@ import {
   LayoutDashboard,
   Users,
   Briefcase,
-  Bot,
   FileText,
-  GitBranch,
   Mic,
   Menu,
+  Network,
   UserSearch,
   Settings,
   LogOut,
@@ -20,28 +19,29 @@ type SidebarProps = {
   collapsed?: boolean;
   onNavigate?: () => void;
   onToggle?: () => void;
+  role?: WorkspaceRole;
 };
 
-export function Sidebar({ collapsed = false, onNavigate, onToggle }: SidebarProps) {
+export type WorkspaceRole = "recruiter" | "hiring_manager" | "interviewer";
+
+export function Sidebar({ collapsed = false, onNavigate, onToggle, role = "recruiter" }: SidebarProps) {
   const navigate = useNavigate();
   const { t, tt } = useI18n();
   const navItems = [
-    { to: '/', icon: LayoutDashboard, label: t("dashboard"), end: true },
-    { to: '/applicants', icon: Users, label: t("applicants") },
-    { to: '/jobs', icon: Briefcase, label: t("jobs") },
-    { to: '/headhunter', icon: UserSearch, label: t("headhunter") },
-    { to: '/interviews', icon: Mic, label: t("interviews"), end: true },
+    { to: '/', icon: LayoutDashboard, label: tt("Pregled"), end: true, roles: ["recruiter", "hiring_manager", "interviewer"] },
+    { to: '/applicants', icon: Users, label: tt("Kandidati"), roles: ["recruiter", "hiring_manager", "interviewer"] },
+    { to: '/jobs', icon: Briefcase, label: tt("Delovna mesta"), roles: ["recruiter", "hiring_manager"] },
+    { to: '/headhunter', icon: UserSearch, label: tt("Lov na talente"), roles: ["recruiter"] },
+    { to: '/interviews', icon: Mic, label: tt("Razgovori"), end: true, roles: ["recruiter", "hiring_manager", "interviewer"] },
     {
       to: '/interviews/workflow',
-      icon: Mic,
-      label: "Potek razgovorov",
-      nested: true,
+      icon: Network,
+      label: tt("Poteki razgovorov"),
+      roles: ["recruiter", "hiring_manager", "interviewer"],
     },
-    { to: '/offers', icon: FileText, label: t("offers") },
-    { to: '/ai-agent', icon: Bot, label: t("aiAgent") },
-    { to: '/pipeline', icon: GitBranch, label: t("pipeline") },
-    { to: '/settings', icon: Settings, label: t("settings") },
-  ];
+    { to: '/offers', icon: FileText, label: tt("Ponudbe"), roles: ["recruiter", "hiring_manager"] },
+    { to: '/settings', icon: Settings, label: t("settings"), roles: ["recruiter", "hiring_manager", "interviewer"] },
+  ].filter((item) => item.roles.includes(role));
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -52,7 +52,7 @@ export function Sidebar({ collapsed = false, onNavigate, onToggle }: SidebarProp
     <div
       className={clsx(
         "flex h-screen flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-300 ease-in-out",
-        collapsed ? "w-[4.5rem]" : "w-56",
+        collapsed ? "w-[4.5rem]" : "w-60",
       )}
     >
       <div
@@ -68,7 +68,7 @@ export function Sidebar({ collapsed = false, onNavigate, onToggle }: SidebarProp
               alt="Smart ATS Logo"
               className="mr-3 h-10 w-10 shrink-0 object-contain"
             />
-            <span className="truncate text-lg font-semibold tracking-tight logo-font">
+            <span className="truncate text-base font-semibold tracking-tight logo-font">
               Smart ATS
             </span>
           </div>
@@ -84,7 +84,7 @@ export function Sidebar({ collapsed = false, onNavigate, onToggle }: SidebarProp
         </button>
       </div>
 
-      <nav className={clsx("flex-1 space-y-1 py-5", collapsed ? "px-2" : "px-3")}>
+      <nav className={clsx("flex-1 space-y-1 py-4", collapsed ? "px-2" : "px-3")} aria-label={tt("Glavna navigacija")}>
         {navItems.map((item) => {
           const Icon = item.icon;
 
@@ -100,10 +100,9 @@ export function Sidebar({ collapsed = false, onNavigate, onToggle }: SidebarProp
                 clsx(
                   'group flex items-center rounded-md text-sm font-medium logo-font transition-all duration-200 ease-in-out',
                   collapsed ? "h-10 justify-center px-0" : "px-3 py-2.5",
-                  item.nested && !collapsed && "ml-6 py-2 text-xs",
                   isActive
-                    ? 'bg-sidebar-primary text-sidebar-primary-foreground shadow-sm'
-                    : 'text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                    ? 'bg-sidebar-primary text-sidebar-primary-foreground'
+                    : 'text-sidebar-foreground/72 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
                 )
               }
             >
@@ -111,7 +110,6 @@ export function Sidebar({ collapsed = false, onNavigate, onToggle }: SidebarProp
                 className={clsx(
                   "h-5 w-5 flex-shrink-0",
                   !collapsed && "mr-3",
-                  item.nested && collapsed && "text-cyan-300 group-hover:text-cyan-200",
                 )}
                 aria-hidden="true"
               />

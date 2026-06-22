@@ -16,7 +16,7 @@ import {
   Archive,
   RotateCcw,
 } from "lucide-react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { supabase } from "../lib/supabase";
 import { updateCachedApplicants } from "../lib/candidateListCache";
 import {
@@ -28,11 +28,14 @@ import {
 } from "../lib/jobCache";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { useI18n } from "../lib/i18n";
+import { useConfirm } from "../lib/confirm";
 import { logActivityEvent } from "../lib/activityLog";
+import { StatStrip } from "../components/shell/StatStrip";
 import {
   Select,
   SelectContent,
@@ -49,7 +52,7 @@ const iconOptions = [
   { value: "paintbrush", label: "Design", icon: Paintbrush },
   { value: "database", label: "Data", icon: Database },
   { value: "shield", label: "Security", icon: Shield },
-  { value: "sparkles", label: "AI", icon: Sparkles },
+  { value: "sparkles", label: "Specialist", icon: Sparkles },
   { value: "users", label: "People", icon: Users },
   { value: "megaphone", label: "Marketing", icon: Megaphone },
 ];
@@ -96,7 +99,9 @@ const readSessionJson = <T,>(key: string): Partial<T> | null => {
 };
 
 export default function Jobs() {
+  const [searchParams] = useSearchParams();
   const { t, tt } = useI18n();
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const restoredViewState = useMemo(
     () => readSessionJson<JobsViewState>(jobsViewStorageKey),
@@ -111,6 +116,7 @@ export default function Jobs() {
   const [jobs, setJobs] = useState<JobRow[]>(cachedJobList?.jobs ?? []);
   const [isLoading, setIsLoading] = useState(!cachedJobList);
   const [isAddOpen, setIsAddOpen] = useState(restoredDraftState?.isAddOpen ?? false);
+
   const [jobTitle, setJobTitle] = useState(restoredDraftState?.jobTitle ?? "");
   const [jobType, setJobType] = useState(restoredDraftState?.jobType ?? "");
   const [jobOpenings, setJobOpenings] = useState(restoredDraftState?.jobOpenings ?? "1");
@@ -146,6 +152,10 @@ export default function Jobs() {
       }, {}),
     [],
   );
+
+  useEffect(() => {
+    if (searchParams.get("add") === "1") setIsAddOpen(true);
+  }, [searchParams]);
 
   useEffect(() => {
     let isMounted = true;
@@ -396,7 +406,11 @@ export default function Jobs() {
 
   const handleDeleteJob = async (jobId: string) => {
     const job = jobs.find((item) => item.id === jobId);
-    const confirmed = window.confirm(t("deleteJobConfirm"));
+    const confirmed = await confirm({
+      description: t("deleteJobConfirm"),
+      confirmLabel: t("deleteJob"),
+      destructive: true,
+    });
     if (!confirmed) return;
 
     setDeletingJobId(jobId);
@@ -508,6 +522,15 @@ export default function Jobs() {
           {t("createNewJob")}
         </button>
       </div>
+
+      <StatStrip
+        items={[
+          { label: tt("Aktivna delovna mesta"), value: jobs.filter((job) => (job.status ?? "active") === "active").length, detail: tt("Trenutno odprto") },
+          { label: tt("Vsa odprta mesta"), value: jobs.reduce((sum, job) => sum + (job.openings ?? 1), 0), detail: tt("Načrtovano zaposlovanje") },
+          { label: tt("Kandidati"), value: jobs.reduce((sum, job) => sum + job.applicantsCount, 0), detail: tt("V vseh pozicijah") },
+          { label: tt("Brez kandidatov"), value: jobs.filter((job) => job.applicantsCount === 0 && (job.status ?? "active") === "active").length, detail: tt("Potrebuje sourcing") },
+        ]}
+      />
 
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-hidden border-border bg-card p-0 text-card-foreground sm:max-w-3xl">
@@ -706,7 +729,7 @@ export default function Jobs() {
         </DialogContent>
       </Dialog>
 
-      <div className="surface-card grid gap-3 p-3 lg:grid-cols-[minmax(14rem,1fr)_minmax(12rem,0.45fr)_minmax(12rem,0.45fr)]">
+      <div className="grid gap-3 border-b border-border pb-4 lg:grid-cols-[minmax(14rem,1fr)_minmax(12rem,0.45fr)_minmax(12rem,0.45fr)]">
         <div className="grid gap-1.5">
           <Label htmlFor="job-search">{tt("Išči delovna mesta")}</Label>
           <Input
@@ -747,21 +770,27 @@ export default function Jobs() {
         </div>
       </div>
 
-      <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-        {deleteError ? (
-          <div className="surface-card border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:col-span-2 xl:col-span-3">
-            {deleteError}
-          </div>
-        ) : null}
+      {deleteError ? (
+        <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400">
+          {deleteError}
+        </div>
+      ) : null}
 
+      <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="hidden grid-cols-[minmax(16rem,1.5fr)_10rem_7rem_8rem_minmax(10rem,0.8fr)_7rem] items-center border-b border-border bg-muted/35 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground lg:grid">
+          <span>{tt("Delovno mesto")}</span>
+          <span>{tt("Tip")}</span>
+          <span>{tt("Odprtja")}</span>
+          <span>{tt("Kandidati")}</span>
+          <span>{tt("Status zaposlovanja")}</span>
+          <span className="text-right">{tt("Akcije")}</span>
+        </div>
         {paginatedJobs.map((job) => {
           const Icon = iconMap[job.icon ?? "briefcase"] ?? Briefcase;
           const jobPath = `/jobs/${job.id}`;
           const isInactive = (job.status ?? "active") === "inactive";
 
-          const openJob = () => {
-            navigate(jobPath);
-          };
+          const openJob = () => navigate(jobPath);
 
           return (
             <div
@@ -775,91 +804,70 @@ export default function Jobs() {
                   openJob();
                 }
               }}
-              className={`surface-card flex min-h-[280px] cursor-pointer flex-col justify-between p-6 transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                isInactive ? "opacity-55 grayscale" : ""
+              className={`group relative grid cursor-pointer gap-3 border-b border-border px-4 py-3 last:border-b-0 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring lg:grid-cols-[minmax(16rem,1.5fr)_10rem_7rem_8rem_minmax(10rem,0.8fr)_7rem] lg:items-center ${
+                isInactive ? "opacity-60" : ""
               }`}
             >
-              <div>
-                <div className="flex items-start justify-between">
-                  <div className="relative rounded-md bg-muted p-3 text-foreground">
-                    <Icon className="h-6 w-6" />
-                    <span className="absolute -right-2 -top-2 inline-flex min-w-6 items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-xs font-semibold text-primary-foreground ring-2 ring-card">
-                      {job.applicantsCount}
-                    </span>
-                  </div>
-                  <span
-                    className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ring-1 ring-inset ${
-                      isInactive
-                        ? "bg-muted text-muted-foreground ring-border"
-                        : "bg-green-50 text-green-700 ring-green-600/20"
-                    }`}
-                  >
-                    {isInactive ? t("inactive") : t("active")}
-                  </span>
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Icon className="h-4 w-4" />
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-foreground">
-                  {job.title}
-                </h3>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
-                  {job.type ? <span>{formatJobType(job.type, tt)}</span> : null}
-                  <span>{t("jobOpenings")}: {job.openings ?? 1}</span>
+                <div className="min-w-0">
+                  <h3 className="truncate text-sm font-semibold text-foreground">{job.title}</h3>
+                  <p className="truncate text-xs text-muted-foreground">{job.description || tt("Opis ni dodan")}</p>
                 </div>
-                {job.description && (
-                  <p className="mt-4 line-clamp-3 text-sm text-muted-foreground">
-                    {job.description}
-                  </p>
-                )}
               </div>
 
-              <div className="mt-6 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center text-xs text-muted-foreground">
-                  <Users className="mr-1.5 h-3.5 w-3.5" />
-                  {job.applicantsCount}{" "}
-                  {job.applicantsCount === 1 ? t("applicant") : t("applicants")}
-                </div>
-                <div
-                  className="flex flex-wrap items-center gap-2"
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => event.stopPropagation()}
+              <span className="text-sm text-muted-foreground">{job.type ? formatJobType(job.type, tt) : "—"}</span>
+              <span className="text-sm font-semibold tabular-nums text-foreground">{job.openings ?? 1}</span>
+              <span className="inline-flex items-center gap-1.5 text-sm tabular-nums text-foreground">
+                <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                {job.applicantsCount}
+              </span>
+
+              <Badge
+                variant={isInactive ? "secondary" : "success"}
+                className="w-fit"
+              >
+                {isInactive ? t("inactive") : t("active")}
+              </Badge>
+
+              <div
+                className="relative z-10 flex shrink-0 items-center justify-end gap-1"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 opacity-70 transition-opacity group-hover:opacity-100"
+                  onClick={() => openEditJob(job)}
+                  aria-label={t("editJob")}
                 >
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEditJob(job)}
-                    className="gap-2"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    {t("editJob")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      updateJobStatus(job.id, isInactive ? "active" : "inactive")
-                    }
-                    className="gap-2"
-                  >
-                    {isInactive ? (
-                      <RotateCcw className="h-4 w-4" />
-                    ) : (
-                      <Archive className="h-4 w-4" />
-                    )}
-                    {isInactive ? t("activateJob") : t("deactivateJob")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDeleteJob(job.id)}
-                    disabled={deletingJobId === job.id}
-                    className="gap-2 text-red-600 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {deletingJobId === job.id ? t("deleting") : t("deleteJob")}
-                  </Button>
-                </div>
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 opacity-70 transition-opacity group-hover:opacity-100"
+                  onClick={() => updateJobStatus(job.id, isInactive ? "active" : "inactive")}
+                  aria-label={isInactive ? t("activateJob") : t("deactivateJob")}
+                >
+                  {isInactive ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-red-500/70 opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100"
+                  onClick={() => handleDeleteJob(job.id)}
+                  disabled={deletingJobId === job.id}
+                  aria-label={t("deleteJob")}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           );
@@ -868,7 +876,7 @@ export default function Jobs() {
 
       {!isLoading && filteredJobs.length > jobsPerPage && (
         <div className="flex justify-center">
-          <div className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-card p-1 shadow-sm">
+          <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-card px-1 py-1 shadow-sm">
             <Button
               type="button"
               variant="ghost"
@@ -899,12 +907,12 @@ export default function Jobs() {
       )}
 
       {!isLoading && jobs.length === 0 && (
-        <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">
+        <div className="py-12 text-center text-sm text-muted-foreground">
           {t("noJobs")}
         </div>
       )}
       {!isLoading && jobs.length > 0 && filteredJobs.length === 0 && (
-        <div className="surface-card border-dashed p-8 text-center text-sm text-muted-foreground">
+        <div className="py-12 text-center text-sm text-muted-foreground">
           Ni delovnih mest za izbrane filtre.
         </div>
       )}

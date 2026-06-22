@@ -8,6 +8,7 @@ import {
 import { useEffect, type ReactNode } from "react";
 import "../styles/index.css";
 import { I18nProvider } from "./lib/i18n";
+import { ConfirmProvider } from "./lib/confirm";
 import { applyUserPreferences } from "./lib/userPreferences";
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -35,7 +36,9 @@ export default function Root() {
 
   return (
     <I18nProvider>
-      <Outlet />
+      <ConfirmProvider>
+        <Outlet />
+      </ConfirmProvider>
     </I18nProvider>
   );
 }

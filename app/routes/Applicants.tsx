@@ -3,7 +3,11 @@ import { Link, useLocation, useSearchParams } from "react-router";
 import { clsx } from "clsx";
 import type { Applicant, Stage } from "../store";
 import { ApplicantCard } from "../components/ApplicantCard";
-import { ChevronLeft, ChevronRight, FileText, Upload, X } from "lucide-react";
+import { ApplicantWorkTable } from "../components/ApplicantWorkTable";
+import { CandidateComparisonDialog } from "../components/CandidateComparisonDialog";
+import { ScoreChip } from "../components/ScoreChip";
+import { useConfirm } from "../lib/confirm";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, FileText, SlidersHorizontal, Upload, X } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +26,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import { ListReportShell, type StatusTab } from "../components/shell/ListReportShell";
+import { StatStrip } from "../components/shell/StatStrip";
 import { convertPdfToImage, extractPdfText } from "../lib/pdf";
 import { supabase } from "../lib/supabase";
 import { useI18n } from "../lib/i18n";
@@ -53,6 +59,7 @@ type ResumeImportItem = {
 
 type CandidateImportDraft = {
   isOpen: boolean;
+  step: number;
   resumeItems: ResumeImportItem[];
   selectedResumeId: string | null;
   resumeError: string | null;
@@ -84,7 +91,6 @@ type ApplicantsViewState = {
   sortOrder: string;
   jobFilter: string;
   jobStatusFilter: string;
-  savedView: SavedViewKey | "all";
   statusFilters: typeof defaultStatusFilters;
   offerStatusFilters: typeof defaultOfferStatusFilters;
   applicantPage: number;
@@ -114,15 +120,14 @@ const candidateSelectWithOffer =
   `${candidateSelect}, offer_checklist, offer_outcome, offer_sent_at`;
 
 const applicantsPerPage = 12;
-
-const savedViewOptions = [
-  { key: "today", label: "Moji kandidati za danes" },
-  { key: "offersToSend", label: "Ponudbe za poslati" },
-  { key: "declinedAfterOffer", label: "Zavrnjeni po ponudbi" },
-  { key: "top80", label: "Top kandidati 80+" },
-] as const;
-
-type SavedViewKey = (typeof savedViewOptions)[number]["key"];
+const candidateImportSteps = ["Pozicija", "Življenjepis", "Pregled"] as const;
+const candidateWorkflowPreviewStages: Stage[] = [
+  "Applied",
+  "Screening",
+  "Interview",
+  "Offer",
+  "Accepted",
+];
 
 const candidateNameFromFileName = (fileName: string) => {
   const withoutExtension = fileName.replace(/\.pdf$/i, "");
@@ -167,7 +172,8 @@ const candidateNameFromText = (text: string, fileName: string) => {
 };
 
 export default function Applicants() {
-  const { t, tt } = useI18n();
+  const { t, tt, stageLabel } = useI18n();
+  const confirm = useConfirm();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -200,9 +206,8 @@ export default function Applicants() {
   const [jobStatusFilter, setJobStatusFilter] = useState<string>(
     restoredViewState?.jobStatusFilter ?? "all",
   );
-  const [savedView, setSavedView] = useState<SavedViewKey | "all">(
-    restoredViewState?.savedView ?? "all",
-  );
+  const [stageTab, setStageTab] = useState<string>("all");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [statusFilters, setStatusFilters] = useState({
     ...defaultStatusFilters,
     ...(restoredViewState?.statusFilters ?? {}),
@@ -212,6 +217,9 @@ export default function Applicants() {
     ...(restoredViewState?.offerStatusFilters ?? {}),
   });
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [selectedApplicantIds, setSelectedApplicantIds] = useState<Set<string>>(new Set());
+  const [isCompareOpen, setIsCompareOpen] = useState(false);
+  const [importStep, setImportStep] = useState(1);
   const [resumeItems, setResumeItems] = useState<ResumeImportItem[]>([]);
   const [selectedResumeId, setSelectedResumeId] = useState<string | null>(null);
   const [isDraggingResume, setIsDraggingResume] = useState(false);
@@ -231,6 +239,7 @@ export default function Applicants() {
     if (!candidateImportDraft) return;
 
     setIsAddOpen(candidateImportDraft.isOpen);
+    setImportStep(candidateImportDraft.step || 1);
     setResumeItems(candidateImportDraft.resumeItems);
     setSelectedResumeId(candidateImportDraft.selectedResumeId);
     setResumeError(candidateImportDraft.resumeError);
@@ -256,6 +265,7 @@ export default function Applicants() {
 
     candidateImportDraft = {
       isOpen: isAddOpen,
+      step: importStep,
       resumeItems,
       selectedResumeId,
       resumeError,
@@ -266,6 +276,7 @@ export default function Applicants() {
     };
   }, [
     isAddOpen,
+    importStep,
     jobDescription,
     jobTitle,
     resumeError,
@@ -283,13 +294,16 @@ export default function Applicants() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (searchParams.get("add") === "1") setIsAddOpen(true);
+  }, [searchParams]);
+
+  useEffect(() => {
     saveApplicantsViewState({
       ratingFilter,
       searchFilter,
       sortOrder,
       jobFilter,
       jobStatusFilter,
-      savedView,
       statusFilters,
       offerStatusFilters,
       applicantPage,
@@ -300,7 +314,6 @@ export default function Applicants() {
     jobStatusFilter,
     offerStatusFilters,
     ratingFilter,
-    savedView,
     searchFilter,
     sortOrder,
     statusFilters,
@@ -522,6 +535,7 @@ export default function Applicants() {
   };
 
   const resetForm = () => {
+    setImportStep(1);
     setSelectedJobId("");
     setJobTitle("");
     setJobDescription("");
@@ -537,6 +551,7 @@ export default function Applicants() {
   const preserveImportDraft = () => {
     candidateImportDraft = {
       isOpen: true,
+      step: importStep,
       resumeItems,
       selectedResumeId,
       resumeError,
@@ -549,9 +564,11 @@ export default function Applicants() {
 
   const handleDeleteApplicant = async (id: string) => {
     const applicant = remoteApplicants.find((item) => item.id === id);
-    const confirmed = window.confirm(
-      t("deleteApplicantConfirm"),
-    );
+    const confirmed = await confirm({
+      description: t("deleteApplicantConfirm"),
+      confirmLabel: t("deleteApplicant"),
+      destructive: true,
+    });
     if (!confirmed) return;
 
     const { error } = await supabase.from("candidates").delete().eq("id", id);
@@ -848,7 +865,7 @@ export default function Applicants() {
           failedImports.length > 0
             ? tt("Uvoz končan z napakami.")
             : queuedAnalyses.length > 0
-              ? tt("Uvoz končan. Nekatere AI analize čakajo na ponovni poskus.")
+              ? tt("Uvoz končan. Nekateri pregledi čakajo na ponovni poskus.")
               : tt("Uvoz kandidatov končan."),
       });
       if (failedImports.length > 0) {
@@ -981,32 +998,6 @@ export default function Applicants() {
     return getApplicantJobStatus(applicant) === jobStatusFilter;
   };
 
-  const matchesSavedView = (applicant: Applicant) => {
-    if (savedView === "all") return true;
-
-    const offerSent = Boolean(applicant.offerChecklist?.offerSent);
-    const outcome = applicant.offerOutcome ?? "pending";
-
-    if (savedView === "today") {
-      if (!applicant.createdAt) return false;
-      return new Date(applicant.createdAt).toDateString() === new Date().toDateString();
-    }
-
-    if (savedView === "offersToSend") {
-      return applicant.stage === "Offer" && !offerSent;
-    }
-
-    if (savedView === "top80") {
-      return applicant.analysisStatus === "complete" && (applicant.aiScore ?? 0) >= 80;
-    }
-
-    if (savedView === "declinedAfterOffer") {
-      return outcome === "declined" || (applicant.stage === "Rejected" && offerSent);
-    }
-
-    return true;
-  };
-
   const matchesSearchFilter = (applicant: Applicant) => {
     const normalizedSearch = searchFilter.trim().toLowerCase();
     if (!normalizedSearch) return true;
@@ -1023,13 +1014,37 @@ export default function Applicants() {
       .some((value) => String(value).toLowerCase().includes(normalizedSearch));
   };
 
-  const filteredApplicants = remoteApplicants
+  // Everything except the stage tab — used both for tab counts and the list.
+  const baseFilteredApplicants = remoteApplicants
     .filter((applicant) => matchesSearchFilter(applicant))
-    .filter((applicant) => matchesSavedView(applicant))
     .filter((applicant) => matchesStatusFilters(applicant))
     .filter((applicant) => matchesOfferStatusFilters(applicant))
     .filter((applicant) => matchesJobStatusFilter(applicant))
-    .filter((applicant) => jobFilter === "all" || applicant.role === jobFilter)
+    .filter((applicant) => jobFilter === "all" || applicant.role === jobFilter);
+
+  const matchesStageTab = (applicant: Applicant) => {
+    if (stageTab === "all") return true;
+    if (stageTab === "review") return applicant.stage === "Applied" || applicant.stage === "Screening";
+    return applicant.stage === stageTab;
+  };
+
+  const stageTabs: StatusTab[] = [
+    { key: "all", label: tt("Vsi"), count: baseFilteredApplicants.length },
+    {
+      key: "review",
+      label: tt("Za pregled"),
+      count: baseFilteredApplicants.filter(
+        (a) => a.stage === "Applied" || a.stage === "Screening",
+      ).length,
+    },
+    { key: "Interview", label: stageLabel("Interview"), count: baseFilteredApplicants.filter((a) => a.stage === "Interview").length },
+    { key: "Offer", label: stageLabel("Offer"), count: baseFilteredApplicants.filter((a) => a.stage === "Offer").length },
+    { key: "Accepted", label: stageLabel("Accepted"), count: baseFilteredApplicants.filter((a) => a.stage === "Accepted").length },
+    { key: "Rejected", label: stageLabel("Rejected"), count: baseFilteredApplicants.filter((a) => a.stage === "Rejected").length },
+  ];
+
+  const filteredApplicants = baseFilteredApplicants
+    .filter(matchesStageTab)
     .sort((left, right) => {
       if (ratingFilter === "highest") {
         return (right.aiScore ?? -1) - (left.aiScore ?? -1);
@@ -1053,6 +1068,27 @@ export default function Applicants() {
     (applicantPage - 1) * applicantsPerPage,
     applicantPage * applicantsPerPage,
   );
+  const selectedApplicants = remoteApplicants.filter((applicant) => selectedApplicantIds.has(applicant.id));
+
+  const toggleApplicantSelection = (id: string, selected: boolean) => {
+    setSelectedApplicantIds((current) => {
+      const next = new Set(current);
+      if (selected) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleApplicants = (selected: boolean) => {
+    setSelectedApplicantIds((current) => {
+      const next = new Set(current);
+      paginatedApplicants.forEach((applicant) => {
+        if (selected) next.add(applicant.id);
+        else next.delete(applicant.id);
+      });
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!didMountFilterResetRef.current) {
@@ -1061,7 +1097,7 @@ export default function Applicants() {
     }
 
     setApplicantPage(1);
-  }, [ratingFilter, sortOrder, jobFilter, jobStatusFilter, statusFilters, offerStatusFilters, searchFilter, savedView]);
+  }, [ratingFilter, sortOrder, jobFilter, jobStatusFilter, statusFilters, offerStatusFilters, searchFilter, stageTab]);
 
   useEffect(() => {
     setApplicantPage((page) => Math.min(page, applicantPageCount));
@@ -1078,33 +1114,158 @@ export default function Applicants() {
     !isProcessingResumes &&
     resumeItems.some((item) => item.candidateName.trim() && !item.error);
 
-  return (
-    <div className="page-container">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="page-title">{t("applicants")}</h1>
-          <p className="text-sm subtle-text">{t("applicantsSubtitle")}</p>
-        </div>
-        <div className="mt-4 flex space-x-3 sm:mt-0">
-          <Button
-            className="bg-primary text-primary-foreground hover:bg-primary/90"
-            onClick={() => setIsAddOpen(true)}
-          >
-            {t("addCandidate")}
-          </Button>
-        </div>
-      </div>
+  // Advanced (collapsed-by-default) filters live behind the "Napredni filtri"
+  // expander; the primary row keeps only search + job (status = stage tabs).
+  const advancedActiveCount =
+    (ratingFilter !== "all" ? 1 : 0) +
+    (jobStatusFilter !== "all" ? 1 : 0) +
+    (statusFilters.new ? 1 : 0) +
+    (offerStatusFilters.offer ? 1 : 0);
 
+  const offerSubFilterLabels: Record<string, string> = {
+    preparing: t("offerStatusPreparing"),
+    sent: tt("Poslana, čaka odgovor"),
+    accepted: tt("Sprejeta ponudba"),
+    declined: tt("Zavrnjena ponudba"),
+  };
+
+  type FilterChip = { key: string; label: string; onRemove: () => void };
+  const activeFilterChips: FilterChip[] = [];
+  if (searchFilter.trim()) {
+    activeFilterChips.push({
+      key: "search",
+      label: `${t("searchCandidates")}: ${searchFilter.trim()}`,
+      onRemove: () => updateSearchFilter(""),
+    });
+  }
+  if (jobFilter !== "all") {
+    activeFilterChips.push({ key: "job", label: jobFilter, onRemove: () => setJobFilter("all") });
+  }
+  if (ratingFilter !== "all") {
+    activeFilterChips.push({
+      key: "rating",
+      label: ratingFilter === "highest" ? t("highestRating") : t("lowestRating"),
+      onRemove: () => setRatingFilter("all"),
+    });
+  }
+  if (jobStatusFilter !== "all") {
+    activeFilterChips.push({
+      key: "jobStatus",
+      label: jobStatusFilter === "active" ? tt("Aktivna dela") : tt("Neaktivna dela"),
+      onRemove: () => setJobStatusFilter("all"),
+    });
+  }
+  if (statusFilters.new) {
+    activeFilterChips.push({
+      key: "new",
+      label: t("newApplicantBadge"),
+      onRemove: () => toggleStatusFilter("new", false),
+    });
+  }
+  if (offerStatusFilters.offer) {
+    activeFilterChips.push({
+      key: "offer",
+      label: tt("Ponudba"),
+      onRemove: () => toggleOfferStatusFilter("offer", false),
+    });
+    (["preparing", "sent", "accepted", "declined"] as const).forEach((key) => {
+      if (offerStatusFilters[key]) {
+        activeFilterChips.push({
+          key: `offer-${key}`,
+          label: offerSubFilterLabels[key],
+          onRemove: () => toggleOfferStatusFilter(key, false),
+        });
+      }
+    });
+  }
+
+  const clearAllFilters = () => {
+    updateSearchFilter("");
+    setJobFilter("all");
+    setRatingFilter("all");
+    setJobStatusFilter("all");
+    setStatusFilters({ ...defaultStatusFilters });
+    setOfferStatusFilters({ ...defaultOfferStatusFilters });
+  };
+
+  return (
+    <ListReportShell
+      title={t("applicants")}
+      subtitle={tt("Operativni pregled kandidatov po fazi, poziciji, oceni in naslednjem koraku.")}
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedApplicants.length > 0 ? (
+            <span className="text-sm font-medium text-muted-foreground">
+              {selectedApplicants.length} {tt("izbranih")}
+            </span>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            disabled={selectedApplicants.length < 2}
+            onClick={() => setIsCompareOpen(true)}
+          >
+            {tt("Primerjaj kandidate")}
+          </Button>
+          <Button onClick={() => setIsAddOpen(true)}>{t("addCandidate")}</Button>
+        </div>
+      }
+      tabs={stageTabs}
+      activeTab={stageTab}
+      onTabChange={setStageTab}
+    >
+      <CandidateComparisonDialog
+        candidates={selectedApplicants}
+        open={isCompareOpen}
+        onOpenChange={setIsCompareOpen}
+        returnTo={currentApplicantsPath}
+      />
       <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <DialogContent className="grid max-h-[94vh] w-[min(1240px,calc(100vw-2rem))] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border bg-card p-4 text-card-foreground sm:max-w-none sm:p-5">
+        <DialogContent className="grid max-h-[94vh] w-[min(1080px,calc(100vw-2rem))] max-w-none grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden border-border bg-card p-0 text-card-foreground sm:max-w-none">
           <DialogHeader>
+            <div className="px-6 pt-6">
             <DialogTitle>{t("addCandidate")}</DialogTitle>
             <DialogDescription>
-              {t("addCandidateDescription")}
+              {tt("Kandidata bomo vključili v voden proces pregleda in odločanja.")}
             </DialogDescription>
+            </div>
           </DialogHeader>
-          <div className="grid min-h-0 gap-6 overflow-y-auto pr-1 2xl:grid-cols-[minmax(420px,440px)_minmax(0,1fr)] 2xl:gap-8 2xl:overflow-hidden 2xl:pr-0">
+          <ol className="flex items-center border-b border-border px-6 py-4" aria-label={tt("Koraki dodajanja kandidata")}>
+            {candidateImportSteps.map((stepLabel, index) => {
+              const label = tt(stepLabel);
+              const step = index + 1;
+              const complete = step < importStep;
+              const current = step === importStep;
+              return (
+                <li key={label} className="flex min-w-0 flex-1 items-center last:flex-none">
+                  <button
+                    type="button"
+                    disabled={step > importStep || (step === 2 && !selectedJobId)}
+                    onClick={() => setImportStep(step)}
+                    aria-current={current ? "step" : undefined}
+                    className={`flex items-center gap-2 text-sm font-medium ${
+                      current ? "text-foreground" : complete ? "text-foreground" : "text-muted-foreground"
+                    }`}
+                  >
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs ${
+                      current ? "bg-primary text-primary-foreground" : complete ? "bg-emerald-500 text-white" : "border border-border"
+                    }`}>
+                      {complete ? <Check className="h-4 w-4" /> : step}
+                    </span>
+                    <span className="hidden sm:inline">{label}</span>
+                  </button>
+                  {step < 3 ? <span className={`mx-3 h-px min-w-5 flex-1 ${complete ? "bg-emerald-500/60" : "bg-border"}`} /> : null}
+                </li>
+              );
+            })}
+          </ol>
+          <div className={`grid min-h-0 gap-8 overflow-y-auto px-6 py-5 ${importStep === 3 ? "lg:grid-cols-[minmax(320px,0.75fr)_minmax(0,1.25fr)]" : ""}`}>
             <div className="grid min-w-0 content-start gap-2.5">
+              {importStep === 1 ? <>
+                <div>
+                  <p className="text-lg font-semibold text-foreground">{tt("Za katero pozicijo dodajaš kandidata?")}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{tt("Izbrana pozicija določi kriterije pregleda in nadaljnji potek dela.")}</p>
+                </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="candidate-role">{t("jobTitle")}</Label>
                 <Select
@@ -1132,24 +1293,30 @@ export default function Applicants() {
                 </Select>
               </div>
               {selectedJob ? (
-                <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <span className="font-medium text-foreground">
-                        {t("selectedJobAiAgentReference")}
-                      </span>
-                      <p className="mt-0.5">{t("selectedJobAiAgentDefault")}</p>
-                    </div>
-                    <Link
-                      to={`/ai-agent?jobId=${encodeURIComponent(selectedJob.id)}`}
-                      onClick={preserveImportDraft}
-                      className="font-medium text-foreground underline-offset-4 hover:underline"
-                    >
-                      {t("selectedJobAiAgentEdit")}
-                    </Link>
-                  </div>
+                <div className="mt-3 border-l-2 border-primary pl-4 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">{tt("Izbrana pozicija")}</span>
+                  <p className="mt-0.5">{tt("Kandidat bo dodan v standardni potek pregleda za to delovno mesto.")}</p>
                 </div>
               ) : null}
+              <div className="mt-5 border-t border-border pt-4">
+                <p className="section-label">{tt("Vstop v workflow")}</p>
+                <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                  {candidateWorkflowPreviewStages.map((stage, index) => (
+                    <div key={stage} className="contents">
+                      <span className={index === 0 ? "font-semibold text-foreground" : ""}>{stageLabel(stage as Stage)}</span>
+                      {index < 4 ? <span className="h-px min-w-3 flex-1 bg-border" /> : null}
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">{t("candidateStageAppliedNote")}</p>
+              </div>
+              </> : null}
+
+              {importStep === 2 ? <>
+              <div>
+                <p className="text-lg font-semibold text-foreground">{tt("Dodaj enega ali več življenjepisov")}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{tt("Ime kandidata prepoznamo iz PDF-ja; pred uvozom ga lahko popraviš.")}</p>
+              </div>
               <div className="grid gap-2">
                 <Label>{t("uploadResumePdf")}</Label>
                 <input
@@ -1249,9 +1416,30 @@ export default function Applicants() {
                   </div>
                 </div>
               ) : null}
-              <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                {t("candidateStageAppliedNote")}
+              </> : null}
+
+              {importStep === 3 ? <>
+              <div>
+                <p className="text-lg font-semibold text-foreground">{tt("Preveri in vključi v workflow")}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {resumeItems.length} {tt("kandidatov bo dodanih v fazo")} <span className="font-semibold text-foreground">{stageLabel("Applied")}</span>.
+                </p>
               </div>
+              <dl className="mt-3 divide-y divide-border border-y border-border text-sm">
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-muted-foreground">{t("jobTitle")}</dt>
+                  <dd className="font-medium text-foreground">{selectedJob?.title}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-muted-foreground">{tt("Kandidati")}</dt>
+                  <dd className="text-right font-medium text-foreground">{resumeItems.map((item) => item.candidateName).filter(Boolean).join(", ")}</dd>
+                </div>
+                <div className="flex justify-between gap-4 py-3">
+                  <dt className="text-muted-foreground">{tt("Naslednje")}</dt>
+                  <dd className="text-right text-foreground">{tt("Pregled → odločitev → razgovor")}</dd>
+                </div>
+              </dl>
+              </> : null}
               {saveError && (
                 <p className="text-sm text-red-500">{saveError}</p>
               )}
@@ -1262,7 +1450,7 @@ export default function Applicants() {
                 </div>
               )}
             </div>
-            <div className="muted-panel min-h-0 min-w-0 p-4 2xl:ml-2">
+            {importStep === 3 ? <div className="min-h-0 min-w-0 lg:border-l lg:border-border lg:pl-6">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-foreground">
                   {t("resumePreview")}
@@ -1273,7 +1461,7 @@ export default function Applicants() {
                   </span>
                 ) : null}
               </div>
-              <div className="mt-3 flex min-h-[360px] items-center justify-center 2xl:h-[60vh] 2xl:max-h-[620px]">
+              <div className="mt-3 flex min-h-[360px] items-center justify-center lg:h-[52vh] lg:max-h-[560px]">
                 {selectedResume?.previewUrl ? (
                   <div className="flex h-[330px] max-h-full w-auto min-w-0 justify-center rounded-sm bg-white 2xl:h-full">
                     <img
@@ -1293,125 +1481,54 @@ export default function Applicants() {
                   </span>
                 )}
               </div>
-            </div>
+            </div> : null}
           </div>
-          <div className="flex justify-end gap-3 pt-1">
+          <div className="flex items-center justify-between border-t border-border px-6 py-4">
             <Button
-              variant="outline"
+              variant="ghost"
               onClick={() => {
-                setIsAddOpen(false);
-                resetForm();
+                if (importStep > 1) setImportStep((step) => step - 1);
+                else {
+                  setIsAddOpen(false);
+                  resetForm();
+                }
               }}
               disabled={isSaving}
             >
-              {t("cancel")}
+              {importStep > 1 ? tt("Nazaj") : t("cancel")}
             </Button>
-            <Button
-              onClick={handleSaveCandidate}
-              disabled={!canSaveCandidates}
-            >
-              {isSaving ? saveStatus ?? t("saving") : t("importCandidates")}
-            </Button>
+            {importStep < 3 ? (
+              <Button
+                onClick={() => setImportStep((step) => step + 1)}
+                disabled={importStep === 1 ? !selectedJobId : resumeItems.length === 0 || isProcessingResumes}
+                className="gap-2"
+              >
+                {tt("Naprej")} <ChevronRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button onClick={handleSaveCandidate} disabled={!canSaveCandidates}>
+                {isSaving ? saveStatus ?? t("saving") : t("importCandidates")}
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>
 
+      <StatStrip
+        items={[
+          { label: tt("Aktivni kandidati"), value: baseFilteredApplicants.filter((item) => item.stage !== "Accepted" && item.stage !== "Rejected").length, detail: tt("V odprtem procesu") },
+          { label: tt("Čaka pregled"), value: baseFilteredApplicants.filter((item) => item.stage === "Applied" || item.stage === "Screening").length, detail: tt("Potreben naslednji korak") },
+          { label: tt("Razgovori"), value: baseFilteredApplicants.filter((item) => item.stage === "Interview").length, detail: tt("V aktivni fazi razgovora") },
+          { label: tt("Ponudbe"), value: baseFilteredApplicants.filter((item) => item.stage === "Offer").length, detail: tt("V pripravi ali odločanju") },
+          { label: tt("Sprejeti"), value: baseFilteredApplicants.filter((item) => item.stage === "Accepted").length, detail: tt("Zaključeni uspešno") },
+        ]}
+      />
+
       {/* Filters Bar */}
-      <div className="surface-card ml-0 grid gap-3 p-3 sm:ml-2">
-        <div className="grid min-w-full gap-2">
-          <Label>Shranjeni pogledi</Label>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant={savedView === "all" ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSavedView("all")}
-            >
-              Vsi kandidati
-            </Button>
-            {savedViewOptions.map((view) => (
-              <Button
-                key={view.key}
-                type="button"
-                variant={savedView === view.key ? "default" : "outline"}
-                size="sm"
-                onClick={() => setSavedView(view.key)}
-              >
-                {view.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-md border border-border bg-background px-3 py-2 shadow-sm dark:bg-muted/30">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
-              <Checkbox
-                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                checked={offerStatusFilters.offer}
-                onCheckedChange={(checked) =>
-                  toggleOfferStatusFilter("offer", checked === true)
-                }
-              />
-              Ponudba
-            </label>
-            <div
-              className={clsx(
-                "flex flex-wrap items-center gap-x-4 gap-y-2 border-l border-border pl-4 transition-opacity",
-                !offerStatusFilters.offer && "pointer-events-none opacity-45",
-              )}
-              aria-disabled={!offerStatusFilters.offer}
-            >
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                <Checkbox
-                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                  checked={offerStatusFilters.preparing}
-                  disabled={!offerStatusFilters.offer}
-                  onCheckedChange={(checked) =>
-                    toggleOfferStatusFilter("preparing", checked === true)
-                  }
-                />
-                {t("offerStatusPreparing")}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                <Checkbox
-                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                  checked={offerStatusFilters.sent}
-                  disabled={!offerStatusFilters.offer}
-                  onCheckedChange={(checked) =>
-                    toggleOfferStatusFilter("sent", checked === true)
-                  }
-                />
-                {tt("Poslana, čaka odgovor")}
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                <Checkbox
-                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                  checked={offerStatusFilters.accepted}
-                  disabled={!offerStatusFilters.offer}
-                  onCheckedChange={(checked) =>
-                    toggleOfferStatusFilter("accepted", checked === true)
-                  }
-                />
-                Sprejeta ponudba
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-                <Checkbox
-                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                  checked={offerStatusFilters.declined}
-                  disabled={!offerStatusFilters.offer}
-                  onCheckedChange={(checked) =>
-                    toggleOfferStatusFilter("declined", checked === true)
-                  }
-                />
-                Zavrnjena ponudba
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid items-end gap-3 lg:grid-cols-[minmax(16rem,1.5fr)_12rem_minmax(15rem,1.1fr)_minmax(14rem,1fr)_10rem]">
-          <div className="relative grid gap-1.5">
+      <div className="grid gap-3 border-b border-border pb-4">
+        {/* Primary filters: search + job + advanced toggle (status = stage tabs) */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+          <div className="relative grid flex-1 gap-1.5">
             <Label>{t("searchCandidates")}</Label>
             <Input
               type="search"
@@ -1450,12 +1567,16 @@ export default function Applicants() {
                             {applicant.role}
                           </span>
                         </span>
-                        <span className="shrink-0 text-xs font-semibold text-emerald-500">
-                          {applicant.analysisStatus === "complete" &&
-                          typeof applicant.aiScore === "number"
-                            ? `${Math.round(applicant.aiScore)}%`
-                            : t("notScored")}
-                        </span>
+                        <ScoreChip
+                          score={
+                            applicant.analysisStatus === "complete" &&
+                            typeof applicant.aiScore === "number"
+                              ? applicant.aiScore
+                              : null
+                          }
+                          emptyLabel={t("notScored")}
+                          className="shrink-0"
+                        />
                       </button>
                     ))}
                   </div>
@@ -1467,20 +1588,7 @@ export default function Applicants() {
               </div>
             ) : null}
           </div>
-          <div className="grid gap-1.5">
-            <Label>{t("filterByRating")}</Label>
-            <Select value={ratingFilter} onValueChange={setRatingFilter}>
-              <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
-                <SelectValue placeholder={t("filterByRating")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("allRatings")}</SelectItem>
-                <SelectItem value="highest">{t("highestRating")}</SelectItem>
-                <SelectItem value="lowest">{t("lowestRating")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5">
+          <div className="grid gap-1.5 lg:w-64">
             <Label>{t("filterByJob")}</Label>
             <Select value={jobFilter} onValueChange={setJobFilter}>
               <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
@@ -1496,61 +1604,201 @@ export default function Applicants() {
               </SelectContent>
             </Select>
           </div>
-          <div className="grid gap-1.5">
-            <Label>Status delovnega mesta</Label>
-            <Select value={jobStatusFilter} onValueChange={setJobStatusFilter}>
-              <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
-                <SelectValue placeholder="Status delovnega mesta" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Aktivna in neaktivna dela</SelectItem>
-                <SelectItem value="active">Kandidati za aktivna dela</SelectItem>
-                <SelectItem value="inactive">Kandidati za neaktivna dela</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-1.5">
-            <Label>{t("statusFilters")}</Label>
-            <div className="flex h-10 items-center rounded-md border border-border bg-background px-3 shadow-sm dark:bg-muted/30">
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
-              <Checkbox
-                className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
-                checked={statusFilters.new}
-                onCheckedChange={(checked) =>
-                  toggleStatusFilter("new", checked === true)
-                }
-              />
-              {t("newApplicantBadge")}
-            </label>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 gap-2"
+            onClick={() => setShowAdvancedFilters((value) => !value)}
+            aria-expanded={showAdvancedFilters}
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            {tt("Napredni filtri")}
+            {advancedActiveCount > 0 ? (
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary/10 px-1 text-xs font-semibold text-foreground">
+                {advancedActiveCount}
+              </span>
+            ) : null}
+            <ChevronDown
+              className={clsx("h-4 w-4 transition-transform", showAdvancedFilters && "rotate-180")}
+            />
+          </Button>
+        </div>
+
+        {/* Advanced filters (collapsed by default) */}
+        {showAdvancedFilters ? (
+          <div className="grid gap-3 rounded-lg bg-muted/30 p-3">
+            <div className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-1.5">
+                <Label>{t("filterByRating")}</Label>
+                <Select value={ratingFilter} onValueChange={setRatingFilter}>
+                  <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+                    <SelectValue placeholder={t("filterByRating")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("allRatings")}</SelectItem>
+                    <SelectItem value="highest">{t("highestRating")}</SelectItem>
+                    <SelectItem value="lowest">{t("lowestRating")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>Status delovnega mesta</Label>
+                <Select value={jobStatusFilter} onValueChange={setJobStatusFilter}>
+                  <SelectTrigger className="h-10 border-border bg-background shadow-sm dark:bg-muted/30">
+                    <SelectValue placeholder="Status delovnega mesta" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Aktivna in neaktivna dela</SelectItem>
+                    <SelectItem value="active">Kandidati za aktivna dela</SelectItem>
+                    <SelectItem value="inactive">Kandidati za neaktivna dela</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1.5">
+                <Label>{t("statusFilters")}</Label>
+                <div className="flex h-10 items-center rounded-lg bg-background px-3 dark:bg-muted/30">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                    <Checkbox
+                      className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                      checked={statusFilters.new}
+                      onCheckedChange={(checked) =>
+                        toggleStatusFilter("new", checked === true)
+                      }
+                    />
+                    {t("newApplicantBadge")}
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Offer status — only meaningful within the Ponudba phase */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-background px-3 py-2 dark:bg-muted/30">
+              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
+                <Checkbox
+                  className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                  checked={offerStatusFilters.offer}
+                  onCheckedChange={(checked) =>
+                    toggleOfferStatusFilter("offer", checked === true)
+                  }
+                />
+                {tt("Ponudba")}
+              </label>
+              <div
+                className={clsx(
+                  "flex flex-wrap items-center gap-x-4 gap-y-2 border-l border-border pl-4 transition-opacity",
+                  !offerStatusFilters.offer && "pointer-events-none opacity-45",
+                )}
+                aria-disabled={!offerStatusFilters.offer}
+              >
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                    checked={offerStatusFilters.preparing}
+                    disabled={!offerStatusFilters.offer}
+                    onCheckedChange={(checked) =>
+                      toggleOfferStatusFilter("preparing", checked === true)
+                    }
+                  />
+                  {t("offerStatusPreparing")}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                    checked={offerStatusFilters.sent}
+                    disabled={!offerStatusFilters.offer}
+                    onCheckedChange={(checked) =>
+                      toggleOfferStatusFilter("sent", checked === true)
+                    }
+                  />
+                  {tt("Poslana, čaka odgovor")}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                    checked={offerStatusFilters.accepted}
+                    disabled={!offerStatusFilters.offer}
+                    onCheckedChange={(checked) =>
+                      toggleOfferStatusFilter("accepted", checked === true)
+                    }
+                  />
+                  {tt("Sprejeta ponudba")}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                  <Checkbox
+                    className="border-border bg-background shadow-sm dark:border-muted-foreground dark:bg-background"
+                    checked={offerStatusFilters.declined}
+                    disabled={!offerStatusFilters.offer}
+                    onCheckedChange={(checked) =>
+                      toggleOfferStatusFilter("declined", checked === true)
+                    }
+                  />
+                  {tt("Zavrnjena ponudba")}
+                </label>
+              </div>
             </div>
           </div>
-        </div>
+        ) : null}
+
+        {/* Active filter chips */}
+        {activeFilterChips.length ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {activeFilterChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.onRemove}
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted/70"
+              >
+                {chip.label}
+                <X className="h-3 w-3" />
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              {tt("Počisti vse")}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {isLoadingCandidates ? (
-        <div className="surface-card flex items-center justify-center border-dashed py-16 text-sm text-muted-foreground">
+        <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
           <div className="flex items-center gap-3">
             <span className="inline-flex h-5 w-5 animate-spin rounded-full border-2 border-muted border-t-primary" />
             {t("loadingCandidates")}
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {paginatedApplicants.map((applicant) => (
-            <ApplicantCard
-              key={applicant.id}
-              applicant={applicant}
-              returnTo={currentApplicantsPath}
-              onDelete={handleDeleteApplicant}
-              onMarkNewReviewed={handleMarkNewReviewed}
-            />
-          ))}
-        </div>
+        <>
+          <ApplicantWorkTable
+            applicants={paginatedApplicants}
+            returnTo={currentApplicantsPath}
+            onDelete={handleDeleteApplicant}
+            onMarkNewReviewed={handleMarkNewReviewed}
+            selectedIds={selectedApplicantIds}
+            onToggleSelection={toggleApplicantSelection}
+            onToggleAll={toggleAllVisibleApplicants}
+          />
+          <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card lg:hidden">
+            {paginatedApplicants.map((applicant) => (
+              <ApplicantCard
+                key={applicant.id}
+                applicant={applicant}
+                returnTo={currentApplicantsPath}
+                onDelete={handleDeleteApplicant}
+                onMarkNewReviewed={handleMarkNewReviewed}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {!isLoadingCandidates && filteredApplicants.length > applicantsPerPage && (
         <div className="flex justify-center">
-          <div className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-card p-1 shadow-sm">
+          <div className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-card px-1 py-1 shadow-sm">
             <Button
               type="button"
               variant="ghost"
@@ -1587,6 +1835,6 @@ export default function Applicants() {
           <p className="text-muted-foreground">{t("noApplicants")}</p>
         </div>
       )}
-    </div>
+    </ListReportShell>
   );
 }

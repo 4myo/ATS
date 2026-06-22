@@ -1,0 +1,43 @@
+
+> dev
+> react-router dev --host 127.0.0.1 --port 5190 --strictPort
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5190[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m8:31:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/ApplicantCard.tsx[22m
+[2m8:31:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/components/ApplicantCard.tsx[22m
+[2m8:31:53 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/CandidateDetail.tsx[22m
+[2m8:31:53 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/CandidateDetail.tsx[22m
+[2m8:32:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/lib/i18n.tsx[22m
+[2m8:32:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/lib/i18n.tsx[22m
+[2m8:32:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/lib/i18n.tsx, /styles/index.css[22m
+[2m8:32:20 PM[22m [36m[1m[vite][22m[39m [34m[2m(ssr)[22m[39m [32mpage reload [39m[2mapp/lib/i18n.tsx[22m
+[2m8:32:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [33mhmr invalidate [39m[2m/app/lib/i18n.tsx[22m Could not Fast Refresh. Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m8:32:20 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Auth.tsx, /app/root.tsx, /app/routes/Layout.tsx, /app/routes/Dashboard.tsx, /app/components/Sidebar.tsx, /app/routes/Applicants.tsx, /app/components/ApplicantWorkTable.tsx, /app/components/ApplicantCard.tsx, /app/routes/CandidateDetail.tsx, /app/components/OfferPreviewDialog.tsx, /app/components/OfferDraftDialog.tsx[22m
+[2m8:37:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Offers.tsx[22m
+[2m8:37:29 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Offers.tsx[22m
+[2m8:38:01 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Offers.tsx[22m
+[2m8:38:01 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Offers.tsx[22m
+[2m8:39:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Offers.tsx[22m
+[2m8:39:11 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Offers.tsx[22m
+[2m8:39:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/ApplicantWorkTable.tsx[22m
+[2m8:39:54 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/components/ApplicantWorkTable.tsx[22m
+[2m8:40:38 PM[22m [36m[1m[react-router][22m[39m [32mConfig saved[39m
+[2m8:42:04 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Applicants.tsx[22m
+[2m8:42:04 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Applicants.tsx[22m
+[2m8:43:26 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m8:43:26 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Dashboard.tsx[22m
+[2m8:43:41 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m8:43:41 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Dashboard.tsx[22m
+[2m8:44:27 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m8:44:27 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Dashboard.tsx[22m
+[2m8:54:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m8:54:24 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Dashboard.tsx[22m
+[2m8:54:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/routes/Dashboard.tsx[22m
+[2m8:54:40 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/styles/index.css, /app/routes/Dashboard.tsx[22m
+[2m8:55:08 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/CandidateComparisonDialog.tsx[22m
+[2m8:55:08 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/CandidateComparisonDialog.tsx, /styles/index.css[22m
+[2m8:59:14 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/CandidateComparisonDialog.tsx[22m
+[2m8:59:14 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/CandidateComparisonDialog.tsx, /styles/index.css[22m
+[2m8:59:25 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/CandidateComparisonDialog.tsx[22m
+[2m8:59:25 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/app/components/CandidateComparisonDialog.tsx, /styles/index.css[22m

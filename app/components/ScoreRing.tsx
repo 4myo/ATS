@@ -1,6 +1,8 @@
 import { motion } from "framer-motion";
 import { clsx } from 'clsx';
 
+import { scoreBand, scoreBandRing } from "../lib/score";
+
 interface ScoreRingProps {
   score: number;
   size?: 'sm' | 'md' | 'lg';
@@ -14,13 +16,9 @@ export function ScoreRing({ score, size = 'md', className }: ScoreRingProps) {
   const circumference = normalizedRadius * 2 * Math.PI;
   const strokeDashoffset = circumference - (score / 100) * circumference;
 
-  let colorClass = 'text-red-500';
-  if (score >= 80) colorClass = 'text-emerald-500';
-  else if (score >= 60) colorClass = 'text-amber-500';
-
-  let bgClass = 'text-red-500/15';
-  if (score >= 80) bgClass = 'text-emerald-500/15';
-  else if (score >= 60) bgClass = 'text-amber-500/15';
+  const band = scoreBand(score);
+  const colorClass = scoreBandRing[band];
+  const bgClass = clsx(colorClass, 'opacity-15');
 
   const sizeClass = size === 'lg' ? 'h-24 w-24' : size === 'md' ? 'h-14 w-14' : 'h-10 w-10';
   const textClass = size === 'lg' ? 'text-2xl' : size === 'md' ? 'text-sm' : 'text-xs';

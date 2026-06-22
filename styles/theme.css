@@ -2,43 +2,43 @@
 
 :root {
   --font-size: 16px;
-  --background: oklch(97.6% 0.004 255);
-  --foreground: oklch(17.2% 0.011 255);
+  --background: oklch(97.4% 0.006 235);
+  --foreground: oklch(20% 0.025 255);
   --card: oklch(100% 0 0);
   --card-foreground: oklch(17.2% 0.011 255);
   --popover: oklch(100% 0 0);
   --popover-foreground: oklch(17.2% 0.011 255);
-  --primary: oklch(17.2% 0.011 255);
+  --primary: oklch(54% 0.21 257);
   --primary-foreground: oklch(98.5% 0 0);
-  --secondary: oklch(94.7% 0.006 255);
+  --secondary: oklch(95.5% 0.012 245);
   --secondary-foreground: oklch(17.2% 0.011 255);
-  --muted: oklch(94.7% 0.006 255);
+  --muted: oklch(95.5% 0.012 245);
   --muted-foreground: oklch(46.2% 0.018 255);
-  --accent: oklch(26.3% 0.024 320.12);
-  --accent-foreground: oklch(98.5% 0 0);
+  --accent: oklch(94.5% 0.045 242);
+  --accent-foreground: oklch(22% 0.1 235);
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
-  --border: oklch(88% 0.008 255);
-  --input: oklch(88% 0.008 255);
+  --border: oklch(89.5% 0.012 245);
+  --input: oklch(89.5% 0.012 245);
   --input-background: oklch(100% 0 0);
   --switch-background: oklch(70% 0.013 255);
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: oklch(55% 0.13 172);
+  --ring: oklch(55% 0.2 235);
   --chart-1: oklch(62% 0.13 172);
   --chart-2: oklch(60% 0.16 282);
   --chart-3: oklch(63% 0.18 355);
   --chart-4: oklch(70% 0.14 76);
   --chart-5: oklch(56% 0.15 238);
   --radius: 0.5rem;
-  --sidebar: oklch(100% 0 0);
-  --sidebar-foreground: oklch(17.2% 0.011 255);
-  --sidebar-primary: oklch(17.2% 0.011 255);
+  --sidebar: oklch(27% 0.07 230);
+  --sidebar-foreground: oklch(96% 0.01 230);
+  --sidebar-primary: oklch(48% 0.14 230);
   --sidebar-primary-foreground: oklch(98.5% 0 0);
-  --sidebar-accent: oklch(94.7% 0.006 255);
-  --sidebar-accent-foreground: oklch(17.2% 0.011 255);
-  --sidebar-border: oklch(88% 0.008 255);
-  --sidebar-ring: oklch(55% 0.13 172);
+  --sidebar-accent: oklch(33% 0.075 230);
+  --sidebar-accent-foreground: oklch(98% 0 0);
+  --sidebar-border: oklch(36% 0.06 230);
+  --sidebar-ring: oklch(55% 0.2 235);
 }
 
 :root[data-density="compact"] {
@@ -48,9 +48,9 @@
 .dark {
   --background: oklch(21.4% 0.003 255);
   --foreground: oklch(92% 0.003 255);
-  --card: oklch(21.4% 0.003 255);
+  --card: oklch(25% 0.004 255);
   --card-foreground: oklch(92% 0.003 255);
-  --popover: oklch(18.6% 0.003 255);
+  --popover: oklch(27% 0.005 255);
   --popover-foreground: oklch(92% 0.003 255);
   --primary: oklch(96.5% 0.002 255);
   --primary-foreground: oklch(14.2% 0.002 255);
@@ -58,14 +58,14 @@
   --secondary-foreground: oklch(92% 0.003 255);
   --muted: oklch(27.5% 0.005 255);
   --muted-foreground: oklch(68% 0.004 255);
-  --accent: oklch(31.4% 0.005 255);
-  --accent-foreground: oklch(94% 0.002 255);
+  --accent: oklch(28% 0.07 235);
+  --accent-foreground: oklch(90% 0.02 235);
   --destructive: oklch(55% 0.19 25);
   --destructive-foreground: oklch(96% 0.002 255);
-  --border: oklch(30.5% 0.004 255);
-  --input: oklch(30.5% 0.004 255);
-  --input-background: oklch(18.6% 0.003 255);
-  --ring: oklch(70% 0.14 172);
+  --border: oklch(32% 0.005 255);
+  --input: oklch(32% 0.005 255);
+  --input-background: oklch(23% 0.003 255);
+  --ring: oklch(65% 0.2 235);
   --font-weight-medium: 500;
   --font-weight-normal: 400;
   --chart-1: oklch(70% 0.14 172);
@@ -73,14 +73,14 @@
   --chart-3: oklch(67% 0.2 355);
   --chart-4: oklch(72% 0.14 76);
   --chart-5: oklch(62% 0.15 238);
-  --sidebar: oklch(12.5% 0.002 255);
+  --sidebar: oklch(18% 0.003 255);
   --sidebar-foreground: oklch(90% 0.003 255);
   --sidebar-primary: oklch(27.5% 0.005 255);
   --sidebar-primary-foreground: oklch(94% 0.002 255);
-  --sidebar-accent: oklch(22.3% 0.004 255);
-  --sidebar-accent-foreground: oklch(94% 0.002 255);
-  --sidebar-border: oklch(20% 0.004 255);
-  --sidebar-ring: oklch(70% 0.14 172);
+  --sidebar-accent: oklch(28% 0.07 235);
+  --sidebar-accent-foreground: oklch(90% 0.02 235);
+  --sidebar-border: oklch(28% 0.004 255);
+  --sidebar-ring: oklch(65% 0.2 235);
 }
 
 @theme inline {
@@ -127,18 +127,45 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 38%, transparent) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--muted-foreground) 38%, transparent);
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklch, var(--muted-foreground) 62%, transparent);
+    background-clip: padding-box;
+  }
+
+  input[type="number"] {
+    appearance: textfield;
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    margin: 0;
+    appearance: none;
   }
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-family: "Poppins", ui-sans-serif, system-ui, -apple-system,
-      "Segoe UI", sans-serif;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
 
   html {
     font-size: var(--font-size);
@@ -194,7 +221,7 @@
 
 @layer components {
   .page-container {
-    @apply mx-auto w-full max-w-[1480px] space-y-6;
+    @apply mx-auto w-full max-w-[1680px] px-4 py-4 space-y-5 sm:px-5 sm:py-5;
   }
 
   :root[data-density="compact"] .page-container {
@@ -202,39 +229,51 @@
   }
 
   .page-title {
-    @apply text-2xl font-semibold tracking-tight text-foreground;
+    @apply text-2xl font-semibold tracking-[-0.02em] text-foreground;
   }
 
+  /* Flat module surface. Page hierarchy comes from spacing, typography and dividers,
+     not a stack of nested cards. Components that truly need containment opt into it. */
   .surface-card {
-    @apply rounded-lg border border-border bg-card text-card-foreground shadow-sm transition-colors;
+    @apply bg-transparent text-card-foreground shadow-none transition-colors;
   }
 
+  /* Tonal muted panel — no border, background tint only */
   .muted-panel {
-    @apply rounded-lg border border-border bg-muted/45 transition-colors;
+    @apply rounded-xl bg-muted/30 transition-colors dark:bg-muted/20;
   }
 
   .subtle-text {
     @apply text-muted-foreground;
   }
 
+  .scrollbar-hidden {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Fiori-style section label — uppercase, tracked, muted */
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-widest text-muted-foreground;
+  }
+
   .primary-action {
-    @apply inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
+    @apply inline-flex items-center justify-center rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground backdrop-blur-sm transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring;
   }
 
   .quiet-action {
-    @apply inline-flex items-center justify-center rounded-md border border-border bg-card px-4 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted;
-  }
-
-  .dark body {
-    @apply bg-background text-foreground;
+    @apply inline-flex items-center justify-center rounded-full border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-muted;
   }
 
   .dark .surface-card {
-    @apply shadow-none hover:border-border/80;
+    @apply shadow-none ring-0;
   }
 
   .dark .muted-panel {
-    @apply bg-muted/35;
+    @apply bg-muted/20;
   }
 
   .dark .primary-action {

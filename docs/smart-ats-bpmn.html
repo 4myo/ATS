@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="sl">
+<head>
+  <meta charset="utf-8">
+  <title>Smart ATS BPMN diagram</title>
+  <style>
+    @page {
+      size: A3 landscape;
+      margin: 10mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: #172033;
+      background: #f6f8fb;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    .page {
+      width: 400mm;
+      min-height: 277mm;
+      margin: 0 auto;
+      padding: 8mm 10mm;
+      background: #ffffff;
+      page-break-after: always;
+    }
+
+    .page:last-child {
+      page-break-after: auto;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 25px;
+      letter-spacing: 0;
+      text-align: center;
+      color: #172033;
+    }
+
+    .subtitle {
+      margin: 4px 0 12px;
+      color: #58667a;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(6, max-content);
+      justify-content: center;
+      gap: 14px;
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid #d7deea;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #4b5b70;
+      font-size: 10px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .swatch {
+      width: 14px;
+      height: 10px;
+      border: 1px solid #90a1b5;
+      border-radius: 3px;
+      background: #ffffff;
+    }
+
+    .swatch.green { background: #e5f6ec; border-color: #7bb88f; }
+    .swatch.blue { background: #e8f1ff; border-color: #83a8db; }
+    .swatch.yellow { background: #fff6cf; border-color: #d1b45e; }
+    .swatch.violet { background: #eee9ff; border-color: #a699d5; }
+    .swatch.red { background: #fff0f0; border-color: #d09393; }
+
+    .explanation {
+      max-width: 1220px;
+      margin: 18px auto 0;
+      display: grid;
+      grid-template-columns: 1.08fr 0.92fr;
+      gap: 22px;
+      line-height: 1.45;
+      font-size: 15px;
+    }
+
+    .panel {
+      border: 1px solid #dde5f0;
+      border-radius: 8px;
+      padding: 18px 20px;
+      background: #ffffff;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      color: #172033;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 18px 0 8px;
+      color: #22314a;
+      font-size: 14px;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    ol, ul {
+      margin: 8px 0 0;
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    .note {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-left: 4px solid #3f8f62;
+      background: #f0f8f3;
+      color: #254336;
+    }
+  </style>
+</head>
+<body>
+  <section class="page">
+    <h1>Podroben BPMN diagram procesa Smart ATS</h1>
+    <p class="subtitle">Tok od prijave kadrovika do analize življenjepisa, razvrščanja kandidata in priprave ponudbe.</p>
+
+    <svg viewBox="0 0 1520 900" role="img" aria-label="BPMN diagram procesa Smart ATS">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#46566b"></path>
+        </marker>
+        <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+          <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#23324a" flood-opacity="0.12"></feDropShadow>
+        </filter>
+      </defs>
+
+      <rect x="0" y="0" width="1520" height="900" fill="#f6f8fb"></rect>
+
+      <g font-family="Segoe UI, Arial, sans-serif">
+        <text x="75" y="34" font-size="15" font-weight="700" fill="#172033">1. Avtentikacija in vloge</text>
+        <text x="432" y="34" font-size="15" font-weight="700" fill="#172033">2. Naložitev življenjepisa</text>
+        <text x="805" y="34" font-size="15" font-weight="700" fill="#172033">3. AI analiza in odločanje</text>
+        <text x="1190" y="34" font-size="15" font-weight="700" fill="#172033">4. Ponudba in zaključek</text>
+
+        <g stroke="#d9e1ec" stroke-width="1">
+          <line x1="390" y1="48" x2="390" y2="830"></line>
+          <line x1="770" y1="48" x2="770" y2="830"></line>
+          <line x1="1145" y1="48" x2="1145" y2="830"></line>
+        </g>
+
+        <g>
+          <rect x="0" y="48" width="1520" height="138" fill="#f7fbff" stroke="#d7deea"></rect>
+          <rect x="0" y="186" width="1520" height="155" fill="#ffffff" stroke="#d7deea"></rect>
+          <rect x="0" y="341" width="1520" height="155" fill="#fffdf4" stroke="#d7deea"></rect>
+          <rect x="0" y="496" width="1520" height="154" fill="#fbfaff" stroke="#d7deea"></rect>
+          <rect x="0" y="650" width="1520" height="180" fill="#ffffff" stroke="#d7deea"></rect>
+        </g>
+
+        <g font-size="13" font-weight="700" fill="#26364d">
+          <text x="18" y="76">Kadrovik</text>
+          <text x="18" y="210">Frontend</text>
+          <text x="18" y="365">Supabase</text>
+          <text x="18" y="520">Edge funkcije</text>
+          <text x="18" y="676">Zunanji AI</text>
+          <text x="18" y="806">Rezultat v aplikaciji</text>
+        </g>
+
+        <!-- User lane -->
+        <circle cx="82" cy="118" r="18" fill="#ffffff" stroke="#2f7d50" stroke-width="3"></circle>
+        <text x="82" y="123" text-anchor="middle" font-size="10" fill="#2f7d50">Start</text>
+
+        <rect x="130" y="87" width="185" height="62" rx="8" fill="#e5f6ec" stroke="#73ad86" filter="url(#softShadow)"></rect>
+        <text x="222" y="108" text-anchor="middle" font-size="12" font-weight="700" fill="#173321">Prijava ali registracija</text>
+        <text x="222" y="126" text-anchor="middle" font-size="11" fill="#244638">kadrovika</text>
+
+        <path d="M 475 86 L 540 118 L 475 150 L 410 118 Z" fill="#ffffff" stroke="#2f7d50" stroke-width="2"></path>
+        <text x="475" y="113" text-anchor="middle" font-size="11" font-weight="700" fill="#173321">Vloga</text>
+        <text x="475" y="130" text-anchor="middle" font-size="10" fill="#244638">ustrezna?</text>
+
+        <rect x="620" y="87" width="195" height="62" rx="8" fill="#e5f6ec" stroke="#73ad86" filter="url(#softShadow)"></rect>
+        <text x="718" y="108" text-anchor="middle" font-size="12" font-weight="700" fill="#173321">Naloži CV in izbere</text>
+        <text x="718" y="126" text-anchor="middle" font-size="11" fill="#244638">delovno mesto</text>
+
+        <rect x="850" y="87" width="198" height="62" rx="8" fill="#e5f6ec" stroke="#73ad86" filter="url(#softShadow)"></rect>
+        <text x="949" y="108" text-anchor="middle" font-size="12" font-weight="700" fill="#173321">Pregleda AI oceno</text>
+        <text x="949" y="126" text-anchor="middle" font-size="11" fill="#244638">in priporočilo</text>
+
+        <rect x="1242" y="87" width="210" height="62" rx="8" fill="#e5f6ec" stroke="#73ad86" filter="url(#softShadow)"></rect>
+        <text x="1347" y="108" text-anchor="middle" font-size="12" font-weight="700" fill="#173321">Potrdi kandidata ali</text>
+        <text x="1347" y="126" text-anchor="middle" font-size="11" fill="#244638">zaključi obravnavo</text>
+
+        <!-- Frontend lane -->
+        <rect x="130" y="235" width="190" height="62" rx="8" fill="#e8f1ff" stroke="#7aa0d5" filter="url(#softShadow)"></rect>
+        <text x="225" y="256" text-anchor="middle" font-size="12" font-weight="700" fill="#1c3456">Prikaže prijavni obrazec</text>
+        <text x="225" y="274" text-anchor="middle" font-size="11" fill="#2f4b70">in preveri sejo</text>
+
+        <rect x="410" y="235" width="230" height="62" rx="8" fill="#e8f1ff" stroke="#7aa0d5" filter="url(#softShadow)"></rect>
+        <text x="525" y="256" text-anchor="middle" font-size="12" font-weight="700" fill="#1c3456">Validira datoteko</text>
+        <text x="525" y="274" text-anchor="middle" font-size="11" fill="#2f4b70">tip, velikost, obvezna polja</text>
+
+        <rect x="788" y="235" width="232" height="62" rx="8" fill="#e8f1ff" stroke="#7aa0d5" filter="url(#softShadow)"></rect>
+        <text x="904" y="256" text-anchor="middle" font-size="12" font-weight="700" fill="#1c3456">Pošlje podatke v analizo</text>
+        <text x="904" y="274" text-anchor="middle" font-size="11" fill="#2f4b70">in spremlja status obdelave</text>
+
+        <rect x="1208" y="235" width="230" height="62" rx="8" fill="#e8f1ff" stroke="#7aa0d5" filter="url(#softShadow)"></rect>
+        <text x="1323" y="256" text-anchor="middle" font-size="12" font-weight="700" fill="#1c3456">Prikaže osnutek ponudbe</text>
+        <text x="1323" y="274" text-anchor="middle" font-size="11" fill="#2f4b70">in omogoči potrditev</text>
+
+        <!-- Supabase lane -->
+        <g>
+          <path d="M 130 386 C 130 371, 315 371, 315 386 L 315 438 C 315 453, 130 453, 130 438 Z" fill="#fff6cf" stroke="#c9ad55" filter="url(#softShadow)"></path>
+          <ellipse cx="222.5" cy="386" rx="92.5" ry="15" fill="#fff9dc" stroke="#c9ad55"></ellipse>
+          <text x="222" y="405" text-anchor="middle" font-size="12" font-weight="700" fill="#5a4716">Profili in vloge</text>
+          <text x="222" y="423" text-anchor="middle" font-size="11" fill="#665324">RLS in uporabniška pravila</text>
+        </g>
+
+        <g>
+          <path d="M 430 386 C 430 371, 640 371, 640 386 L 640 438 C 640 453, 430 453, 430 438 Z" fill="#fff6cf" stroke="#c9ad55" filter="url(#softShadow)"></path>
+          <ellipse cx="535" cy="386" rx="105" ry="15" fill="#fff9dc" stroke="#c9ad55"></ellipse>
+          <text x="535" y="405" text-anchor="middle" font-size="12" font-weight="700" fill="#5a4716">Kandidati in datoteke</text>
+          <text x="535" y="423" text-anchor="middle" font-size="11" fill="#665324">candidates, storage</text>
+        </g>
+
+        <g>
+          <path d="M 802 386 C 802 371, 1024 371, 1024 386 L 1024 438 C 1024 453, 802 453, 802 438 Z" fill="#fff6cf" stroke="#c9ad55" filter="url(#softShadow)"></path>
+          <ellipse cx="913" cy="386" rx="111" ry="15" fill="#fff9dc" stroke="#c9ad55"></ellipse>
+          <text x="913" y="405" text-anchor="middle" font-size="12" font-weight="700" fill="#5a4716">Rezultati analize</text>
+          <text x="913" y="423" text-anchor="middle" font-size="11" fill="#665324">ocene, razlogi, statusi</text>
+        </g>
+
+        <g>
+          <path d="M 1208 386 C 1208 371, 1440 371, 1440 386 L 1440 438 C 1440 453, 1208 453, 1208 438 Z" fill="#fff6cf" stroke="#c9ad55" filter="url(#softShadow)"></path>
+          <ellipse cx="1324" cy="386" rx="116" ry="15" fill="#fff9dc" stroke="#c9ad55"></ellipse>
+          <text x="1324" y="405" text-anchor="middle" font-size="12" font-weight="700" fill="#5a4716">Ponudbe in dnevnik</text>
+          <text x="1324" y="423" text-anchor="middle" font-size="11" fill="#665324">offers, activity_log</text>
+        </g>
+
+        <!-- Edge functions lane -->
+        <rect x="420" y="540" width="235" height="62" rx="8" fill="#eee9ff" stroke="#9d90cf" filter="url(#softShadow)"></rect>
+        <text x="537" y="561" text-anchor="middle" font-size="12" font-weight="700" fill="#332b5e">Izlušči besedilo iz CV-ja</text>
+        <text x="537" y="579" text-anchor="middle" font-size="11" fill="#4d4277">PDF/DOCX/OCR po potrebi</text>
+
+        <rect x="788" y="540" width="245" height="62" rx="8" fill="#eee9ff" stroke="#9d90cf" filter="url(#softShadow)"></rect>
+        <text x="910" y="561" text-anchor="middle" font-size="12" font-weight="700" fill="#332b5e">Sestavi strukturiran poziv</text>
+        <text x="910" y="579" text-anchor="middle" font-size="11" fill="#4d4277">CV, kriteriji in kontekst vloge</text>
+
+        <rect x="1188" y="540" width="260" height="62" rx="8" fill="#eee9ff" stroke="#9d90cf" filter="url(#softShadow)"></rect>
+        <text x="1318" y="561" text-anchor="middle" font-size="12" font-weight="700" fill="#332b5e">Ustvari osnutek ponudbe</text>
+        <text x="1318" y="579" text-anchor="middle" font-size="11" fill="#4d4277">plača, datum, pogoji, opombe</text>
+
+        <!-- External AI lane -->
+        <rect x="792" y="695" width="250" height="62" rx="8" fill="#fff0f0" stroke="#cb8888" filter="url(#softShadow)"></rect>
+        <text x="917" y="716" text-anchor="middle" font-size="12" font-weight="700" fill="#623333">AI model analizira profil</text>
+        <text x="917" y="734" text-anchor="middle" font-size="11" fill="#784545">ujemanje, tveganja, povzetek</text>
+
+        <rect x="1188" y="695" width="260" height="62" rx="8" fill="#fff0f0" stroke="#cb8888" filter="url(#softShadow)"></rect>
+        <text x="1318" y="716" text-anchor="middle" font-size="12" font-weight="700" fill="#623333">AI pripravi besedilo ponudbe</text>
+        <text x="1318" y="734" text-anchor="middle" font-size="11" fill="#784545">na osnovi potrjenih podatkov</text>
+
+        <!-- Result lane -->
+        <rect x="806" y="790" width="90" height="54" rx="8" fill="#ffffff" stroke="#8291a6" stroke-width="2"></rect>
+        <text x="851" y="811" text-anchor="middle" font-size="12" font-weight="700" fill="#26364d">Zavrni</text>
+        <text x="851" y="829" text-anchor="middle" font-size="11" fill="#4b5b70">ali arhiviraj</text>
+
+        <path d="M 982 784 L 1056 817 L 982 850 L 908 817 Z" fill="#ffffff" stroke="#8291a6" stroke-width="2"></path>
+        <text x="982" y="813" text-anchor="middle" font-size="11" font-weight="700" fill="#26364d">Ujemanje</text>
+        <text x="982" y="829" text-anchor="middle" font-size="10" fill="#4b5b70">dovolj visoko?</text>
+
+        <rect x="1160" y="790" width="215" height="54" rx="8" fill="#ffffff" stroke="#8291a6" stroke-width="2"></rect>
+        <text x="1268" y="811" text-anchor="middle" font-size="12" font-weight="700" fill="#26364d">Kandidat v ožjem izboru</text>
+        <text x="1268" y="829" text-anchor="middle" font-size="11" fill="#4b5b70">ali ponudba pripravljena</text>
+
+        <circle cx="1435" cy="817" r="18" fill="#ffffff" stroke="#26364d" stroke-width="4"></circle>
+        <circle cx="1435" cy="817" r="11" fill="none" stroke="#26364d" stroke-width="2"></circle>
+        <text x="1435" y="855" text-anchor="middle" font-size="10" fill="#26364d">Konec</text>
+
+        <!-- Sequence flows -->
+        <g fill="none" stroke="#46566b" stroke-width="2" marker-end="url(#arrow)">
+          <path d="M 100 118 L 130 118"></path>
+          <path d="M 315 118 L 410 118"></path>
+          <path d="M 540 118 L 620 118"></path>
+          <path d="M 815 118 L 850 118"></path>
+          <path d="M 1048 118 L 1242 118"></path>
+
+          <path d="M 222 149 L 222 235"></path>
+          <path d="M 475 150 L 475 235"></path>
+          <path d="M 718 149 L 525 235"></path>
+          <path d="M 949 149 L 904 235"></path>
+          <path d="M 1347 149 L 1323 235"></path>
+
+          <path d="M 225 297 L 222 371"></path>
+          <path d="M 525 297 L 535 371"></path>
+          <path d="M 904 297 L 913 371"></path>
+          <path d="M 1323 297 L 1324 371"></path>
+
+          <path d="M 535 453 L 537 540"></path>
+          <path d="M 913 453 L 910 540"></path>
+          <path d="M 1324 453 L 1318 540"></path>
+
+          <path d="M 655 571 L 788 571"></path>
+          <path d="M 910 602 L 917 695"></path>
+          <path d="M 917 757 L 982 784"></path>
+          <path d="M 982 850 L 896 817"></path>
+          <path d="M 1056 817 L 1160 817"></path>
+          <path d="M 1375 817 L 1417 817"></path>
+          <path d="M 1268 790 L 1318 602"></path>
+          <path d="M 1318 602 L 1318 695"></path>
+          <path d="M 1318 757 L 1268 790"></path>
+        </g>
+
+        <g font-size="11" fill="#4b5b70" font-weight="700">
+          <text x="555" y="108">da</text>
+          <text x="1057" y="808">da</text>
+          <text x="909" y="807">ne</text>
+        </g>
+
+        <g fill="none" stroke="#a1adbd" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#arrow)">
+          <path d="M 410 118 C 356 118, 354 266, 320 266"></path>
+          <path d="M 908 817 C 720 810, 360 810, 315 438"></path>
+        </g>
+        <text x="356" y="158" font-size="10" fill="#65758a">ne: zahteva prijavo ali drugo vlogo</text>
+        <text x="560" y="792" font-size="10" fill="#65758a">revizijska sled in posodobitev statusa</text>
+      </g>
+    </svg>
+
+    <div class="legend" aria-label="Legenda">
+      <span><i class="swatch green"></i>Kadrovik / uporabnik</span>
+      <span><i class="swatch blue"></i>Frontend aplikacije</span>
+      <span><i class="swatch yellow"></i>Podatki in shrambe</span>
+      <span><i class="swatch violet"></i>Supabase Edge funkcije</span>
+      <span><i class="swatch red"></i>Zunanji AI</span>
+      <span><i class="swatch"></i>Rezultat procesa</span>
+    </div>
+  </section>
+
+  <section class="page">
+    <h1>Kako deluje proces Smart ATS</h1>
+    <p class="subtitle">Razlaga BPMN toka, odločitev in podatkovnih točk v slovenskem jeziku.</p>
+
+    <div class="explanation">
+      <div class="panel">
+        <h2>Opis toka</h2>
+        <ol>
+          <li><strong>Kadrovik začne proces</strong> z vstopom v aplikacijo. Sistem preveri prijavo, uporabniško vlogo in pravice dostopa.</li>
+          <li><strong>Če vloga ni ustrezna,</strong> se tok vrne na prijavo oziroma urejanje dostopa. Če je vloga potrjena, lahko kadrovik nadaljuje.</li>
+          <li><strong>Kadrovik naloži življenjepis</strong> in izbere delovno mesto. Frontend preveri tip datoteke, velikost in obvezna polja.</li>
+          <li><strong>Supabase shrani kandidata in datoteko.</strong> Podatki so vezani na pravila RLS, zato uporabnik vidi samo podatke, do katerih ima pravico.</li>
+          <li><strong>Edge funkcija izlušči besedilo</strong> iz življenjepisa. Pri PDF ali DOCX se uporabi branje dokumenta, pri slabše berljivih datotekah pa po potrebi OCR.</li>
+          <li><strong>Sistem pripravi strukturiran poziv za AI</strong>, ki združi besedilo CV-ja, kriterije delovnega mesta in kontekst zaposlitvenega postopka.</li>
+          <li><strong>Zunanji AI model vrne analizo,</strong> na primer oceno ujemanja, ključne veščine, vrzeli, tveganja in kratek povzetek kandidata.</li>
+          <li><strong>Sistem sprejme odločitev glede ujemanja.</strong> Kandidat z nizko oceno se arhivira ali označi za pregled, kandidat z dovolj visoko oceno gre v ožji izbor.</li>
+          <li><strong>Za izbranega kandidata</strong> se lahko ustvari osnutek ponudbe, ki ga kadrovik pregleda, popravi in potrdi.</li>
+          <li><strong>Proces se zaključi</strong> s posodobljenim statusom kandidata, zapisom aktivnosti in po potrebi pripravljeno ponudbo.</li>
+        </ol>
+      </div>
+
+      <div class="panel">
+        <h2>Ključne BPMN komponente</h2>
+
+        <h3>Proge procesa</h3>
+        <ul>
+          <li><strong>Kadrovik</strong> predstavlja človeške odločitve in potrditve.</li>
+          <li><strong>Frontend</strong> skrbi za uporabniški vmesnik, validacijo in prikaz rezultatov.</li>
+          <li><strong>Supabase</strong> hrani uporabnike, kandidate, rezultate, ponudbe in dnevnik aktivnosti.</li>
+          <li><strong>Edge funkcije</strong> izvajajo strežniško logiko, pripravo podatkov in klice zunanjih storitev.</li>
+          <li><strong>Zunanji AI</strong> analizira življenjepis in lahko pomaga pri pripravi osnutka ponudbe.</li>
+        </ul>
+
+        <h3>Odločitve</h3>
+        <ul>
+          <li><strong>Vloga ustrezna?</strong> prepreči, da bi nepooblaščen uporabnik dostopal do kadrovskih podatkov.</li>
+          <li><strong>Ujemanje dovolj visoko?</strong> razdeli kandidate na arhiv, ročni pregled ali ožji izbor.</li>
+        </ul>
+
+        <h3>Podatkovna logika</h3>
+        <ul>
+          <li>Vsak pomemben korak se shrani v podatkovno bazo ali dnevnik aktivnosti.</li>
+          <li>Rezultati AI niso samodečna končna odločitev, ampak priporočilo za kadrovika.</li>
+          <li>Končna potrditev ponudbe ostane v rokah kadrovika.</li>
+        </ul>
+
+        <div class="note">
+          Diagram je zasnovan tako, da loči uporabniška dejanja, aplikacijsko logiko, podatkovne shrambe in zunanje AI klice. To olajša razumevanje odgovornosti, varnostnih meja in mest, kjer lahko nastanejo napake ali zamude.
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
+</html>
