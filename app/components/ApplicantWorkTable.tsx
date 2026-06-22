@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { ArrowRight, CheckCircle2, MoreHorizontal, Trash2 } from "lucide-react";
+import { ArrowRight, CheckCircle2, Copy, ExternalLink, Link as LinkIcon, MoreHorizontal, Trash2 } from "lucide-react";
 
 import type { Applicant, Stage } from "../store";
 import { useI18n } from "../lib/i18n";
@@ -7,6 +8,8 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ScoreChip } from "./ScoreChip";
 import { Checkbox } from "./ui/checkbox";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "./ui/dropdown-menu";
+import { getShortCandidateId } from "../lib/candidateIdentity";
 
 interface ApplicantWorkTableProps {
   applicants: Applicant[];
@@ -59,9 +62,20 @@ export function ApplicantWorkTable({
 }: ApplicantWorkTableProps) {
   const { stageLabel, tt } = useI18n();
   const navigate = useNavigate();
+  const [copiedCandidateId, setCopiedCandidateId] = useState<string | null>(null);
   const allSelected = applicants.length > 0 && applicants.every((applicant) => selectedIds.has(applicant.id));
   const someSelected = applicants.some((applicant) => selectedIds.has(applicant.id));
   const columns = "grid-cols-[2.5rem_minmax(14rem,1.35fr)_5rem_minmax(11rem,1.05fr)_7.5rem_minmax(10rem,0.9fr)_6.5rem_4.5rem]";
+
+  const copyValue = async (candidateId: string, value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedCandidateId(candidateId);
+      window.setTimeout(() => setCopiedCandidateId(null), 1600);
+    } catch {
+      setCopiedCandidateId(null);
+    }
+  };
 
   return (
     <div className="hidden overflow-hidden rounded-lg border border-border bg-card lg:block">
@@ -93,7 +107,7 @@ export function ApplicantWorkTable({
               tabIndex={0}
               aria-selected={selectedIds.has(applicant.id)}
               onClick={(event) => {
-                if ((event.target as HTMLElement).closest("button,a,input")) return;
+                if ((event.target as HTMLElement).closest("button,a,input,[data-slot^='dropdown-menu']")) return;
                 navigate(candidatePath, { state: { returnTo } });
               }}
               onKeyDown={(event) => {
@@ -165,23 +179,21 @@ export function ApplicantWorkTable({
                   >
                     <CheckCircle2 className="h-4 w-4" />
                   </Button>
-                ) : (
-                  <Button asChild variant="ghost" size="icon" className="h-8 w-8">
-                    <Link to={candidatePath} state={{ returnTo }} aria-label={tt("Odpri kandidata")}>
+                ) : null}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={(event) => event.stopPropagation()} aria-label={tt("Akcije kandidata")}>
                       <MoreHorizontal className="h-4 w-4" />
-                    </Link>
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100 focus:opacity-100"
-                  onClick={() => onDelete(applicant.id)}
-                  aria-label={tt("Izbriši kandidata")}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuItem onSelect={() => navigate(candidatePath, { state: { returnTo } })}><ExternalLink />{tt("Odpri kandidata")}</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void copyValue(applicant.id, applicant.id)}><Copy />{copiedCandidateId === applicant.id ? tt("ID kopiran") : tt("Kopiraj ID")}<span className="ml-auto font-mono text-[10px] text-muted-foreground">{getShortCandidateId(applicant.id)}</span></DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void copyValue(applicant.id, `${window.location.origin}${candidatePath}`)}><LinkIcon />{tt("Kopiraj povezavo")}</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onSelect={() => onDelete(applicant.id)}><Trash2 />{tt("Izbriši kandidata")}</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
           );

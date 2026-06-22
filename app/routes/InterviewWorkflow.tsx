@@ -38,6 +38,7 @@ import { supabase } from "../lib/supabase";
 import { logActivityEvent } from "../lib/activityLog";
 import { fetchLinkedCandidateTranscripts } from "../lib/interviewTranscriptLinks";
 import { useI18n } from "../lib/i18n";
+import { matchesCandidateSearch } from "../lib/candidateIdentity";
 
 type CandidateStage = "Applied" | "Screening" | "Interview" | "Offer" | "Accepted" | "Rejected";
 type WorkflowFilter =
@@ -343,8 +344,7 @@ export default function InterviewWorkflow() {
       if (!inWorkflow) return false;
       if (jobFilter !== "all" && candidate.role !== jobFilter) return false;
       if (normalizedSearch) {
-        const haystack = `${candidate.name} ${candidate.role} ${candidate.email ?? ""}`.toLowerCase();
-        if (!haystack.includes(normalizedSearch)) return false;
+        if (!matchesCandidateSearch({ candidateId: candidate.id, query: searchQuery, values: [candidate.name, candidate.role, candidate.email] })) return false;
       }
       if (workflowFilter === "first_round") return candidate.stage === "Interview";
       if (workflowFilter === "negotiation") return candidate.stage === "Offer";
@@ -709,7 +709,7 @@ export default function InterviewWorkflow() {
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 className="h-10 w-full rounded-md border border-border bg-background pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-cyan-500"
-                placeholder={tt("Išči kandidata, vlogo ali email")}
+                placeholder={tt("Išči kandidata, vlogo, email ali ID")}
               />
             </label>
           </div>

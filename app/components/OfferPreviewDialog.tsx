@@ -51,19 +51,21 @@ export function OfferPreviewDialog({
     setIsSaving(true);
     setError(null);
 
-    const { data, error: updateError } = await supabase
-      .from("offer_documents")
-      .update({
-        content,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", document.id)
-      .select("id, title, content, inputs, status, created_at")
-      .single();
+    // content is encrypted at rest; write it via the RPC, keep updated_at direct.
+    const { error: encError } = await supabase.rpc("offer_document_set_secure", {
+      p_id: document.id,
+      p_content: content,
+      p_inputs: document.inputs ?? {},
+    });
 
-    if (updateError || !data) {
-      setError(updateError?.message || t("offerDocumentSaveFailed"));
+    if (encError) {
+      setError(encError.message || t("offerDocumentSaveFailed"));
     } else {
+      await supabase
+        .from("offer_documents")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", document.id);
+      const data = { ...document, content } as OfferDocument;
       void logActivityEvent({
         action: "offer_document_updated",
         entityType: "offer_document",
@@ -71,7 +73,7 @@ export function OfferPreviewDialog({
         entityLabel: data.title,
         toValue: data.status ?? "draft",
       });
-      onDocumentChange?.(data as OfferDocument);
+      onDocumentChange?.(data);
     }
 
     setIsSaving(false);

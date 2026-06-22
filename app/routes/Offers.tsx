@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { clsx } from "clsx";
-import { CheckCircle2, Eye, FileText, Loader2, Send, UserRound, XCircle } from "lucide-react";
+import { CheckCircle2, Eye, FileText, Loader2, Plus, Search, Send, UserRound, XCircle } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { StatStrip } from "../components/shell/StatStrip";
@@ -9,6 +9,7 @@ import { scoreBand, scoreBandText } from "../lib/score";
 import { useConfirm } from "../lib/confirm";
 import { Checkbox } from "../components/ui/checkbox";
 import { Label } from "../components/ui/label";
+import { Input } from "../components/ui/input";
 import {
   Select,
   SelectContent,
@@ -25,8 +26,15 @@ import {
 } from "../lib/jobCache";
 import { OfferDraftDialog } from "../components/OfferDraftDialog";
 import { OfferPreviewDialog } from "../components/OfferPreviewDialog";
-import { type OfferDocument, type OfferInputs } from "../lib/offerDocument";
+import {
+  createOfferDocument,
+  offerDocumentStyles,
+  offerTemplates,
+  type OfferDocument,
+  type OfferInputs,
+} from "../lib/offerDocument";
 import { logActivityEvent } from "../lib/activityLog";
+import { matchesCandidateSearch } from "../lib/candidateIdentity";
 import {
   Bar,
   BarChart,
@@ -232,7 +240,9 @@ export default function Offers() {
     (OfferDocument & { candidateName?: string }) | null
   >(null);
   const [draftCandidate, setDraftCandidate] = useState<CandidateWithDocument | null>(null);
+  const [isPresetSetupOpen, setIsPresetSetupOpen] = useState(false);
   const [jobFilter, setJobFilter] = useState(restoredViewState?.jobFilter ?? "all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [offerStatusFilters, setOfferStatusFilters] = useState({
     ...defaultOfferWorkspaceFilters,
     ...(restoredViewState?.offerStatusFilters ?? {}),
@@ -281,7 +291,7 @@ export default function Offers() {
 
     if (candidateIds.length) {
       const { data: documentRows, error: documentError } = await supabase
-        .from("offer_documents")
+        .from("offer_documents_secure")
         .select("id, candidate_id, title, content, inputs, status, created_at")
         .in("candidate_id", candidateIds)
         .order("created_at", { ascending: false });
@@ -418,9 +428,10 @@ export default function Offers() {
   const filteredCandidates = useMemo(
     () =>
       candidates
+        .filter((candidate) => matchesCandidateSearch({ candidateId: candidate.id, query: searchQuery, values: [candidate.full_name, candidate.job_title, candidate.email] }))
         .filter((candidate) => jobFilter === "all" || candidate.job_title === jobFilter)
         .filter((candidate) => matchesOfferStatusFilters(candidate)),
-    [candidates, jobFilter, offerStatusFilters],
+    [candidates, jobFilter, offerStatusFilters, searchQuery],
   );
 
   const budgetChartData = useMemo(
@@ -466,25 +477,43 @@ export default function Offers() {
         throw new Error(t("signedInRequiredCandidate"));
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-offer`,
+      const generatedDocument = createOfferDocument({
+        candidateName: candidate.full_name,
+        jobTitle: candidate.job_title,
+        inputs: offerInputs,
+      });
+      // content/inputs are encrypted at rest: insert the row without the
+      // plaintext sensitive columns, then write the real values via the RPC.
+      const { data, error: insertError } = await supabase
+        .from("offer_documents")
+        .insert({
+          user_id: sessionData.session.user.id,
+          candidate_id: candidate.id,
+          title: generatedDocument.title,
+          status: "draft",
+          generated_by: sessionData.session.user.id,
+        })
+        .select("id, title, status, created_at")
+        .single();
+      if (insertError || !data) {
+        throw new Error(insertError?.message || t("offerDocumentGenerateFailed"));
+      }
+      const { error: offerEncError } = await supabase.rpc(
+        "offer_document_set_secure",
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${sessionData.session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ candidateId: candidate.id, offerInputs }),
+          p_id: data.id,
+          p_content: generatedDocument.content,
+          p_inputs: generatedDocument.inputs,
         },
       );
-
-      if (!response.ok) {
-        throw new Error((await response.text()) || response.statusText);
+      if (offerEncError) {
+        throw new Error(offerEncError.message || t("offerDocumentGenerateFailed"));
       }
-
-      const result = await response.json();
-      const document = result.document as OfferDocument;
+      const document = {
+        ...data,
+        content: generatedDocument.content,
+        inputs: generatedDocument.inputs,
+      } as OfferDocument;
       void logActivityEvent({
         action: "offer_document_created",
         entityType: "offer_document",
@@ -749,6 +778,37 @@ export default function Offers() {
         ]}
       />
 
+      <section className="rounded-lg border border-border bg-card p-4">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">{tt("Knjižnica ponudb")}</h2>
+            <p className="text-sm text-muted-foreground">
+              {tt("Predloge uporabljajo vnaprej odobreno besedilo. Podatki kandidata se vstavijo brez AI generiranja.")}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" onClick={() => setIsPresetSetupOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" />
+              {tt("Nova predloga")}
+            </Button>
+            {offerDocumentStyles.map((style) => <Badge key={style.id} variant="outline">{style.name}</Badge>)}
+          </div>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          {offerTemplates.map((template, index) => (
+            <div key={template.id} className="flex min-h-28 items-start gap-3 rounded-lg border border-border bg-background p-4">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-sm font-semibold text-primary">
+                {String(index + 1).padStart(2, "0")}
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">{tt(template.name)}</h3>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{tt(template.description)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       <section className="grid gap-4 rounded-lg border border-border bg-card p-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(18rem,0.45fr)]">
         <div className="min-w-0">
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -819,6 +879,10 @@ export default function Offers() {
       ) : null}
 
       <div className="surface-card flex flex-wrap items-end gap-3 p-3">
+        <div className="grid min-w-[min(100%,15rem)] flex-1 gap-1.5">
+          <Label>{tt("Išči kandidata")}</Label>
+          <div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={tt("Ime, email ali ID kandidata")} className="h-10 pl-9"/></div>
+        </div>
         <div className="grid min-w-[min(100%,13rem)] flex-1 gap-1.5 sm:flex-none">
           <Label>{t("filterByJob")}</Label>
           <Select value={jobFilter} onValueChange={setJobFilter}>
@@ -1079,7 +1143,17 @@ export default function Offers() {
       )}
 
       <OfferDraftDialog
+        presetOnly
+        isGenerating={false}
+        open={isPresetSetupOpen}
+        onOpenChange={setIsPresetSetupOpen}
+        onPresetSaved={() => setIsPresetSetupOpen(false)}
+      />
+
+      <OfferDraftDialog
         candidateName={draftCandidate?.full_name}
+        candidateEmail={draftCandidate?.email}
+        jobTitle={draftCandidate?.job_title}
         draftKey={draftCandidate ? `smart-ats-offer-draft-${draftCandidate.id}` : undefined}
         error={error}
         initialInputs={draftCandidate?.latestDocument?.inputs}

@@ -54,7 +54,7 @@ import {
   fetchLinkedCandidateTranscripts,
   type LinkedCandidateTranscript,
 } from "../lib/interviewTranscriptLinks";
-import { type OfferDocument, type OfferInputs } from "../lib/offerDocument";
+import { createOfferDocument, type OfferDocument, type OfferInputs } from "../lib/offerDocument";
 import { logActivityEvent } from "../lib/activityLog";
 import {
   getLocationPath,
@@ -314,7 +314,7 @@ export default function CandidateDetail() {
 
       if (nextCandidate.stage === "Offer") {
         const { data: latestDocument } = await supabase
-          .from("offer_documents")
+          .from("offer_documents_secure")
           .select("id, title, content, inputs, status, created_at")
           .eq("candidate_id", nextCandidate.id)
           .order("created_at", { ascending: false })
@@ -870,25 +870,43 @@ export default function CandidateDetail() {
         throw new Error(t("signedInRequiredCandidate"));
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/generate-offer`,
+      const generatedDocument = createOfferDocument({
+        candidateName: candidate.full_name,
+        jobTitle: candidate.job_title,
+        inputs: offerInputs,
+      });
+      // content/inputs are encrypted at rest: insert the row without the
+      // plaintext sensitive columns, then write the real values via the RPC.
+      const { data, error: insertError } = await supabase
+        .from("offer_documents")
+        .insert({
+          user_id: sessionData.session.user.id,
+          candidate_id: candidate.id,
+          title: generatedDocument.title,
+          status: "draft",
+          generated_by: sessionData.session.user.id,
+        })
+        .select("id, title, status, created_at")
+        .single();
+      if (insertError || !data) {
+        throw new Error(insertError?.message || t("offerDocumentGenerateFailed"));
+      }
+      const { error: offerEncError } = await supabase.rpc(
+        "offer_document_set_secure",
         {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${sessionData.session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({ candidateId: candidate.id, offerInputs }),
+          p_id: data.id,
+          p_content: generatedDocument.content,
+          p_inputs: generatedDocument.inputs,
         },
       );
-
-      if (!response.ok) {
-        throw new Error((await response.text()) || response.statusText);
+      if (offerEncError) {
+        throw new Error(offerEncError.message || t("offerDocumentGenerateFailed"));
       }
-
-      const result = await response.json();
-      const nextDocument = result.document as OfferDocument;
+      const nextDocument = {
+        ...data,
+        content: generatedDocument.content,
+        inputs: generatedDocument.inputs,
+      } as OfferDocument;
       setOfferDocument(nextDocument);
       setIsCandidateWorkSaved(false);
       void logActivityEvent({
@@ -2432,6 +2450,8 @@ export default function CandidateDetail() {
       ) : null}
       <OfferDraftDialog
         candidateName={candidate.full_name}
+        candidateEmail={candidate.email}
+        jobTitle={candidate.job_title}
         draftKey={`smart-ats-offer-draft-${candidate.id}`}
         error={offerError}
         initialInputs={offerDocument?.inputs}

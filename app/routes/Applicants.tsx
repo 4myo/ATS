@@ -40,6 +40,7 @@ import { fetchJobOptions, getCachedJobOptions, setCachedJobOptions } from "../li
 import { dedupeCandidateRows } from "../lib/candidateRows";
 import { enqueueAiAnalysisRetry } from "../lib/aiAnalysisQueue";
 import { logActivityEvent } from "../lib/activityLog";
+import { matchesCandidateSearch } from "../lib/candidateIdentity";
 import {
   finishCandidateImportProgress,
   startCandidateImportProgress,
@@ -932,17 +933,17 @@ export default function Applicants() {
     const normalizedSearch = searchFilter.trim().toLowerCase();
     const source =
       normalizedSearch.length >= 2
-        ? remoteApplicants.filter((applicant) =>
-            [
+        ? remoteApplicants.filter((applicant) => matchesCandidateSearch({
+            candidateId: applicant.id,
+            query: searchFilter,
+            values: [
               applicant.name,
               applicant.role,
               applicant.email,
               applicant.location,
               ...(applicant.skills ?? []),
-            ]
-              .filter(Boolean)
-              .some((value) => String(value).toLowerCase().includes(normalizedSearch)),
-          )
+            ],
+          }))
         : remoteApplicants;
 
     return source
@@ -1002,16 +1003,11 @@ export default function Applicants() {
     const normalizedSearch = searchFilter.trim().toLowerCase();
     if (!normalizedSearch) return true;
 
-    return [
-      applicant.name,
-      applicant.role,
-      applicant.email,
-      applicant.location,
-      applicant.summary,
-      ...(applicant.skills ?? []),
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(normalizedSearch));
+    return matchesCandidateSearch({
+      candidateId: applicant.id,
+      query: searchFilter,
+      values: [applicant.name, applicant.role, applicant.email, applicant.location, applicant.summary, ...(applicant.skills ?? [])],
+    });
   };
 
   // Everything except the stage tab — used both for tab counts and the list.
@@ -1541,7 +1537,7 @@ export default function Applicants() {
               onBlur={() => {
                 window.setTimeout(() => setIsApplicantSearchOpen(false), 120);
               }}
-              placeholder={t("searchCandidates")}
+              placeholder={`${t("searchCandidates")} / ID`}
               className="h-10 border-border bg-background shadow-sm dark:bg-muted/30"
             />
             {isApplicantSearchOpen ? (

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router';
-import { MapPin, Briefcase, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
+import { MapPin, Briefcase, Trash2, Ellipsis, Copy, Link as LinkIcon, ExternalLink } from 'lucide-react';
 import type { Applicant } from '../store';
 import { clsx } from 'clsx';
 import { ScoreChip } from './ScoreChip';
@@ -9,6 +9,8 @@ import {
   aiAnalysisQueueEvent,
   isCandidateQueuedForAiAnalysis,
 } from '../lib/aiAnalysisQueue';
+import { getShortCandidateId } from '../lib/candidateIdentity';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from './ui/dropdown-menu';
 
 interface ApplicantCardProps {
   applicant: Applicant;
@@ -19,7 +21,10 @@ interface ApplicantCardProps {
 
 export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed, returnTo }: ApplicantCardProps) {
   const { stageLabel, t, tt } = useI18n();
+  const navigate = useNavigate();
   const [isQueuedForAi, setIsQueuedForAi] = useState(false);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
+  const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isNewApplicant = applicant.stage === "Applied";
   const effectiveAnalysisStatus =
     isQueuedForAi && applicant.analysisStatus === "failed"
@@ -56,6 +61,21 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed, returnTo
       window.removeEventListener("storage", syncQueuedState);
     };
   }, [applicant.id]);
+
+  useEffect(() => () => {
+    if (copyNoticeTimer.current) clearTimeout(copyNoticeTimer.current);
+  }, []);
+
+  const copyValue = async (value: string, notice: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyNotice(notice);
+    } catch {
+      setCopyNotice(tt("Kopiranje ni uspelo"));
+    }
+    if (copyNoticeTimer.current) clearTimeout(copyNoticeTimer.current);
+    copyNoticeTimer.current = setTimeout(() => setCopyNotice(null), 1800);
+  };
 
   const stageColors = {
     Applied: 'bg-sky-500/10 text-sky-700 dark:text-sky-300',
@@ -108,9 +128,8 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed, returnTo
             <Link
               to={candidatePath}
               state={returnTo ? { returnTo } : undefined}
-              className="focus-visible:outline-none"
+              className="relative z-10 rounded-sm hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <span className="absolute inset-0" />
               {applicant.name}
             </Link>
           </h3>
@@ -169,6 +188,7 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed, returnTo
 
       {/* AI score — the visual anchor */}
       <div className="relative z-10 shrink-0">
+        {copyNotice ? <span className="mr-2 text-xs font-medium text-emerald-600" aria-live="polite">{copyNotice}</span> : null}
         {effectiveAnalysisStatus === "pending_ai" ? (
           <span className="text-xs text-muted-foreground">…</span>
         ) : (
@@ -187,14 +207,20 @@ export function ApplicantCard({ applicant, onDelete, onMarkNewReviewed, returnTo
             {t("newApplicantBadge")}
           </button>
         ) : null}
-        <button
-          type="button"
-          className="rounded-full p-1.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-500/10 hover:text-red-600"
-          aria-label={t("deleteApplicant")}
-          onClick={() => onDelete?.(applicant.id)}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} className="relative z-30 rounded-full p-1.5 text-muted-foreground opacity-70 transition hover:bg-muted hover:text-foreground group-hover:opacity-100" aria-label={tt("Akcije kandidata")}>
+              <Ellipsis className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onSelect={() => navigate(candidatePath)}><ExternalLink />{tt("Odpri kandidata")}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copyValue(applicant.id, tt("ID kopiran"))}><Copy />{tt("Kopiraj ID")}<span className="ml-auto font-mono text-[10px] text-muted-foreground">{getShortCandidateId(applicant.id)}</span></DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copyValue(`${window.location.origin}${candidatePath}`, tt("Povezava kopirana"))}><LinkIcon />{tt("Kopiraj povezavo")}</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={() => onDelete?.(applicant.id)}><Trash2 />{t("deleteApplicant")}</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

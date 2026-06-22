@@ -25,6 +25,7 @@ import {
 import { supabase } from "../lib/supabase";
 import type { ActivityLogRow } from "../lib/activityLog";
 import { useI18n } from "../lib/i18n";
+import { matchesCandidateSearch } from "../lib/candidateIdentity";
 
 type TimelineEvent = {
   id: string;
@@ -612,18 +613,20 @@ export default function PipelineActivity() {
       .filter((event) => {
         if (!normalizedSearch) return true;
 
-        return [
+        return matchesCandidateSearch({
+          candidateId: String(event.metadata?.candidate_id ?? (event.entityType === "candidate" ? event.entityId ?? "" : "")),
+          query: searchQuery,
+          values: [
           event.entityLabel,
+          event.entityId,
           tt(entityLabels[event.entityType] ?? event.entityType),
           tt(actionLabels[event.action] ?? event.action),
           formatActivityValue(event.fromValue, tt),
           formatActivityValue(event.toValue, tt),
           String(event.metadata?.job_title ?? ""),
           String(event.metadata?.candidate_name ?? ""),
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedSearch);
+          ],
+        });
       })
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
   }, [
