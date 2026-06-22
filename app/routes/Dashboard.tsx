@@ -94,7 +94,9 @@ type JobCapacityDatum = {
 type DashboardChartFocus = "readiness" | "match" | "offers";
 
 const dashboardCandidateSelect =
-  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, created_at";
+  // analysis_concerns is encrypted and never rendered on the dashboard — kept
+  // out to avoid decrypting it per candidate. summary/strengths are displayed.
+  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, created_at";
 
 const dashboardCandidateSelectWithAiWriting =
   `${dashboardCandidateSelect}, ai_writing_score`;

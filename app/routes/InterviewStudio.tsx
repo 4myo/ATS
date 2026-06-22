@@ -20,6 +20,7 @@ import {
   Pause,
   Play,
   Plus,
+  Coffee,
   Save,
   Square,
   Trash2,
@@ -879,6 +880,7 @@ export default function InterviewStudio() {
   const [selectedDeviceId, setSelectedDeviceId] = useState("");
   const [recorder, setRecorder] = useState<MediaRecorder | null>(null);
   const [recordingStatus, setRecordingStatus] = useState<"idle" | "recording" | "paused" | "ready">("idle");
+  const [recordingPauseReason, setRecordingPauseReason] = useState<"pause" | "break" | null>(null);
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [savedTranscripts, setSavedTranscripts] = useState<SavedTranscript[]>([]);
   const [isCandidatePickerOpen, setIsCandidatePickerOpen] = useState(false);
@@ -1657,12 +1659,20 @@ export default function InterviewStudio() {
       recordingBlobRef.current = null;
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio:
-        selectedDeviceId && selectedDeviceId !== defaultDeviceValue
-          ? { deviceId: { exact: selectedDeviceId } }
-          : true,
-    });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio:
+          selectedDeviceId && selectedDeviceId !== defaultDeviceValue
+            ? { deviceId: { exact: selectedDeviceId } }
+            : true,
+      });
+      const nextDevices = await navigator.mediaDevices.enumerateDevices();
+      setDevices(nextDevices.filter((device) => device.kind === "audioinput"));
+    } catch (recordingError) {
+      setMessage(recordingError instanceof Error ? `Mikrofona ni mogoče zagnati: ${recordingError.message}` : "Mikrofona ni mogoče zagnati. Preverite dovoljenja brskalnika.");
+      return;
+    }
     const nextRecorder = new MediaRecorder(stream, {
       audioBitsPerSecond: recordingBitsPerSecond,
     });
@@ -1689,28 +1699,36 @@ export default function InterviewStudio() {
       }
 
       setRecordingStatus("ready");
+      setRecordingPauseReason(null);
       setMessage("Posnetek je pripravljen. Shranite ga kot transkript, transkripcijo pa zaženite ročno.");
     };
 
     nextRecorder.start();
     setRecorder(nextRecorder);
     setRecordingStatus("recording");
+    setRecordingPauseReason(null);
     setMessage(null);
   };
 
   const pauseRecording = () => {
-    if (!recorder) return;
+    if (!recorder || recordingStatus !== "recording") return;
+    recorder.pause();
+    setRecordingStatus("paused");
+    setRecordingPauseReason("pause");
+  };
 
-    if (recordingStatus === "recording") {
-      recorder.pause();
-      setRecordingStatus("paused");
-      return;
-    }
+  const startRecordingBreak = () => {
+    if (!recorder || recordingStatus !== "recording") return;
+    recorder.pause();
+    setRecordingStatus("paused");
+    setRecordingPauseReason("break");
+  };
 
-    if (recordingStatus === "paused") {
-      recorder.resume();
-      setRecordingStatus("recording");
-    }
+  const resumeRecording = () => {
+    if (!recorder || recordingStatus !== "paused") return;
+    recorder.resume();
+    setRecordingStatus("recording");
+    setRecordingPauseReason(null);
   };
 
   const stopRecording = () => {
@@ -2888,12 +2906,12 @@ export default function InterviewStudio() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={pauseRecording}
+                onClick={recordingStatus === "paused" ? resumeRecording : pauseRecording}
                 disabled={recordingStatus !== "recording" && recordingStatus !== "paused"}
                 className="min-w-0 gap-2 px-2"
               >
-                <Pause className="h-4 w-4" />
-                <span className="truncate">Pause</span>
+                {recordingStatus === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                <span className="truncate">{recordingStatus === "paused" ? "Nadaljuj" : "Pause"}</span>
               </Button>
               <Button
                 type="button"
@@ -3343,6 +3361,25 @@ export default function InterviewStudio() {
       </main>
       </div>
       )}
+      {recordingStatus === "recording" || recordingStatus === "paused" ? (
+        <div className="fixed bottom-5 left-1/2 z-[80] flex w-[min(56rem,calc(100vw-1.5rem))] -translate-x-1/2 flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 p-2.5 shadow-2xl backdrop-blur-xl">
+          <div className="flex min-w-[9rem] items-center gap-2 px-2">
+            <span className={`h-2.5 w-2.5 rounded-full ${recordingStatus === "recording" ? "animate-pulse bg-red-500" : "bg-amber-500"}`} />
+            <span><strong className="block font-mono text-base tabular-nums text-foreground">{formatDuration(durationSeconds)}</strong><small className="block text-[10px] uppercase tracking-wide text-muted-foreground">{recordingStatus === "recording" ? "Snemanje" : recordingPauseReason === "break" ? "Odmor" : "Pavza"}</small></span>
+          </div>
+          <Select value={selectedDeviceId || defaultDeviceValue} onValueChange={(value) => { setSelectedDeviceId(value); setMessage("Izbrani mikrofon bo uporabljen pri naslednjem posnetku."); }}>
+            <SelectTrigger className="min-w-[13rem] flex-1 sm:max-w-[18rem]"><Mic className="mr-2 h-4 w-4 shrink-0"/><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value={defaultDeviceValue}>Privzeti mikrofon</SelectItem>{devices.filter((device) => device.deviceId).map((device, index) => <SelectItem key={device.deviceId} value={device.deviceId}>{device.label || `Mikrofon ${index + 1}`}</SelectItem>)}</SelectContent>
+          </Select>
+          {recordingStatus === "paused" ? (
+            <Button type="button" onClick={resumeRecording} className="gap-2"><Play className="h-4 w-4"/>Nadaljuj</Button>
+          ) : (
+            <Button type="button" variant="outline" onClick={pauseRecording} className="gap-2"><Pause className="h-4 w-4"/>Pavza</Button>
+          )}
+          <Button type="button" variant="outline" onClick={startRecordingBreak} disabled={recordingStatus !== "recording"} className="gap-2"><Coffee className="h-4 w-4"/>Odmor</Button>
+          <Button type="button" variant="outline" onClick={stopRecording} className="gap-2 border-red-500/50 text-red-600 hover:bg-red-500/10 hover:text-red-700"><Square className="h-4 w-4"/>Ustavi</Button>
+        </div>
+      ) : null}
       <Dialog open={Boolean(detailNode)} onOpenChange={(open) => !open && setDetailNodeId(null)}>
         <DialogContent className="max-h-[88vh] overflow-hidden sm:max-w-3xl">
           {detailNode?.type === "transcript" ? (

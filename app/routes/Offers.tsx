@@ -58,7 +58,6 @@ type OfferCandidate = {
   offer_checklist: Record<string, unknown> | null;
   offer_outcome: string | null;
   offer_sent_at: string | null;
-  offer_summary: string | null;
 };
 
 type CandidateWithDocument = OfferCandidate & {
@@ -66,9 +65,9 @@ type CandidateWithDocument = OfferCandidate & {
 };
 
 const candidateSelect =
-  "id, full_name, job_title, stage, email, ats_score, interview_analysis_status, interview_analysis_score, offer_checklist, offer_outcome, offer_sent_at, offer_summary";
+  "id, full_name, job_title, stage, email, ats_score, interview_analysis_status, interview_analysis_score, offer_checklist, offer_outcome, offer_sent_at";
 const candidateSelectWithoutInterviewAnalysis =
-  "id, full_name, job_title, stage, email, ats_score, offer_checklist, offer_outcome, offer_sent_at, offer_summary";
+  "id, full_name, job_title, stage, email, ats_score, offer_checklist, offer_outcome, offer_sent_at";
 
 const getInitials = (name: string) =>
   name
@@ -568,6 +567,23 @@ export default function Offers() {
       offerSent: true,
     };
     const sentDate = candidate.offer_sent_at ?? new Date().toISOString().slice(0, 10);
+    const previousCandidates = candidates;
+
+    // Optimistic: reflect "sent" immediately; reconcile/rollback on failure.
+    setCandidates((current) =>
+      current.map((item) =>
+        item.id === candidate.id
+          ? {
+              ...item,
+              offer_checklist: nextChecklist,
+              offer_sent_at: sentDate,
+              latestDocument: item.latestDocument
+                ? { ...item.latestDocument, status: "sent" }
+                : item.latestDocument,
+            }
+          : item,
+      ),
+    );
 
     const [{ error: updateError }, { error: documentError }] = await Promise.all([
       supabase
@@ -586,24 +602,11 @@ export default function Offers() {
     ]);
 
     if (updateError || documentError) {
+      setCandidates(previousCandidates);
       setError(updateError?.message || documentError?.message || t("failedOfferUpdate"));
       return;
     }
 
-    setCandidates((current) =>
-      current.map((item) =>
-        item.id === candidate.id
-          ? {
-              ...item,
-              offer_checklist: nextChecklist,
-              offer_sent_at: sentDate,
-              latestDocument: item.latestDocument
-                ? { ...item.latestDocument, status: "sent" }
-                : item.latestDocument,
-            }
-          : item,
-      ),
-    );
     void logActivityEvent({
       action: "offer_sent",
       entityType: "offer_document",
@@ -657,6 +660,25 @@ export default function Offers() {
       offerSent: true,
     };
     const sentDate = candidate.offer_sent_at ?? new Date().toISOString().slice(0, 10);
+    const previousCandidates = candidates;
+
+    // Optimistic: reflect the outcome immediately; rollback on failure.
+    setCandidates((current) =>
+      current.map((item) =>
+        item.id === candidate.id
+          ? {
+              ...item,
+              stage: nextStage,
+              offer_outcome: outcome,
+              offer_checklist: nextChecklist,
+              offer_sent_at: sentDate,
+              latestDocument: item.latestDocument
+                ? { ...item.latestDocument, status: documentStatus }
+                : item.latestDocument,
+            }
+          : item,
+      ),
+    );
 
     const [{ error: candidateError }, { error: documentError }] = await Promise.all([
       supabase
@@ -677,27 +699,10 @@ export default function Offers() {
     ]);
 
     if (candidateError || documentError) {
+      setCandidates(previousCandidates);
       setError(candidateError?.message || documentError?.message || t("failedOfferUpdate"));
       return;
     }
-
-    setCandidates((current) =>
-      current
-        .map((item) =>
-          item.id === candidate.id
-            ? {
-                ...item,
-                stage: nextStage,
-                offer_outcome: outcome,
-                offer_checklist: nextChecklist,
-                offer_sent_at: sentDate,
-                latestDocument: item.latestDocument
-                  ? { ...item.latestDocument, status: documentStatus }
-                  : item.latestDocument,
-              }
-            : item,
-        ),
-    );
 
     if (outcome === "accepted" || candidate.stage === "Accepted") {
       await syncJobStatusForTitle(candidate.job_title);

@@ -115,7 +115,10 @@ const saveApplicantsViewState = (state: ApplicantsViewState) => {
 };
 
 const candidateSelect =
-  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, analysis_strengths, analysis_concerns, skill_profile, analysis_status, created_at";
+  // analysis_strengths/analysis_concerns are encrypted and not shown in the list
+  // (ApplicantCard doesn't use them; detail re-fetches) — kept out to avoid
+  // decrypting them per row. analysis_summary stays: it feeds candidate search.
+  "id, full_name, job_title, stage, email, location, years_experience, skills, ats_score, resume_path, resume_preview_url, analysis_summary, skill_profile, analysis_status, created_at";
 
 const candidateSelectWithOffer =
   `${candidateSelect}, offer_checklist, offer_outcome, offer_sent_at`;

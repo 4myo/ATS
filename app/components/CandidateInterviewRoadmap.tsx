@@ -37,6 +37,8 @@ type RoadmapCandidate = {
   role: string;
   stage: string;
   interviewAnalysisStatus?: string | null;
+  interviewQuestions: string[];
+  followUpQuestions: string[];
   isNew?: boolean;
 };
 
@@ -114,6 +116,7 @@ export function CandidateInterviewRoadmap({
 }: CandidateInterviewRoadmapProps) {
   const [isCandidatePickerOpen, setIsCandidatePickerOpen] = useState(false);
   const [jobFilter, setJobFilter] = useState("all");
+  const [isQuestionsOpen, setIsQuestionsOpen] = useState(false);
   const jobOptions = useMemo(
     () => [...new Set(candidates.map((item) => item.role).filter(Boolean))].sort(),
     [candidates],
@@ -131,6 +134,7 @@ export function CandidateInterviewRoadmap({
     (transcript) => transcript.status === "complete",
   );
   const analysisComplete = candidate?.interviewAnalysisStatus === "complete";
+  const questionCount = (candidate?.interviewQuestions.length ?? 0) + (candidate?.followUpQuestions.length ?? 0);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-background">
@@ -232,6 +236,18 @@ export function CandidateInterviewRoadmap({
         >
           <UserPlus className="h-4 w-4" /> Dodaj/izberi kandidata
         </Button>
+        <Popover open={isQuestionsOpen} onOpenChange={setIsQuestionsOpen}>
+          <PopoverTrigger asChild>
+            <Button type="button" variant="outline" disabled={!candidate} className="gap-2"><Bot className="h-4 w-4"/>Vprašanja{questionCount ? ` (${questionCount})` : ""}</Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[min(36rem,calc(100vw-2rem))] p-0">
+            <div className="border-b border-border p-4"><h3 className="font-semibold text-foreground">Vprašanja za {candidate?.name}</h3><p className="mt-1 text-xs text-muted-foreground">Pripravljena vprašanja in nadaljnja vprašanja iz analize razgovora.</p></div>
+            <div className="max-h-[60vh] space-y-5 overflow-y-auto p-4">
+              <section><h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pripravljena vprašanja</h4>{candidate?.interviewQuestions.length ? <ol className="mt-3 space-y-3">{candidate.interviewQuestions.map((question, index) => <li key={`${question}-${index}`} className="grid grid-cols-[1.5rem_1fr] gap-2 text-sm leading-relaxed"><span className="font-semibold text-primary">{index + 1}.</span><span>{question}</span></li>)}</ol> : <p className="mt-2 text-sm text-muted-foreground">Vprašanja še niso pripravljena.</p>}</section>
+              <section className="border-t border-border pt-4"><h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nadaljnja vprašanja</h4>{candidate?.followUpQuestions.length ? <ol className="mt-3 space-y-3">{candidate.followUpQuestions.map((question, index) => <li key={`${question}-${index}`} className="grid grid-cols-[1.5rem_1fr] gap-2 text-sm leading-relaxed"><span className="font-semibold text-cyan-600">{index + 1}.</span><span>{question}</span></li>)}</ol> : <p className="mt-2 text-sm text-muted-foreground">Prikažejo se po analizi transkripta.</p>}</section>
+            </div>
+          </PopoverContent>
+        </Popover>
         <Button
           type="button"
           variant="outline"

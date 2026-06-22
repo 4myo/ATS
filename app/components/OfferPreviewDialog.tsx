@@ -1,22 +1,9 @@
-import { useEffect, useState } from "react";
-import { Download, Printer, Save } from "lucide-react";
+import { useState } from "react";
+import { Download, Loader2, Printer } from "lucide-react";
 import { Button } from "./ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
-import { Textarea } from "./ui/textarea";
-import { supabase } from "../lib/supabase";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { useI18n } from "../lib/i18n";
-import {
-  downloadOfferText,
-  openPrintableOffer,
-  type OfferDocument,
-} from "../lib/offerDocument";
-import { logActivityEvent } from "../lib/activityLog";
+import { downloadOfferPdf, openPrintableOffer, type OfferDocument } from "../lib/offerDocument";
 
 type OfferPreviewDialogProps = {
   candidateName?: string;
@@ -26,112 +13,42 @@ type OfferPreviewDialogProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-export function OfferPreviewDialog({
-  candidateName,
-  document,
-  open,
-  onDocumentChange,
-  onOpenChange,
-}: OfferPreviewDialogProps) {
-  const { t } = useI18n();
-  const [content, setContent] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+export function OfferPreviewDialog({ candidateName, document, open, onOpenChange }: OfferPreviewDialogProps) {
+  const { t, tt } = useI18n();
+  const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      setContent(document?.content ?? "");
-      setError(null);
-    }
-  }, [document, open]);
-
-  const saveContent = async () => {
+  const handleDownload = async () => {
     if (!document) return;
-
-    setIsSaving(true);
+    setIsDownloading(true);
     setError(null);
-
-    // content is encrypted at rest; write it via the RPC, keep updated_at direct.
-    const { error: encError } = await supabase.rpc("offer_document_set_secure", {
-      p_id: document.id,
-      p_content: content,
-      p_inputs: document.inputs ?? {},
-    });
-
-    if (encError) {
-      setError(encError.message || t("offerDocumentSaveFailed"));
-    } else {
-      await supabase
-        .from("offer_documents")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", document.id);
-      const data = { ...document, content } as OfferDocument;
-      void logActivityEvent({
-        action: "offer_document_updated",
-        entityType: "offer_document",
-        entityId: data.id,
-        entityLabel: data.title,
-        toValue: data.status ?? "draft",
-      });
-      onDocumentChange?.(data);
+    try {
+      await downloadOfferPdf(document);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : tt("PDF datoteke ni bilo mogoče ustvariti."));
+    } finally {
+      setIsDownloading(false);
     }
-
-    setIsSaving(false);
   };
-
-  const activeDocument = document ? { ...document, content } : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-hidden border-border bg-card p-0 text-card-foreground sm:max-w-3xl">
+      <DialogContent className="grid max-h-[92vh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden border-border bg-card p-0 text-card-foreground sm:max-w-3xl">
         <DialogHeader className="border-b border-border px-6 py-5 pr-12">
           <DialogTitle>{document?.title}</DialogTitle>
-          <DialogDescription>
-            {candidateName
-              ? `${t("candidate")}: ${candidateName}`
-              : t("offerDocumentPreview")}
-          </DialogDescription>
+          <DialogDescription>{candidateName ? `${t("candidate")}: ${candidateName}` : t("offerDocumentPreview")}</DialogDescription>
         </DialogHeader>
-        <div className="overflow-y-auto px-6 py-5">
-          <Textarea
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-            className="min-h-[420px] resize-y font-sans text-sm leading-relaxed"
-          />
+        <div className="min-h-0 overflow-y-auto px-6 py-5">
+          <div className="rounded-lg border border-border bg-background p-6 shadow-sm">
+            <pre className="whitespace-pre-wrap [font-family:inherit] text-sm leading-relaxed text-foreground">{document?.content}</pre>
+          </div>
           {error ? <p className="mt-3 text-sm text-red-500">{error}</p> : null}
         </div>
         <div className="flex flex-col-reverse gap-3 border-t border-border px-6 py-4 sm:flex-row sm:justify-end">
-          {activeDocument ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={saveContent}
-                disabled={isSaving}
-                className="gap-2"
-              >
-                <Save className="h-4 w-4" />
-                {isSaving ? t("saving") : t("saveChanges")}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => openPrintableOffer(activeDocument)}
-                className="gap-2"
-              >
-                <Printer className="h-4 w-4" />
-                {t("printOrSavePdf")}
-              </Button>
-              <Button
-                type="button"
-                onClick={() => downloadOfferText(activeDocument)}
-                className="gap-2"
-              >
-                <Download className="h-4 w-4" />
-                {t("downloadTxt")}
-              </Button>
-            </>
-          ) : null}
+          {document ? <>
+            <Button type="button" variant="outline" onClick={() => openPrintableOffer(document)} className="gap-2"><Printer className="h-4 w-4"/>{tt("Natisni PDF")}</Button>
+            <Button type="button" onClick={() => void handleDownload()} disabled={isDownloading} className="gap-2">{isDownloading ? <Loader2 className="h-4 w-4 animate-spin"/> : <Download className="h-4 w-4"/>}{isDownloading ? tt("Ustvarjam PDF …") : tt("Shrani PDF")}</Button>
+          </> : null}
         </div>
       </DialogContent>
     </Dialog>

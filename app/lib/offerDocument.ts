@@ -244,7 +244,7 @@ export const downloadOfferText = (document: OfferDocument) => {
   URL.revokeObjectURL(url);
 };
 
-export const openPrintableOffer = (document: OfferDocument) => {
+const createPrintableOfferHtml = (document: OfferDocument, autoPrint: boolean) => {
   const styleId = (document.inputs?.styleId || "modern") as OfferStyleId;
   const style = printableStyles[styleId] || printableStyles.modern;
   const company = escapeHtml(document.inputs?.companyName?.trim() || "");
@@ -261,7 +261,12 @@ export const openPrintableOffer = (document: OfferDocument) => {
       : "";
   const printableHtml = `<!doctype html><html lang="sl"><head><meta charset="utf-8"/><title>${escapeHtml(document.title)}</title><style>
     @page { size:A4; margin:0 } *{box-sizing:border-box} body{color:#111827;font-family:${style.font};line-height:1.55;margin:0;background:#e5e7eb}.page{position:relative;width:210mm;min-height:297mm;margin:10mm auto;background:#fff;padding:22mm 20mm 20mm}.page-break{break-after:page}.rule{height:2px;background:${style.accent};margin:7mm 0}.document-header{display:flex;justify-content:space-between;gap:12mm;align-items:flex-start;color:${style.accent}}.company{font-weight:800;letter-spacing:.05em;text-transform:uppercase}.small{font-size:10px;color:#6b7280}.address-grid{display:grid;grid-template-columns:1fr 1fr;gap:22mm;margin-top:42mm}.address-label{border-bottom:1px solid #9ca3af;padding-bottom:2mm;margin-bottom:4mm;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280}.address{font-size:14px;line-height:1.7}.cover-title{margin-top:45mm;font-size:30px;color:${style.accent};max-width:140mm}.reference{margin-top:12mm;border-top:1px solid #d1d5db;padding-top:5mm;display:grid;grid-template-columns:repeat(3,1fr);gap:8mm;font-size:11px}.content{border-top:${style.border};padding-top:8mm}h1{color:${style.accent};font-size:${style.heading};line-height:1.2;margin:0 0 10mm}pre{font-family:inherit;font-size:13px;white-space:pre-wrap;word-break:break-word;margin:0;padding-bottom:25mm}.footer{position:absolute;left:20mm;right:20mm;bottom:10mm;border-top:1px solid #9ca3af;padding-top:3mm;display:flex;justify-content:space-between;gap:8mm;font-size:9px;color:#6b7280}.signature{margin-top:15mm;display:grid;grid-template-columns:1fr 1fr;gap:20mm}.signature-line{border-top:1px solid #374151;padding-top:2mm;font-size:10px}.signature-image{display:block;max-width:48mm;max-height:18mm;object-fit:contain;margin:0 0 2mm}.typed-signature{font-family:"Segoe Script","Brush Script MT",cursive;font-size:24px;line-height:1.1;margin:0 0 3mm}.signature-date{color:#6b7280;font-size:9px;margin-top:1mm}@media print{body{background:#fff}.page{margin:0;box-shadow:none}}
-  </style></head><body><section class="page page-break"><div class="document-header"><div><div class="company">${company}</div><div class="small">${line(input.companyAddress, input.companyPostal)}</div></div><div class="small">POSLOVNI DOKUMENT</div></div><div class="rule"></div><div class="address-grid"><div><div class="address-label">Pošiljatelj</div><div class="address"><strong>${company}</strong><br>${line(input.companyAddress)}<br>${line(input.companyPostal)}<br>${line(input.senderEmail)}<br>${line(input.senderPhone)}</div></div><div><div class="address-label">Prejemnik</div><div class="address"><strong>${escapeHtml(document.title.replace(/^.*–\s*/, ""))}</strong><br>${line(input.recipientAddress)}<br>${line(input.recipientPostal)}<br>${line(input.recipientEmail)}</div></div></div><h1 class="cover-title">${escapeHtml(document.title)}</h1><div class="reference"><div><strong>Kraj</strong><br>${line(input.documentPlace) || "—"}</div><div><strong>Datum</strong><br>${documentDate}</div><div><strong>Referenca</strong><br>${line(input.referenceNumber) || "—"}</div></div><div class="footer"><span>${line(input.footerText) || company}</span><span>${line(input.companyTaxId && `Davčna št.: ${input.companyTaxId}`, input.companyRegistrationId && `Matična št.: ${input.companyRegistrationId}`)}</span><span>1 / 2</span></div></section><section class="page"><div class="document-header"><div class="company">${company}</div><div class="small">${line(input.referenceNumber)}</div></div><div class="content"><h1>${escapeHtml(document.title)}</h1><pre>${escapeHtml(document.content)}</pre><div class="signature"><div class="signature-line">${signatureMarkup}${line(input.signer)}<br>${line(input.signatureTitle)}<div class="signature-date">${input.signatureMode !== "none" ? `Elektronsko podpisano ${formatDate(input.signatureDate, documentDate)}` : ""}</div></div><div class="signature-line">Prejemnik / podpis</div></div></div><div class="footer"><span>${line(input.footerText) || company}</span><span>${line(input.senderEmail, input.senderPhone)}</span><span>2 / 2</span></div></section><script>window.addEventListener("load",()=>window.setTimeout(()=>window.print(),350));</script></body></html>`;
+  </style></head><body><section class="page page-break"><div class="document-header"><div><div class="company">${company}</div><div class="small">${line(input.companyAddress, input.companyPostal)}</div></div><div class="small">POSLOVNI DOKUMENT</div></div><div class="rule"></div><div class="address-grid"><div><div class="address-label">Pošiljatelj</div><div class="address"><strong>${company}</strong><br>${line(input.companyAddress)}<br>${line(input.companyPostal)}<br>${line(input.senderEmail)}<br>${line(input.senderPhone)}</div></div><div><div class="address-label">Prejemnik</div><div class="address"><strong>${escapeHtml(document.title.replace(/^.*–\s*/, ""))}</strong><br>${line(input.recipientAddress)}<br>${line(input.recipientPostal)}<br>${line(input.recipientEmail)}</div></div></div><h1 class="cover-title">${escapeHtml(document.title)}</h1><div class="reference"><div><strong>Kraj</strong><br>${line(input.documentPlace) || "—"}</div><div><strong>Datum</strong><br>${documentDate}</div><div><strong>Referenca</strong><br>${line(input.referenceNumber) || "—"}</div></div><div class="footer"><span>${line(input.footerText) || company}</span><span>${line(input.companyTaxId && `Davčna št.: ${input.companyTaxId}`, input.companyRegistrationId && `Matična št.: ${input.companyRegistrationId}`)}</span><span>1 / 2</span></div></section><section class="page"><div class="document-header"><div class="company">${company}</div><div class="small">${line(input.referenceNumber)}</div></div><div class="content"><h1>${escapeHtml(document.title)}</h1><pre>${escapeHtml(document.content)}</pre><div class="signature"><div class="signature-line">${signatureMarkup}${line(input.signer)}<br>${line(input.signatureTitle)}<div class="signature-date">${input.signatureMode !== "none" ? `Elektronsko podpisano ${formatDate(input.signatureDate, documentDate)}` : ""}</div></div><div class="signature-line">Prejemnik / podpis</div></div></div><div class="footer"><span>${line(input.footerText) || company}</span><span>${line(input.senderEmail, input.senderPhone)}</span><span>2 / 2</span></div></section>${autoPrint ? '<script>window.addEventListener("load",()=>window.setTimeout(()=>window.print(),350));</script>' : ""}</body></html>`;
+  return printableHtml;
+};
+
+export const openPrintableOffer = (document: OfferDocument) => {
+  const printableHtml = createPrintableOfferHtml(document, true);
   const blob = new Blob([printableHtml], { type: "text/html;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const printWindow = window.open(url, "_blank", "noopener,noreferrer");
@@ -269,4 +274,40 @@ export const openPrintableOffer = (document: OfferDocument) => {
   printWindow.opener = null;
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   return true;
+};
+
+export const downloadOfferPdf = async (document: OfferDocument) => {
+  const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
+    import("jspdf"),
+    import("html2canvas"),
+  ]);
+  const frame = window.document.createElement("iframe");
+  frame.style.position = "fixed";
+  frame.style.left = "-10000px";
+  frame.style.top = "0";
+  frame.style.width = "900px";
+  frame.style.height = "1300px";
+  frame.setAttribute("aria-hidden", "true");
+  window.document.body.appendChild(frame);
+
+  try {
+    const frameDocument = frame.contentDocument;
+    if (!frameDocument) throw new Error("PDF preview could not be created.");
+    frameDocument.open();
+    frameDocument.write(createPrintableOfferHtml(document, false));
+    frameDocument.close();
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+
+    const pages = Array.from(frameDocument.querySelectorAll<HTMLElement>(".page"));
+    if (!pages.length) throw new Error("PDF pages are missing.");
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
+    for (let index = 0; index < pages.length; index += 1) {
+      const canvas = await html2canvas(pages[index], { scale: 1.7, backgroundColor: "#ffffff", useCORS: true, logging: false });
+      if (index > 0) pdf.addPage("a4", "portrait");
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.94), "JPEG", 0, 0, 210, 297, undefined, "FAST");
+    }
+    pdf.save(`${sanitizeFileName(document.title)}.pdf`);
+  } finally {
+    frame.remove();
+  }
 };
